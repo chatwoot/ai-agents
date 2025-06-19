@@ -216,12 +216,11 @@ module Agents
 
     # Restore conversation history to RubyLLM chat session
     # @param chat [RubyLLM::Chat] The chat session
-    def restore_conversation_history(_chat)
-      # RubyLLM automatically manages conversation history,
-      # but we need to restore our stored history for new chat sessions
+    def restore_conversation_history(chat)
+      # Restore our stored conversation history to the chat session
       @conversation_history.each do |turn|
-        # For Phase 1, we'll just track history ourselves
-        # In future phases, we might need to rebuild the chat state
+        chat.add_message(role: :user, content: turn[:user])
+        chat.add_message(role: :assistant, content: turn[:assistant])
       end
     end
 
