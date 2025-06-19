@@ -66,9 +66,16 @@ module Agents
     end
 
     # Update multiple values at once
-    # @param hash [Hash] Values to update
-    def update(hash)
-      hash.each { |key, value| self[key] = value }
+    # @param hash_or_context [Hash, Agents::Context] Values to update
+    def update(hash_or_context)
+      case hash_or_context
+      when Hash
+        hash_or_context.each { |key, value| self[key] = value }
+      when Agents::Context
+        hash_or_context.to_h.each { |key, value| self[key] = value }
+      else
+        raise ArgumentError, "Expected Hash or Agents::Context, got #{hash_or_context.class}"
+      end
     end
 
     # Check if a key exists

@@ -21,9 +21,12 @@ module Agents
     class ExecutionError < Agents::Error; end
     class ToolNotFoundError < ExecutionError; end
     class MaxTurnsExceededError < ExecutionError; end
+    class InputGuardrailTripwireTriggered < ExecutionError; end
+    class OutputGuardrailTripwireTriggered < ExecutionError; end
 
     class << self
-      attr_reader :agent_name, :agent_instructions, :agent_provider, :agent_model, :agent_tools
+      attr_reader :agent_name, :agent_instructions, :agent_provider, :agent_model, :agent_tools,
+                  :agent_input_guardrails, :agent_output_guardrails
 
       # Set or get the agent name
       # @param value [String, nil] The name to set
@@ -78,6 +81,32 @@ module Agents
         @handoff_targets = targets.flatten
       end
 
+      # Register input guardrails for this agent
+      # @param guardrails [Array<InputGuardrail>] Input guardrails to register
+      def input_guardrails(*guardrails)
+        @agent_input_guardrails ||= []
+        @agent_input_guardrails.concat(guardrails.flatten)
+      end
+
+      # Register output guardrails for this agent
+      # @param guardrails [Array<OutputGuardrail>] Output guardrails to register
+      def output_guardrails(*guardrails)
+        @agent_output_guardrails ||= []
+        @agent_output_guardrails.concat(guardrails.flatten)
+      end
+
+      # Get all input guardrails
+      # @return [Array<InputGuardrail>] Array of input guardrails
+      def get_input_guardrails
+        @agent_input_guardrails || []
+      end
+
+      # Get all output guardrails
+      # @return [Array<OutputGuardrail>] Array of output guardrails
+      def get_output_guardrails
+        @agent_output_guardrails || []
+      end
+
       # Create and call agent in one step (class-level callable interface)
       # @param input [String] The input message
       # @param context [Hash] Additional context
@@ -107,12 +136,8 @@ module Agents
     # @param context [Hash] Additional context
     # @return [Agents::AgentResponse] The agent's response with optional handoff
     def call(input, context: {}, **options)
-      # Handle context merging based on type
-      execution_context = if @context.is_a?(Agents::Context)
-                            @context.tap { |ctx| ctx.update(context) if context.any? }
-                          else
-                            @context.merge(context)
-                          end
+      # Merge contexts appropriately
+      execution_context = merge_contexts(@context, context)
 
       # Resolve instructions (may be dynamic)
       resolved_instructions = resolve_instructions(execution_context)
@@ -139,8 +164,26 @@ module Agents
       # Clear any previous handoff signal
       @context[:pending_handoff] = nil if @context.is_a?(Agents::Context)
 
+      # Run input guardrails
+      input_guardrail_violation = check_input_guardrails(execution_context, input)
+      if input_guardrail_violation
+        return Agents::AgentResponse.new(
+          content: input_guardrail_violation,
+          handoff_result: nil
+        )
+      end
+
       # Get response
       response = chat.ask(input)
+
+      # Run output guardrails
+      output_guardrail_violation = check_output_guardrails(execution_context, response.content)
+      if output_guardrail_violation
+        return Agents::AgentResponse.new(
+          content: output_guardrail_violation,
+          handoff_result: nil
+        )
+      end
 
       # Check for handoffs from context (tools signal handoffs here)
       handoff_result = detect_handoff_from_context
@@ -182,6 +225,32 @@ module Agents
     end
 
     private
+
+    # Merge contexts based on their types
+    # @param base_context [Hash, Agents::Context] The base context
+    # @param new_context [Hash, Agents::Context] The context to merge in
+    # @return [Hash, Agents::Context] The merged context
+    def merge_contexts(base_context, new_context)
+      case [base_context.class, new_context.class]
+      when [Hash, Hash]
+        base_context.merge(new_context)
+      when [Agents::Context, Hash]
+        base_context.tap { |ctx| ctx.update(new_context) if new_context.any? }
+      when [Agents::Context, Agents::Context]
+        base_context.tap { |ctx| ctx.update(new_context) }
+      when [Hash, Agents::Context]
+        new_context.tap { |ctx| ctx.update(base_context) }
+      else
+        # Fallback: if base_context is a Context subclass, use it; otherwise merge as hashes
+        if base_context.is_a?(Agents::Context)
+          base_context.tap do |ctx|
+            ctx.update(new_context) if new_context.respond_to?(:update) || new_context.is_a?(Hash)
+          end
+        else
+          base_context.merge(new_context.respond_to?(:to_h) ? new_context.to_h : new_context)
+        end
+      end
+    end
 
     # Detect handoffs from context (tools signal handoffs here)
     # @return [HandoffResult, nil] Handoff result if detected
@@ -255,6 +324,46 @@ module Agents
         )
         handoff_tool.set_context(@context) if @context.is_a?(Agents::Context)
         handoff_tool
+      end
+    end
+
+    # Check input guardrails and return user-friendly message if violated
+    # @param context [Hash] Execution context
+    # @param input [String] User input
+    # @return [String, nil] Error message if guardrail violated, nil otherwise
+    def check_input_guardrails(context, input)
+      self.class.get_input_guardrails.each do |guardrail|
+        result = guardrail.call(context, self, input)
+
+        return generate_guardrail_response(guardrail, result.output.output_info, :input) if result.triggered?
+      end
+      nil
+    end
+
+    # Check output guardrails and return user-friendly message if violated
+    # @param context [Hash] Execution context
+    # @param agent_output [String] Agent's response
+    # @return [String, nil] Error message if guardrail violated, nil otherwise
+    def check_output_guardrails(context, agent_output)
+      self.class.get_output_guardrails.each do |guardrail|
+        result = guardrail.call(context, self, agent_output)
+
+        return generate_guardrail_response(guardrail, result.output.output_info, :output) if result.triggered?
+      end
+      nil
+    end
+
+    # Generate a user-friendly response when a guardrail is violated
+    # @param guardrail [InputGuardrail, OutputGuardrail] The violated guardrail
+    # @param output_info [String] Additional info from the guardrail
+    # @param type [Symbol] :input or :output
+    # @return [String] User-friendly error message
+    def generate_guardrail_response(_guardrail, output_info, type)
+      case type
+      when :input
+        "I'm sorry, but I can't process that request. #{output_info}"
+      when :output
+        "I apologize, but I can't provide that response. Please try asking in a different way."
       end
     end
 
