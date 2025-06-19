@@ -2,14 +2,17 @@
 
 require "ruby_llm"
 require_relative "agents/version"
+
+module Agents
+  class Error < StandardError; end
+end
+
 require_relative "agents/result"
 require_relative "agents/tool"
 require_relative "agents/agent"
 require_relative "agents/runner"
 
 module Agents
-  class Error < StandardError; end
-
   class << self
     # Configure both Agents and RubyLLM in one block
     # @yield [Agents::Configuration] Configuration instance
