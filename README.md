@@ -1,4 +1,12 @@
-# Ruby Agents
+<div align="center">
+<br>
+<br>
+<p>
+  <img src="./.github/ruby-agent.png" width="200px"/>
+  <h1>Ruby Agents</h1>
+</p>
+<br>
+<br>
 
 A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspired by OpenAI's Agents SDK but built specifically for Ruby developers.
 
