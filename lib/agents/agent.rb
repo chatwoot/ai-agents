@@ -70,6 +70,14 @@ module Agents
         @agent_tools || []
       end
 
+      # Define possible handoff targets for this agent
+      # @param targets [Array<Class>] Agent classes this agent can hand off to
+      def handoffs(*targets)
+        return @handoff_targets ||= [] if targets.empty?
+
+        @handoff_targets = targets.flatten
+      end
+
       # Create and call agent in one step (class-level callable interface)
       # @param input [String] The input message
       # @param context [Hash] Additional context
@@ -97,7 +105,7 @@ module Agents
     # Main callable interface for the agent
     # @param input [String] The user input
     # @param context [Hash] Additional context
-    # @return [String] The agent's response
+    # @return [Agents::AgentResponse] The agent's response with optional handoff
     def call(input, context: {}, **options)
       # Handle context merging based on type
       execution_context = if @context.is_a?(Agents::Context)
@@ -112,6 +120,10 @@ module Agents
       # Get tools for this agent
       agent_tools = instantiate_tools
 
+      # Add handoff tools (converted at runtime like OpenAI SDK)
+      handoff_tools = create_handoff_tools
+      all_tools = agent_tools + handoff_tools
+
       # Create RubyLLM chat session
       chat = create_chat_session(execution_context, **options)
 
@@ -119,18 +131,28 @@ module Agents
       chat.with_instructions(resolved_instructions) if resolved_instructions && !resolved_instructions.empty?
 
       # Add tools to chat session
-      agent_tools.each { |tool| chat.with_tool(tool) }
+      all_tools.each { |tool| chat.with_tool(tool) }
 
       # Restore conversation history to chat session
       restore_conversation_history(chat)
 
+      # Clear any previous handoff signal
+      @context[:pending_handoff] = nil if @context.is_a?(Agents::Context)
+
       # Get response
       response = chat.ask(input)
+
+      # Check for handoffs from context (tools signal handoffs here)
+      handoff_result = detect_handoff_from_context
 
       # Store conversation history
       store_conversation(input, response.content)
 
-      response.content
+      # Return AgentResponse with content and optional handoff
+      Agents::AgentResponse.new(
+        content: response.content,
+        handoff_result: handoff_result
+      )
     rescue StandardError => e
       handle_error(e, input, execution_context)
     end
@@ -162,6 +184,20 @@ module Agents
     end
 
     private
+
+    # Detect handoffs from context (tools signal handoffs here)
+    # @return [HandoffResult, nil] Handoff result if detected
+    def detect_handoff_from_context
+      return nil unless @context.is_a?(Agents::Context)
+
+      pending_handoff = @context[:pending_handoff]
+      return nil unless pending_handoff
+
+      Agents::HandoffResult.new(
+        target_agent_class: pending_handoff[:target_agent_class],
+        reason: pending_handoff[:reason]
+      )
+    end
 
     # Resolve instructions (handle Proc instructions)
     # @param context [Hash] Execution context
@@ -201,12 +237,28 @@ module Agents
     # Instantiate all tools for this agent with context
     # @return [Array<Agents::Tool>] Array of tool instances
     def instantiate_tools
-      tools = self.class.tools.map(&:new)
+      tools = self.class.tools.map do |tool|
+        # Handle both classes and instances
+        tool.is_a?(Class) ? tool.new : tool
+      end
 
       # Set context on all tools if we have one
       tools.each { |tool| tool.set_context(@context) } if @context.is_a?(Agents::Context)
 
       tools
+    end
+
+    # Create handoff tools at runtime (following OpenAI SDK pattern)
+    # @return [Array<Agents::HandoffTool>] Array of handoff tool instances
+    def create_handoff_tools
+      self.class.handoffs.map do |target_agent_class|
+        handoff_tool = Agents::HandoffTool.new(
+          target_agent_class,
+          description: "Transfer to #{target_agent_class.name} to handle the request"
+        )
+        handoff_tool.set_context(@context) if @context.is_a?(Agents::Context)
+        handoff_tool
+      end
     end
 
     # Store conversation turn in history

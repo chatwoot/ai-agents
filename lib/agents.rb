@@ -10,10 +10,17 @@ end
 require_relative "agents/context"
 require_relative "agents/result"
 require_relative "agents/tool"
+require_relative "agents/handoff"
 require_relative "agents/agent"
 require_relative "agents/runner"
 
 module Agents
+  # Recommended prompt prefix for agents that use handoffs
+  RECOMMENDED_HANDOFF_PROMPT_PREFIX = <<~PREFIX
+    # System context
+    You are part of a multi-agent system called the Agents SDK, designed to make agent coordination and execution easy. Agents uses two primary abstraction: **Agents** and **Handoffs**. An agent encompasses instructions and tools and can hand off a conversation to another agent when appropriate. Handoffs are achieved by calling a handoff function, generally named `transfer_to_<agent_name>`. Transfers between agents are handled seamlessly in the background; do not mention or draw attention to these transfers in your conversation with the user.
+  PREFIX
+
   class << self
     # Configure both Agents and RubyLLM in one block
     # @yield [Agents::Configuration] Configuration instance
@@ -29,6 +36,11 @@ module Agents
     # @return [Agents::Configuration] The configuration instance
     def configuration
       @configuration ||= Configuration.new
+    end
+
+    # Helper method to add handoff instructions to agent prompts
+    def prompt_with_handoff_instructions(prompt)
+      "#{RECOMMENDED_HANDOFF_PROMPT_PREFIX}\n\n#{prompt}"
     end
 
     private
