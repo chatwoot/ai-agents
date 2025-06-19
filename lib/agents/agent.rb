@@ -88,9 +88,9 @@ module Agents
     # Instance methods
 
     # Initialize a new agent instance
-    # @param context [Hash] Initial context for the agent
+    # @param context [Hash, Agents::Context] Initial context for the agent
     def initialize(context: {})
-      @context = context
+      @context = context.is_a?(Agents::Context) ? context : Agents::Context.new(context)
       @conversation_history = []
     end
 
@@ -99,8 +99,12 @@ module Agents
     # @param context [Hash] Additional context
     # @return [String] The agent's response
     def call(input, context: {}, **options)
-      # Merge context
-      execution_context = @context.merge(context)
+      # Handle context merging based on type
+      execution_context = if @context.is_a?(Agents::Context)
+                            @context.tap { |ctx| ctx.update(context) if context.any? }
+                          else
+                            @context.merge(context)
+                          end
 
       # Resolve instructions (may be dynamic)
       resolved_instructions = resolve_instructions(execution_context)
@@ -194,10 +198,15 @@ module Agents
       RubyLLM.chat(model: model)
     end
 
-    # Instantiate all tools for this agent
+    # Instantiate all tools for this agent with context
     # @return [Array<Agents::Tool>] Array of tool instances
     def instantiate_tools
-      self.class.tools.map(&:new)
+      tools = self.class.tools.map(&:new)
+
+      # Set context on all tools if we have one
+      tools.each { |tool| tool.set_context(@context) } if @context.is_a?(Agents::Context)
+
+      tools
     end
 
     # Store conversation turn in history

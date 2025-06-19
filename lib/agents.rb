@@ -7,6 +7,7 @@ module Agents
   class Error < StandardError; end
 end
 
+require_relative "agents/context"
 require_relative "agents/result"
 require_relative "agents/tool"
 require_relative "agents/agent"
