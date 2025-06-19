@@ -105,20 +105,23 @@ module Agents
       # Resolve instructions (may be dynamic)
       resolved_instructions = resolve_instructions(execution_context)
 
-      # Build messages for the conversation
-      messages = build_messages(resolved_instructions, input)
-
       # Get tools for this agent
       agent_tools = instantiate_tools
 
-      # Call RubyLLM with tools
+      # Create RubyLLM chat session
       chat = create_chat_session(execution_context, **options)
+
+      # Set system instructions if we have them
+      chat.with_instructions(resolved_instructions) if resolved_instructions && !resolved_instructions.empty?
 
       # Add tools to chat session
       agent_tools.each { |tool| chat.with_tool(tool) }
 
+      # Restore conversation history to chat session
+      restore_conversation_history(chat)
+
       # Get response
-      response = chat.ask(messages)
+      response = chat.ask(input)
 
       # Store conversation history
       store_conversation(input, response.content)
@@ -171,26 +174,15 @@ module Agents
       end
     end
 
-    # Build messages array for RubyLLM
-    # @param instructions [String] System instructions
-    # @param input [String] User input
-    # @return [Array<Hash>] Messages array
-    def build_messages(instructions, input)
-      messages = []
-
-      # Add system message if we have instructions
-      messages << { role: "system", content: instructions } if instructions && !instructions.empty?
-
-      # Add conversation history
+    # Restore conversation history to RubyLLM chat session
+    # @param chat [RubyLLM::Chat] The chat session
+    def restore_conversation_history(_chat)
+      # RubyLLM automatically manages conversation history,
+      # but we need to restore our stored history for new chat sessions
       @conversation_history.each do |turn|
-        messages << { role: "user", content: turn[:user] }
-        messages << { role: "assistant", content: turn[:assistant] }
+        # For Phase 1, we'll just track history ourselves
+        # In future phases, we might need to rebuild the chat state
       end
-
-      # Add current user input
-      messages << { role: "user", content: input }
-
-      messages
     end
 
     # Create RubyLLM chat session
@@ -198,21 +190,8 @@ module Agents
     # @param options [Hash] Additional options
     # @return [RubyLLM::Chat] Chat session
     def create_chat_session(_context, **options)
-      chat_options = {
-        model: options[:model] || self.class.model
-      }
-
-      # Add provider-specific options
-      case self.class.provider
-      when :openai
-        chat_options[:provider] = :openai
-      when :anthropic
-        chat_options[:provider] = :anthropic
-      when :gemini
-        chat_options[:provider] = :gemini
-      end
-
-      RubyLLM.chat(**chat_options)
+      model = options[:model] || self.class.model
+      RubyLLM.chat(model: model)
     end
 
     # Instantiate all tools for this agent
