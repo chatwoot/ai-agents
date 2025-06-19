@@ -133,7 +133,7 @@ module Agents
       # Add tools to chat session
       all_tools.each { |tool| chat.with_tool(tool) }
 
-      # Restore conversation history to chat session
+      # Restore conversation history to chat session (Runner manages this)
       restore_conversation_history(chat)
 
       # Clear any previous handoff signal
@@ -145,10 +145,8 @@ module Agents
       # Check for handoffs from context (tools signal handoffs here)
       handoff_result = detect_handoff_from_context
 
-      # Store conversation history
-      store_conversation(input, response.content)
-
       # Return AgentResponse with content and optional handoff
+      # Note: Runner handles conversation history, not individual agents
       Agents::AgentResponse.new(
         content: response.content,
         handoff_result: handoff_result
@@ -258,17 +256,6 @@ module Agents
         handoff_tool.set_context(@context) if @context.is_a?(Agents::Context)
         handoff_tool
       end
-    end
-
-    # Store conversation turn in history
-    # @param user_input [String] User input
-    # @param assistant_response [String] Assistant response
-    def store_conversation(user_input, assistant_response)
-      @conversation_history << {
-        user: user_input,
-        assistant: assistant_response,
-        timestamp: Time.now
-      }
     end
 
     # Handle errors during execution
