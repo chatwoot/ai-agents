@@ -22,7 +22,7 @@ require_relative "agents"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o"
-  config.debug = true # Turn off debug for cleaner interaction
+  config.debug = false # Turn off debug for cleaner interaction
 end
 
 # Check if we're properly configured
