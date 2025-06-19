@@ -7,6 +7,7 @@
 </p>
 <br>
 <br>
+</div>
 
 A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspired by OpenAI's Agents SDK but built specifically for Ruby developers.
 
