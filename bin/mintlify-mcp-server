@@ -1,0 +1,273 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+
+# Simple Mintlify MCP Server for demonstration (stdio mode)
+class MintlifyMCPServer
+  # Sample documentation data
+  SAMPLE_DOCS = {
+    "getting-started" => {
+      title: "Getting Started",
+      content: "Welcome to our documentation! This guide will help you get started with our API and platform features.",
+      url: "/docs/getting-started",
+      tags: ["beginner", "setup", "intro"]
+    },
+    "api/authentication" => {
+      title: "API Authentication",
+      content: "Learn how to authenticate your API requests using API keys, OAuth, and other security methods.",
+      url: "/docs/api/authentication",
+      tags: ["api", "security", "auth"]
+    },
+    "api/webhooks" => {
+      title: "Webhooks Guide",
+      content: "Set up webhooks to receive real-time notifications about events in your application.",
+      url: "/docs/api/webhooks",
+      tags: ["api", "webhooks", "events", "real-time"]
+    },
+    "integrations/slack" => {
+      title: "Slack Integration",
+      content: "Integrate with Slack to send notifications and interact with your team directly from the platform.",
+      url: "/docs/integrations/slack",
+      tags: ["integration", "slack", "notifications"]
+    },
+    "features/dashboard" => {
+      title: "Dashboard Overview",
+      content: "Navigate and customize your dashboard to monitor key metrics and manage your account effectively.",
+      url: "/docs/features/dashboard",
+      tags: ["dashboard", "ui", "metrics"]
+    }
+  }
+
+  def initialize
+    @request_id = 0
+    STDERR.puts "Mintlify MCP Server started (stdio mode)" if ENV['DEBUG']
+  end
+
+  def run
+    STDOUT.sync = true
+    STDERR.sync = true
+
+    while line = STDIN.gets
+      begin
+        request = JSON.parse(line.strip)
+        response = handle_request(request)
+        puts response.to_json
+      rescue JSON::ParserError => e
+        error_response("Invalid JSON: #{e.message}")
+      rescue => e
+        STDERR.puts "Error: #{e.message}" if ENV['DEBUG']
+        error_response("Server error: #{e.message}")
+      end
+    end
+  end
+
+  private
+
+  def handle_request(request)
+    case request["method"]
+    when "initialize"
+      handle_initialize(request)
+    when "tools/list"
+      handle_tools_list(request)
+    when "tools/call"
+      handle_tool_call(request)
+    when "ping"
+      handle_ping(request)
+    else
+      error_response("Unknown method: #{request['method']}", request["id"])
+    end
+  end
+
+  def handle_initialize(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        protocolVersion: "2024-11-05",
+        capabilities: {
+          tools: {}
+        },
+        serverInfo: {
+          name: "mintlify-mcp-demo-server",
+          version: "1.0.0"
+        }
+      }
+    }
+  end
+
+  def handle_tools_list(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        tools: [
+          {
+            name: "search_docs",
+            description: "Search through documentation content",
+            inputSchema: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Search query" },
+                limit: { type: "integer", description: "Max results", default: 10 }
+              },
+              required: ["query"]
+            }
+          },
+          {
+            name: "get_doc",
+            description: "Get specific documentation page",
+            inputSchema: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Document path" }
+              },
+              required: ["path"]
+            }
+          },
+          {
+            name: "get_navigation",
+            description: "Get documentation navigation structure",
+            inputSchema: {
+              type: "object",
+              properties: {}
+            }
+          }
+        ]
+      }
+    }
+  end
+
+  def handle_tool_call(request)
+    params = request["params"] || {}
+    tool_name = params["name"]
+    arguments = params["arguments"] || {}
+
+    result = case tool_name
+             when "search_docs"
+               search_documentation(arguments["query"], arguments["limit"] || 10)
+             when "get_doc"
+               get_document(arguments["path"])
+             when "get_navigation"
+               get_navigation_structure
+             else
+               { error: "Unknown tool: #{tool_name}" }
+             end
+
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: result
+    }
+  end
+
+  def handle_ping(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        status: "pong",
+        timestamp: Time.now.iso8601
+      }
+    }
+  end
+
+  def search_documentation(query, limit)
+    query_terms = query.downcase.split(/\s+/)
+    results = []
+
+    SAMPLE_DOCS.each do |path, doc|
+      score = 0
+      
+      query_terms.each do |term|
+        score += 3 if doc[:title].downcase.include?(term)
+        score += 2 if doc[:content].downcase.include?(term)
+        score += 1 if doc[:tags].any? { |tag| tag.downcase.include?(term) }
+      end
+
+      if score > 0
+        results << {
+          path: path,
+          title: doc[:title],
+          content: doc[:content],
+          url: doc[:url],
+          score: score,
+          excerpt: doc[:content][0..150] + "..."
+        }
+      end
+    end
+
+    sorted_results = results.sort_by { |r| -r[:score] }.first(limit)
+
+    {
+      query: query,
+      total_results: results.length,
+      results: sorted_results
+    }
+  end
+
+  def get_document(path)
+    doc = SAMPLE_DOCS[path]
+    
+    if doc
+      {
+        path: path,
+        title: doc[:title],
+        content: doc[:content],
+        url: doc[:url],
+        tags: doc[:tags],
+        found: true
+      }
+    else
+      {
+        error: "Document not found: #{path}",
+        available_paths: SAMPLE_DOCS.keys
+      }
+    end
+  end
+
+  def get_navigation_structure
+    {
+      navigation: [
+        { title: "Getting Started", path: "getting-started" },
+        {
+          title: "API Reference",
+          children: [
+            { title: "Authentication", path: "api/authentication" },
+            { title: "Webhooks", path: "api/webhooks" }
+          ]
+        },
+        {
+          title: "Integrations",
+          children: [
+            { title: "Slack", path: "integrations/slack" }
+          ]
+        },
+        {
+          title: "Platform Features",
+          children: [
+            { title: "Dashboard", path: "features/dashboard" }
+          ]
+        }
+      ],
+      total_pages: SAMPLE_DOCS.length
+    }
+  end
+
+  def error_response(message, id = nil)
+    {
+      jsonrpc: "2.0",
+      id: id,
+      error: {
+        code: -32000,
+        message: message
+      }
+    }
+  end
+end
+
+# Start the stdio server
+if __FILE__ == $0
+  server = MintlifyMCPServer.new
+  server.run
+end

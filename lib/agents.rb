@@ -1,109 +1,84 @@
 # frozen_string_literal: true
 
-require "ruby_llm"
 require_relative "agents/version"
 
+# Ruby Agents SDK - Production-ready multi-agent AI workflows
 module Agents
+  # Base error class for all Agents-related errors
   class Error < StandardError; end
+  
+  # Agent execution errors
+  class ExecutionError < Error; end
+  class ProviderError < Error; end
+  class ConfigurationError < Error; end
+  class ToolError < Error; end
+  class HandoffError < Error; end
 end
 
+# Core components
+require_relative "agents/configuration"
+require_relative "agents/providers/base"
+require_relative "agents/providers/openai"
+require_relative "agents/providers/anthropic"
+require_relative "agents/providers/registry"
 require_relative "agents/context"
-require_relative "agents/result"
-require_relative "agents/tool"
+require_relative "agents/tool_base"
 require_relative "agents/handoff"
 require_relative "agents/agent"
 require_relative "agents/runner"
 
+# Optional components
+require_relative "agents/tracing/tracer"
+require_relative "agents/guardrails/manager"
+
 module Agents
   # Recommended prompt prefix for agents that use handoffs
-  RECOMMENDED_HANDOFF_PROMPT_PREFIX = <<~PREFIX.freeze
-    # System context
-    You are part of a multi-agent system called the Agents SDK, designed to make agent coordination and execution easy. Agents uses two primary abstraction: **Agents** and **Handoffs**. An agent encompasses instructions and tools and can hand off a conversation to another agent when appropriate. Handoffs are achieved by calling a handoff function, generally named `transfer_to_<agent_name>`.#{" "}
-
-    CRITICAL: Transfers between agents are handled seamlessly in the background and are completely invisible to users. NEVER mention transfers, handoffs, or connecting to other agents in your conversation with the user. Simply call the transfer function when needed without any explanation to the user.
+  HANDOFF_PROMPT_PREFIX = <<~PREFIX.freeze
+    You are part of a multi-agent system. Agents can transfer conversations to other specialized agents when appropriate. 
+    Transfer functions are named `transfer_to_<agent_name>`. 
+    IMPORTANT: Never mention transfers or handoffs to users - simply call the transfer function when needed.
   PREFIX
 
   class << self
-    # Configure both Agents and RubyLLM in one block
-    # @yield [Agents::Configuration] Configuration instance
-    # @return [Agents::Configuration] The configuration
+    # Configure the Agents SDK
+    # @yield [Configuration] Configuration instance
+    # @return [Configuration] The configuration
     def configure
       yield(configuration) if block_given?
-      # Apply RubyLLM configuration after our configuration is set
-      configure_ruby_llm!
       configuration
     end
 
     # Get the current configuration
-    # @return [Agents::Configuration] The configuration instance
+    # @return [Configuration] The configuration instance
     def configuration
       @configuration ||= Configuration.new
     end
 
-    # Helper method to add handoff instructions to agent prompts
-    def prompt_with_handoff_instructions(prompt)
-      "#{RECOMMENDED_HANDOFF_PROMPT_PREFIX}\n\n#{prompt}"
+    # Configure tracing (optional)
+    # @param config [Hash] Tracing configuration
+    def configure_tracing(config = {})
+      @tracer = Tracing::Tracer.new(config)
     end
 
-    private
-
-    # Configure RubyLLM with our settings
-    def configure_ruby_llm!
-      RubyLLM.configure do |config|
-        # Pass through API keys
-        config.openai_api_key = configuration.openai_api_key if configuration.openai_api_key
-        config.anthropic_api_key = configuration.anthropic_api_key if configuration.anthropic_api_key
-        config.gemini_api_key = configuration.gemini_api_key if configuration.gemini_api_key
-
-        # Pass through other settings
-        config.default_model = configuration.default_model
-        config.request_timeout = configuration.request_timeout if configuration.request_timeout
-        config.log_level = configuration.debug ? :debug : :info
-      end
-    end
-  end
-
-  # Configuration class that mirrors RubyLLM's configuration options
-  # plus Agents-specific settings
-  class Configuration
-    # RubyLLM configuration options
-    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key
-    attr_accessor :request_timeout, :retry_attempts, :retry_intervals, :max_turns, :default_timeout
-
-    # Agents-specific configuration
-    attr_accessor :default_provider, :default_model, :debug
-
-    # Initialize with sensible defaults
-    def initialize
-      # Agents defaults
-      @default_provider = :openai
-      @default_model = "gpt-4.1-mini"
-      @debug = false
-      @max_turns = 10
-      @default_timeout = 300
-
-      # RubyLLM defaults
-      @openai_api_key = ENV.fetch("OPENAI_API_KEY", nil)
-      @anthropic_api_key = ENV.fetch("ANTHROPIC_API_KEY", nil)
-      @gemini_api_key = ENV.fetch("GEMINI_API_KEY", nil)
-      @request_timeout = 120
-      @retry_attempts = 3
+    # Get global tracer instance
+    # @return [Tracing::Tracer] Global tracer
+    def tracer
+      @tracer ||= Tracing::Tracer.new
     end
 
-    # Check if at least one provider is configured
-    # @return [Boolean] True if any provider has an API key
-    def configured?
-      @openai_api_key || @anthropic_api_key || @gemini_api_key
+    # Start an agent trace
+    def start_agent_trace(agent_class, input, context = {})
+      tracer.start_agent_trace(agent_class, input, context)
     end
 
-    # Get available providers based on configured API keys
-    # @return [Array<Symbol>] Available providers
-    def available_providers
-      providers = []
-      providers << :openai if @openai_api_key
-      providers << :anthropic if @anthropic_api_key
-      providers << :gemini if @gemini_api_key
-      providers
+    # Start a tool trace
+    def start_tool_trace(tool, method_name, params = {})
+      tracer.start_tool_trace(tool, method_name, params)
+    end
+
+    # Start a handoff trace
+    def start_handoff_trace(source_agent, target_agent, reason = nil, context = {})
+      tracer.start_handoff_trace(source_agent, target_agent, reason, context)
     end
   end
 end

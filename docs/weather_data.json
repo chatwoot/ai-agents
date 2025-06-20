@@ -1,0 +1,44 @@
+{
+  "forecast": {
+    "today": {
+      "date": "2024-12-19",
+      "temperature": {
+        "high": 72,
+        "low": 55,
+        "unit": "fahrenheit"
+      },
+      "conditions": "Partly cloudy",
+      "precipitation": {
+        "chance": 20,
+        "type": "rain"
+      },
+      "wind": {
+        "speed": 8,
+        "direction": "NW",
+        "unit": "mph"
+      },
+      "humidity": 65
+    },
+    "tomorrow": {
+      "date": "2024-12-20",
+      "temperature": {
+        "high": 68,
+        "low": 52,
+        "unit": "fahrenheit"
+      },
+      "conditions": "Sunny",
+      "precipitation": {
+        "chance": 5,
+        "type": null
+      },
+      "wind": {
+        "speed": 6,
+        "direction": "W",
+        "unit": "mph"
+      },
+      "humidity": 58
+    }
+  },
+  "location": "San Francisco, CA",
+  "last_updated": "2024-12-19T08:00:00Z"
+}

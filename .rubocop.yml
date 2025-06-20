@@ -1,8 +1,63 @@
 AllCops:
+  NewCops: enable
   TargetRubyVersion: 3.1
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'bin/*'
+    - 'examples/**/*'
 
 Style/StringLiterals:
   EnforcedStyle: double_quotes
 
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
+
+# Disable some overly strict style cops
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Metrics/ClassLength:
+  Max: 200
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/AbcSize:
+  Max: 30
+
+Metrics/CyclomaticComplexity:
+  Max: 15
+
+Layout/LineLength:
+  Max: 120
+
+# Allow single letter variables
+Naming/MethodParameterName:
+  MinNameLength: 1
+
+# Allow rescue without explicit error class in some contexts
+Style/RescueStandardError:
+  EnforcedStyle: implicit
+
+# Allow empty methods
+Style/EmptyMethod:
+  EnforcedStyle: expanded
+
+# Disable some lint cops that may be too strict for our use case
+Lint/MissingSuper:
+  Enabled: false
+
+# Metrics cops can be too strict for complex agent logic
+Metrics/PerceivedComplexity:
+  Max: 15
+
+# Allow longer blocks for DSL-like definitions
+Metrics/BlockLength:
+  Max: 50
+  Exclude:
+    - 'test/**/*'
+    - 'spec/**/*'

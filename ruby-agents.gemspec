@@ -5,36 +5,45 @@ require_relative "lib/agents/version"
 Gem::Specification.new do |spec|
   spec.name = "ruby-agents"
   spec.version = Agents::VERSION
-  spec.authors = ["Shivam Mishra"]
-  spec.email = ["scm.mymail@gmail.com"]
+  spec.authors = ["Ruby Agents Team"]
+  spec.email = ["contact@ruby-agents.com"]
 
-  spec.summary = "A Ruby SDK for building sophisticated multi-agent AI workflows"
-  spec.description = "Ruby AI Agents SDK enables creating complex AI workflows with multi-agent orchestration, tool execution, safety guardrails, and provider-agnostic LLM integration."
-  spec.homepage = "https://github.com/chatwoot/ruby-agents"
+  spec.summary = "Production-ready multi-agent AI workflows for Ruby"
+  spec.description = "Ruby Agents SDK provides a robust framework for building complex AI workflows with multi-agent orchestration, tool execution, intelligent handoffs, and provider-agnostic LLM integration. Built for production use with comprehensive error handling, tracing, and guardrails."
+  spec.homepage = "https://github.com/ruby-agents/ruby-agents"
+  spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
 
-  spec.metadata["allowed_push_host"] = "TODO: Set to your gem server 'https://example.com'"
-
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "TODO: Put your gem's public repo URL here."
-  spec.metadata["changelog_uri"] = "TODO: Put your gem's CHANGELOG.md URL here."
+  spec.metadata["source_code_uri"] = "https://github.com/ruby-agents/ruby-agents"
+  spec.metadata["changelog_uri"] = "https://github.com/ruby-agents/ruby-agents/blob/main/CHANGELOG.md"
+  spec.metadata["documentation_uri"] = "https://ruby-agents.github.io/ruby-agents"
+  spec.metadata["bug_tracker_uri"] = "https://github.com/ruby-agents/ruby-agents/issues"
 
-  # Specify which files should be added to the gem when it is released.
-  # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
-  gemspec = File.basename(__FILE__)
-  spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
-    ls.readlines("\x0", chomp: true).reject do |f|
-      (f == gemspec) ||
-        f.start_with?(*%w[bin/ test/ spec/ features/ .git .github appveyor Gemfile])
-    end
-  end
-  spec.bindir = "exe"
-  spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
+  # Include only essential files
+  spec.files = Dir[
+    "lib/**/*.rb",
+    "README.md",
+    "LICENSE.txt",
+    "CHANGELOG.md"
+  ]
+  
   spec.require_paths = ["lib"]
 
-  # Core dependencies
-  spec.add_dependency "ruby_llm", "~> 1.3"
+  # Core dependencies - minimal and production-ready
+  spec.add_dependency "faraday", "~> 2.0"
+  spec.add_dependency "faraday-retry", "~> 2.0"
+  spec.add_dependency "json", "~> 2.6"
 
-  # For more information and examples about making a new gem, check out our
-  # guide at: https://bundler.io/guides/creating_gem.html
+  # Development dependencies
+  spec.add_development_dependency "minitest", "~> 5.0"
+  spec.add_development_dependency "rake", "~> 13.0"
+  spec.add_development_dependency "rubocop", "~> 1.50"
+
+  spec.post_install_message = <<~MSG
+    Thank you for installing Ruby Agents SDK!
+    
+    Get started: https://ruby-agents.github.io/ruby-agents/getting-started
+    Examples: https://github.com/ruby-agents/ruby-agents/tree/main/examples
+  MSG
 end

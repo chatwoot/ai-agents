@@ -1,63 +1,42 @@
 # frozen_string_literal: true
 
 module Agents
-  # Runner orchestrates multi-agent conversations with automatic handoffs
-  # This is the main entry point for SDK users - they only need to call runner.process(message)
-  # and handoffs happen transparently while maintaining conversation history.
+  # Orchestrates multi-agent conversations with automatic handoffs
   class Runner
-    attr_reader :current_agent, :context, :conversation_history
+    attr_reader :current_agent, :context
 
     # Initialize a new runner
-    # @param initial_agent [Class] The agent class to start with (e.g., TriageAgent)
-    # @param context [Agents::Context] Shared context for the conversation
     def initialize(initial_agent:, context:)
       @initial_agent_class = initial_agent
       @context = context
-      @conversation_history = []
       @current_agent = nil
     end
 
     # Process a user message through the agent system
-    # Automatically handles handoffs and maintains conversation history
-    # @param user_message [String] The user's input
-    # @return [String] The final agent response after all handoffs
     def process(user_message)
-      # Add user message to conversation history
-      @conversation_history << { role: "user", content: user_message, timestamp: Time.now }
-
-      # Start with initial agent if this is the first message, otherwise use current agent
+      # Start with initial agent if this is the first message
       @current_agent ||= @initial_agent_class.new(context: @context)
 
       # Process through agent loop until no more handoffs
-      final_response = nil
-      max_handoffs = 10 # Prevent infinite loops
+      max_handoffs = 5 # Prevent infinite loops
       handoff_count = 0
 
       loop do
         # Clear any pending handoffs from previous iterations
         @context[:pending_handoff] = nil
 
-        # Call current agent with conversation history
-        agent_response = call_agent_with_history(@current_agent, user_message)
-
-        # Add agent response to conversation history
-        @conversation_history << {
-          role: "assistant",
-          content: agent_response.content,
-          agent: @current_agent.class.name,
-          timestamp: Time.now
-        }
+        # Call current agent
+        agent_response = @current_agent.call(user_message, context: @context)
 
         # Check for handoffs
         if agent_response.handoff?
           handoff_count += 1
-          raise "Maximum handoffs (#{max_handoffs}) exceeded. Possible infinite loop." if handoff_count > max_handoffs
+          if handoff_count > max_handoffs
+            raise ExecutionError, "Maximum handoffs (#{max_handoffs}) exceeded"
+          end
 
           handoff_result = agent_response.handoff_result
           target_class = handoff_result.target_agent_class
-
-          # Special handling for seat booking - assign flight number
-          @context.assign_flight_number! if (target_class.name == "SeatBookingAgent") && !@context.flight_number
 
           # Record the handoff in context
           @context.record_agent_transition(
@@ -70,56 +49,11 @@ module Agents
           @current_agent = target_class.new(context: @context)
 
           # Continue loop to process with new agent
-          # The new agent will automatically see the original user message in conversation history
         else
-          # No handoff, we have our final response
-          final_response = agent_response.content
-          break
+          # No handoff, return final response
+          return agent_response.content
         end
       end
-
-      final_response
-    end
-
-    private
-
-    # Call an agent with the full conversation history
-    # @param agent [Agents::Agent] The agent to call
-    # @param current_message [String] The current user message
-    # @return [Agents::AgentResponse] The agent's response
-    def call_agent_with_history(agent, current_message)
-      # Set the conversation history in the agent
-      agent.instance_variable_set(:@conversation_history, format_conversation_for_agent)
-
-      # Call the agent with the current message
-      agent.call(current_message)
-    end
-
-    # Format conversation history for agent consumption
-    # Converts our internal format to the format expected by Agent.call
-    # @return [Array<Hash>] Formatted conversation history
-    def format_conversation_for_agent
-      formatted = []
-
-      # Group conversations by user/assistant pairs
-      @conversation_history.each_slice(2) do |user_msg, assistant_msg|
-        next unless user_msg && assistant_msg
-
-        formatted << {
-          user: user_msg[:content],
-          assistant: assistant_msg[:content],
-          timestamp: user_msg[:timestamp]
-        }
-      end
-
-      formatted
-    end
-
-    # Get the last user message from conversation history
-    # Used when new agents need to process the original question
-    # @return [String, nil] The last user message content
-    def last_user_message
-      @conversation_history.reverse.find { |msg| msg[:role] == "user" }&.dig(:content)
     end
   end
 end

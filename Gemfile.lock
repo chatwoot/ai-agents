@@ -2,12 +2,17 @@ PATH
   remote: .
   specs:
     ruby-agents (0.1.0)
+      concurrent-ruby (~> 1.1)
+      json (~> 2.6)
+      ruby_llm (~> 1.3)
+      yaml (~> 0.3)
 
 GEM
   remote: https://rubygems.org/
   specs:
     ast (2.4.3)
     base64 (0.3.0)
+    concurrent-ruby (1.3.5)
     date (3.4.1)
     erb (5.0.1)
     event_stream_parser (1.0.0)
@@ -84,6 +89,7 @@ GEM
       unicode-emoji (~> 4.0, >= 4.0.4)
     unicode-emoji (4.0.4)
     uri (1.0.3)
+    yaml (0.4.0)
     zeitwerk (2.7.3)
 
 PLATFORMS

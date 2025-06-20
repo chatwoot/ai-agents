@@ -1,0 +1,31 @@
+Weather Forecasts for Major Cities:
+
+New York, NY:
+- Today: 45°F, Cloudy with light snow
+- Tomorrow: 38°F, Snow showers
+- Wind: 12 mph NE
+
+Los Angeles, CA:
+- Today: 78°F, Sunny and clear
+- Tomorrow: 76°F, Partly cloudy
+- Wind: 5 mph W
+
+Chicago, IL:
+- Today: 28°F, Heavy snow
+- Tomorrow: 22°F, Partly cloudy, very cold
+- Wind: 15 mph NW
+
+Miami, FL:
+- Today: 82°F, Partly cloudy, humid
+- Tomorrow: 84°F, Thunderstorms likely
+- Wind: 8 mph SE
+
+Seattle, WA:
+- Today: 48°F, Rainy
+- Tomorrow: 52°F, Overcast, drizzle
+- Wind: 10 mph SW
+
+Denver, CO:
+- Today: 35°F, Snow showers
+- Tomorrow: 42°F, Sunny and cold
+- Wind: 8 mph W

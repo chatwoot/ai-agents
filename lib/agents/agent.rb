@@ -1,275 +1,298 @@
 # frozen_string_literal: true
 
-# Base class for AI agents with Ruby-like DSL and RubyLLM integration.
-# Agents can use tools, have conversations, and be composed together.
-#
-# @example Define a simple agent
-#   class WeatherAgent < Agents::Agent
-#     name "Weather Assistant"
-#     instructions "Help users get weather information"
-#     provider :openai
-#
-#     uses WeatherTool
-#   end
-#
-# @example Use an agent
-#   agent = WeatherAgent.new
-#   result = agent.call("What's the weather in Tokyo?")
 module Agents
+  # Base class for AI agents with a Ruby-like DSL
+  #
+  # @example Define a simple agent
+  #   class WeatherAgent < Agents::Agent
+  #     name "Weather Assistant"
+  #     instructions "Help users get weather information"
+  #     provider :openai
+  #     model "gpt-4o-mini"
+  #
+  #     uses WeatherTool
+  #   end
+  #
+  # @example Use an agent
+  #   agent = WeatherAgent.new
+  #   result = agent.call("What's the weather in Tokyo?")
   class Agent
-    # Agent execution errors
-    class ExecutionError < Agents::Error; end
-    class ToolNotFoundError < ExecutionError; end
-    class MaxTurnsExceededError < ExecutionError; end
-
     class << self
-      attr_reader :agent_name, :agent_instructions, :agent_provider, :agent_model, :agent_tools
+      attr_reader :agent_name, :agent_instructions, :agent_provider, :agent_model, :agent_tools, :handoff_targets
 
       # Set or get the agent name
-      # @param value [String, nil] The name to set
-      # @return [String] The current name
       def name(value = nil)
         @agent_name = value if value
         @agent_name || to_s.split("::").last.gsub(/Agent$/, "")
       end
 
       # Set or get the agent instructions
-      # @param value [String, Proc, nil] The instructions to set
-      # @return [String, Proc] The current instructions
       def instructions(value = nil)
         @agent_instructions = value if value
         @agent_instructions || "You are a helpful AI assistant."
       end
 
       # Set or get the provider
-      # @param value [Symbol, nil] The provider to set (:openai, :anthropic, etc.)
-      # @return [Symbol] The current provider
       def provider(value = nil)
         @agent_provider = value if value
-        @agent_provider || Agents.configuration.default_provider
+        @agent_provider || Agents.configuration&.default_provider || :openai
       end
 
       # Set or get the model
-      # @param value [String, nil] The model to set
-      # @return [String] The current model
       def model(value = nil)
         @agent_model = value if value
-        @agent_model || Agents.configuration.default_model
+        @agent_model || Agents.configuration&.default_model || "gpt-4o-mini"
       end
 
-      # Register a tool class for this agent
-      # @param tool_class [Class] Tool class that extends Agents::Tool
-      def uses(tool_class)
+      # Register tool classes for this agent
+      def uses(*tool_classes)
         @agent_tools ||= []
-        @agent_tools << tool_class unless @agent_tools.include?(tool_class)
+        tool_classes.each do |tool_class|
+          @agent_tools << tool_class unless @agent_tools.include?(tool_class)
+        end
       end
 
       # Get all registered tools
-      # @return [Array<Class>] Array of tool classes
       def tools
         @agent_tools || []
       end
 
       # Define possible handoff targets for this agent
-      # @param targets [Array<Class>] Agent classes this agent can hand off to
       def handoffs(*targets)
         return @handoff_targets ||= [] if targets.empty?
-
         @handoff_targets = targets.flatten
       end
 
       # Create and call agent in one step (class-level callable interface)
-      # @param input [String] The input message
-      # @param context [Hash] Additional context
-      # @return [String] The agent's response
       def call(input, context: {}, **options)
         new.call(input, context: context, **options)
       end
-
-      # Enable symbol-to-proc conversion: topics.map(&AgentClass)
-      # @return [Proc] Proc that creates and calls agent
-      def to_proc
-        method(:call).to_proc
-      end
     end
 
-    # Instance methods
-
     # Initialize a new agent instance
-    # @param context [Hash, Agents::Context] Initial context for the agent
     def initialize(context: {})
-      @context = context.is_a?(Agents::Context) ? context : Agents::Context.new(context)
-      @conversation_history = []
+      @context = context.is_a?(Context) ? context : Context.new(context)
     end
 
     # Main callable interface for the agent
-    # @param input [String] The user input
-    # @param context [Hash] Additional context
-    # @return [Agents::AgentResponse] The agent's response with optional handoff
     def call(input, context: {}, **options)
-      # Handle context merging based on type
-      execution_context = if @context.is_a?(Agents::Context)
-                            @context.tap { |ctx| ctx.update(context) if context.any? }
-                          else
-                            @context.merge(context)
-                          end
+      # Start agent trace
+      agent_trace = Agents.start_agent_trace(self.class, input, context)
 
-      # Resolve instructions (may be dynamic)
-      resolved_instructions = resolve_instructions(execution_context)
+      begin
+        # Merge contexts
+        execution_context = merge_contexts(context)
+        
+        # Apply input guardrails if available
+        if defined?(Agents::Guardrails::SimpleGuardrails)
+          guardrail_check = Agents::Guardrails::SimpleGuardrails.apply_to_agent_call(self, input, execution_context)
+          unless guardrail_check[:allowed]
+            # Return filtered response without calling LLM
+            filtered_response = Agents::Guardrails::SimpleGuardrails.send(:create_guardrail_response, guardrail_check, :input)
+            agent_response = AgentResponse.new(content: filtered_response)
+            agent_trace&.finish(agent_response)
+            return agent_response
+          end
+        end
+        
+        # Get provider instance
+        provider = get_provider(options)
+        
+        # Build messages and tools
+        messages = build_messages(input, execution_context)
+        tools = build_tools
 
-      # Get tools for this agent
-      agent_tools = instantiate_tools
+        # Make LLM request
+        response = provider.chat(messages, 
+                                model: options[:model] || self.class.model,
+                                tools: tools.empty? ? nil : tools,
+                                **options.except(:provider, :model))
 
-      # Add handoff tools (converted at runtime like OpenAI SDK)
-      handoff_tools = create_handoff_tools
-      all_tools = agent_tools + handoff_tools
+        # Handle tool calls if present
+        result = if response[:tool_calls]
+                   handle_tool_calls(response[:tool_calls], execution_context)
+                 else
+                   response[:content] || ""
+                 end
 
-      # Create RubyLLM chat session
-      chat = create_chat_session(execution_context, **options)
+        # Apply output guardrails if available
+        if defined?(Agents::Guardrails::SimpleGuardrails)
+          result = Agents::Guardrails::SimpleGuardrails.enhance_response(self.class, result, execution_context)
+        end
 
-      # Set system instructions if we have them
-      chat.with_instructions(resolved_instructions) if resolved_instructions && !resolved_instructions.empty?
+        # Check for handoffs
+        handoff_result = detect_handoff(execution_context)
 
-      # Add tools to chat session
-      all_tools.each { |tool| chat.with_tool(tool) }
-
-      # Restore conversation history to chat session (Runner manages this)
-      restore_conversation_history(chat)
-
-      # Clear any previous handoff signal
-      @context[:pending_handoff] = nil if @context.is_a?(Agents::Context)
-
-      # Get response
-      response = chat.ask(input)
-
-      # Check for handoffs from context (tools signal handoffs here)
-      handoff_result = detect_handoff_from_context
-
-      # Return AgentResponse with content and optional handoff
-      # Note: Runner handles conversation history, not individual agents
-      Agents::AgentResponse.new(
-        content: response.content,
-        handoff_result: handoff_result
-      )
-    rescue StandardError => e
-      handle_error(e, input, execution_context)
-    end
-
-    # Support for agent.() syntax
-    alias [] call
-
-    # Get agent metadata
-    # @return [Hash] Agent metadata
-    def metadata
-      {
-        name: self.class.name,
-        instructions: self.class.instructions,
-        provider: self.class.provider,
-        model: self.class.model,
-        tools: self.class.tools.map(&:name)
-      }
-    end
-
-    # Get conversation history
-    # @return [Array<Hash>] Array of conversation turns
-    def history
-      @conversation_history.dup
-    end
-
-    # Clear conversation history
-    def clear_history!
-      @conversation_history.clear
+        # Create response
+        agent_response = AgentResponse.new(content: result, handoff_result: handoff_result)
+        
+        # Finish trace
+        agent_trace&.finish(agent_response)
+        
+        agent_response
+      rescue => e
+        agent_trace&.finish(e)
+        raise ExecutionError, "Agent execution failed: #{e.message}"
+      end
     end
 
     private
 
-    # Detect handoffs from context (tools signal handoffs here)
-    # @return [HandoffResult, nil] Handoff result if detected
-    def detect_handoff_from_context
-      return nil unless @context.is_a?(Agents::Context)
-
-      pending_handoff = @context[:pending_handoff]
-      return nil unless pending_handoff
-
-      Agents::HandoffResult.new(
-        target_agent_class: pending_handoff[:target_agent_class],
-        reason: pending_handoff[:reason]
-      )
+    def merge_contexts(context)
+      if context.is_a?(Context)
+        context.tap { |ctx| ctx.update(@context.to_h) if @context.to_h.any? }
+      elsif @context.is_a?(Context)
+        @context.tap { |ctx| ctx.update(context) if context.is_a?(Hash) && context.any? }
+      else
+        Context.new((@context || {}).merge(context.is_a?(Hash) ? context : {}))
+      end
     end
 
-    # Resolve instructions (handle Proc instructions)
-    # @param context [Hash] Execution context
-    # @return [String] Resolved instructions
+    def get_provider(options)
+      provider_name = options[:provider] || self.class.provider
+      config = Agents.configuration.provider_config_for(provider_name)
+      Providers::Registry.get(provider_name, config)
+    rescue => e
+      raise ProviderError, "Failed to get provider '#{provider_name}': #{e.message}"
+    end
+
+    def build_messages(input, context)
+      messages = []
+      
+      # Add system message
+      instructions = resolve_instructions(context)
+      messages << { role: "system", content: instructions } if instructions && !instructions.empty?
+      
+      # Add current input
+      messages << { role: "user", content: input }
+      
+      messages
+    end
+
     def resolve_instructions(context)
       instructions = self.class.instructions
       case instructions
       when Proc
         instructions.call(context)
-      when String
-        instructions
       else
         instructions.to_s
       end
     end
 
-    # Restore conversation history to RubyLLM chat session
-    # @param chat [RubyLLM::Chat] The chat session
-    def restore_conversation_history(chat)
-      # Restore our stored conversation history to the chat session
-      @conversation_history.each do |turn|
-        chat.add_message(role: :user, content: turn[:user])
-        chat.add_message(role: :assistant, content: turn[:assistant])
+    def build_tools
+      tools = []
+      
+      # Add agent tools
+      self.class.tools.each do |tool_class|
+        tool = tool_class.is_a?(Class) ? tool_class.new : tool_class
+        tool.set_context(@context) if tool.respond_to?(:set_context)
+        tools << tool.to_function_schema if tool.respond_to?(:to_function_schema)
       end
-    end
-
-    # Create RubyLLM chat session
-    # @param context [Hash] Execution context
-    # @param options [Hash] Additional options
-    # @return [RubyLLM::Chat] Chat session
-    def create_chat_session(_context, **options)
-      model = options[:model] || self.class.model
-      RubyLLM.chat(model: model)
-    end
-
-    # Instantiate all tools for this agent with context
-    # @return [Array<Agents::Tool>] Array of tool instances
-    def instantiate_tools
-      tools = self.class.tools.map do |tool|
-        # Handle both classes and instances
-        tool.is_a?(Class) ? tool.new : tool
+      
+      # Add dynamic tools (MCP tools)
+      if @dynamic_tools
+        @dynamic_tools.each do |dynamic_tool|
+          dynamic_tool.set_context(@context) if dynamic_tool.respond_to?(:set_context)
+          tools << dynamic_tool.to_function_schema if dynamic_tool.respond_to?(:to_function_schema)
+        end
       end
-
-      # Set context on all tools if we have one
-      tools.each { |tool| tool.set_context(@context) } if @context.is_a?(Agents::Context)
-
+      
+      # Add handoff tools
+      self.class.handoffs.each do |target_agent_class|
+        handoff_tool = HandoffTool.new(target_agent_class)
+        handoff_tool.set_context(@context) if handoff_tool.respond_to?(:set_context)
+        tools << handoff_tool.to_function_schema
+      end
+      
       tools
     end
 
-    # Create handoff tools at runtime (following OpenAI SDK pattern)
-    # @return [Array<Agents::HandoffTool>] Array of handoff tool instances
-    def create_handoff_tools
-      self.class.handoffs.map do |target_agent_class|
-        handoff_tool = Agents::HandoffTool.new(
-          target_agent_class,
-          description: "Transfer to #{target_agent_class.name} to handle the request"
-        )
-        handoff_tool.set_context(@context) if @context.is_a?(Agents::Context)
-        handoff_tool
+    def handle_tool_calls(tool_calls, context)
+      results = []
+      
+      tool_calls.each do |tool_call|
+        function_name = tool_call.dig("function", "name")
+        arguments = JSON.parse(tool_call.dig("function", "arguments") || "{}")
+        
+        # Find matching tool
+        tool = find_tool(function_name)
+        
+        if tool
+          tool_trace = Agents.start_tool_trace(tool, "call", arguments)
+          
+          begin
+            # Execute tool
+            result = tool.call(**arguments.transform_keys(&:to_sym), context: context)
+            tool_trace&.finish(result)
+            results << "#{function_name}: #{result}"
+          rescue => e
+            tool_trace&.finish(e)
+            puts "Tool error details: #{e.class} - #{e.message}" if ENV['DEBUG']
+            puts "Tool: #{tool.inspect}" if ENV['DEBUG']
+            puts "Arguments: #{arguments.inspect}" if ENV['DEBUG']
+            results << "#{function_name} error: #{e.message}"
+          end
+        else
+          results << "Unknown tool: #{function_name}"
+        end
       end
+      
+      results.join("\n\n")
     end
 
-    # Handle errors during execution
-    # @param error [Exception] The error that occurred
-    # @param input [String] The input that caused the error
-    # @param context [Hash] Execution context
-    # @return [String] Error response
-    def handle_error(error, _input, _context)
-      case error
-      when RubyLLM::Error
-        raise ExecutionError, "LLM error: #{error.message}"
-      else
-        raise ExecutionError, "Agent execution failed: #{error.message}"
+    def find_tool(function_name)
+      # Check agent tools
+      self.class.tools.each do |tool_class|
+        tool = tool_class.is_a?(Class) ? tool_class.new : tool_class
+        return tool if tool.class.name.downcase.include?(function_name) || 
+                      (tool.respond_to?(:tool_name) && tool.tool_name == function_name)
       end
+      
+      # Check dynamic tools (MCP tools)
+      if @dynamic_tools
+        @dynamic_tools.each do |dynamic_tool|
+          return dynamic_tool if dynamic_tool.mcp_tool_name == function_name
+        end
+      end
+      
+      # Check handoff tools
+      self.class.handoffs.each do |target_agent_class|
+        class_name = target_agent_class.to_s.split('::').last.gsub(/Agent$/, '')
+        expected_name = "transfer_to_#{class_name.downcase}"
+        return HandoffTool.new(target_agent_class) if function_name == expected_name
+      end
+      
+      nil
+    end
+
+    def detect_handoff(context)
+      return nil unless context.is_a?(Context)
+      
+      pending_handoff = context[:pending_handoff]
+      return nil unless pending_handoff
+      
+      HandoffResult.new(
+        target_agent_class: pending_handoff[:target_agent_class],
+        reason: pending_handoff[:reason]
+      )
+    end
+  end
+
+  # Response object returned by agents
+  class AgentResponse
+    attr_reader :content, :handoff_result
+
+    def initialize(content:, handoff_result: nil)
+      @content = content
+      @handoff_result = handoff_result
+    end
+
+    def handoff?
+      !@handoff_result.nil?
+    end
+
+    def to_s
+      @content
     end
   end
 end

@@ -1,0 +1,258 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+require 'fileutils'
+
+# Ruby Agents MCP (Model Context Protocol) Management CLI
+class MCPManager
+  CONFIG_FILE = File.expand_path('~/.ruby_agents_mcp.json')
+
+  def initialize
+    @config = load_config
+  end
+
+  def run(args)
+    command = args[0]
+    
+    case command
+    when 'sync'
+      sync_server(args[1], args[2..-1])
+    when 'list'
+      list_servers
+    when 'remove'
+      remove_server(args[1])
+    when 'status'
+      check_status(args[1])
+    when 'config'
+      show_config
+    when '--help', '-h', nil
+      show_help
+    else
+      puts "Unknown command: #{command}"
+      show_help
+      exit 1
+    end
+  end
+
+  private
+
+  def load_config
+    if File.exist?(CONFIG_FILE)
+      JSON.parse(File.read(CONFIG_FILE))
+    else
+      { 'servers' => {} }
+    end
+  end
+
+  def save_config
+    FileUtils.mkdir_p(File.dirname(CONFIG_FILE))
+    File.write(CONFIG_FILE, JSON.pretty_generate(@config))
+  end
+
+  def sync_server(name, command_args)
+    unless name && command_args.any?
+      puts "Usage: mcp sync <server_name> <command> [args...]"
+      exit 1
+    end
+
+    command = command_args.join(' ')
+    
+    # Test the command
+    puts "🔧 Testing MCP server: #{name}"
+    if system("#{command} --version >/dev/null 2>&1")
+      puts "✅ Server command is valid"
+    else
+      puts "❌ Server command failed. Please check the command and try again."
+      exit 1
+    end
+
+    # Add to config
+    @config['servers'][name] = {
+      'command' => command,
+      'type' => detect_server_type(command),
+      'added_at' => Time.now.iso8601,
+      'status' => 'configured'
+    }
+
+    save_config
+    puts "✅ MCP server '#{name}' configured successfully"
+    puts "💡 Use 'mcp status #{name}' to check server health"
+  end
+
+  def list_servers
+    if @config['servers'].empty?
+      puts "📋 No MCP servers configured"
+      puts "💡 Use 'mcp sync <name> <command>' to add a server"
+      return
+    end
+
+    puts "📋 Configured MCP Servers:"
+    puts "=" * 50
+
+    @config['servers'].each do |name, config|
+      status_icon = config['status'] == 'running' ? '🟢' : '🟡'
+      puts "#{status_icon} #{name}"
+      puts "   Type: #{config['type']}"
+      puts "   Command: #{config['command']}"
+      puts "   Added: #{config['added_at']}"
+      puts
+    end
+  end
+
+  def remove_server(name)
+    unless name
+      puts "Usage: mcp remove <server_name>"
+      exit 1
+    end
+
+    if @config['servers'].key?(name)
+      @config['servers'].delete(name)
+      save_config
+      puts "✅ Removed MCP server: #{name}"
+    else
+      puts "❌ Server not found: #{name}"
+      exit 1
+    end
+  end
+
+  def check_status(name)
+    if name
+      check_single_server(name)
+    else
+      check_all_servers
+    end
+  end
+
+  def check_single_server(name)
+    server = @config['servers'][name]
+    unless server
+      puts "❌ Server not found: #{name}"
+      exit 1
+    end
+
+    puts "🔍 Checking server: #{name}"
+    puts "Command: #{server['command']}"
+    
+    if test_server_health(server['command'])
+      server['status'] = 'running'
+      puts "✅ Server is healthy"
+    else
+      server['status'] = 'error'
+      puts "❌ Server is not responding"
+    end
+    
+    save_config
+  end
+
+  def check_all_servers
+    puts "🔍 Checking all MCP servers..."
+    puts "=" * 40
+
+    @config['servers'].each do |name, server|
+      print "#{name}: "
+      
+      if test_server_health(server['command'])
+        server['status'] = 'running'
+        puts "✅ Healthy"
+      else
+        server['status'] = 'error'
+        puts "❌ Error"
+      end
+    end
+    
+    save_config
+    puts "\n💡 Use 'mcp status <name>' for detailed server information"
+  end
+
+  def show_config
+    if @config['servers'].empty?
+      puts "📋 No MCP servers configured"
+      return
+    end
+
+    puts "📋 MCP Configuration:"
+    puts JSON.pretty_generate(@config)
+  end
+
+  def detect_server_type(command)
+    case command
+    when /filesystem/
+      'filesystem'
+    when /sqlite|database/
+      'database'
+    when /web|search/
+      'web'
+    when /git/
+      'git'
+    else
+      'custom'
+    end
+  end
+
+  def test_server_health(command)
+    # Simple health check - try to run the command with --version or --help
+    system("timeout 5 #{command} --version >/dev/null 2>&1") ||
+    system("timeout 5 #{command} --help >/dev/null 2>&1")
+  end
+
+  def show_help
+    puts <<~HELP
+      Ruby Agents MCP Manager
+      =======================
+      
+      Manage Model Context Protocol servers for Ruby Agents SDK.
+      
+      Commands:
+        sync <name> <command>   Add/update an MCP server
+        list                    List all configured servers
+        remove <name>           Remove a server
+        status [name]           Check server status
+        config                  Show configuration
+        --help, -h              Show this help
+      
+      Examples:
+        # Add filesystem server
+        mcp sync filesystem npx @modelcontextprotocol/server-filesystem ./docs
+        
+        # Add database server  
+        mcp sync database npx @modelcontextprotocol/server-sqlite ./data.db
+        
+        # Add Mintlify documentation (use mint-mcp directly)
+        npx mint-mcp add chatwoot-447c5a93
+        
+        # List all servers
+        mcp list
+        
+        # Check specific server
+        mcp status filesystem
+      
+      Setup Instructions:
+        1. Install MCP servers:
+           npm install -g @modelcontextprotocol/server-filesystem
+           npm install -g @modelcontextprotocol/server-sqlite
+           npm install -g mint-mcp
+        
+        2. Configure standard servers:
+           mcp sync filesystem npx @modelcontextprotocol/server-filesystem ./docs
+           mcp sync database npx @modelcontextprotocol/server-sqlite ./data.db
+        
+        3. Add Mintlify documentation:
+           npx mint-mcp add <project-id>
+           npx mint-mcp list
+        
+        4. Use in Ruby Agents:
+           class MyAgent < Agents::Agent
+             uses MintlifyTools::DocumentationSearchTool
+           end
+      
+      Configuration stored in: #{CONFIG_FILE}
+    HELP
+  end
+end
+
+# Main execution
+if __FILE__ == $0
+  manager = MCPManager.new
+  manager.run(ARGV)
+end

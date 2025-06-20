@@ -1,0 +1,229 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+require 'net/http'
+require 'uri'
+
+# Simple WebSearch MCP Server for demonstration (stdio mode)
+class WebSearchMCPServer
+  def initialize
+    @request_id = 0
+    STDERR.puts "WebSearch MCP Server started (stdio mode)" if ENV['DEBUG']
+  end
+
+  def run
+    STDOUT.sync = true
+    STDERR.sync = true
+
+    while line = STDIN.gets
+      begin
+        request = JSON.parse(line.strip)
+        response = handle_request(request)
+        puts response.to_json
+      rescue JSON::ParserError => e
+        error_response("Invalid JSON: #{e.message}")
+      rescue => e
+        STDERR.puts "Error: #{e.message}" if ENV['DEBUG']
+        error_response("Server error: #{e.message}")
+      end
+    end
+  end
+
+  private
+
+  def handle_request(request)
+    case request["method"]
+    when "initialize"
+      handle_initialize(request)
+    when "tools/list"
+      handle_tools_list(request)
+    when "tools/call"
+      handle_tool_call(request)
+    when "ping"
+      handle_ping(request)
+    else
+      error_response("Unknown method: #{request['method']}", request["id"])
+    end
+  end
+
+  def handle_initialize(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        protocolVersion: "2024-11-05",
+        capabilities: {
+          tools: {}
+        },
+        serverInfo: {
+          name: "websearch-mcp-demo-server",
+          version: "1.0.0"
+        }
+      }
+    }
+  end
+
+  def handle_tools_list(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        tools: [
+          {
+            name: "web_search",
+            description: "Search the web for information",
+            inputSchema: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Search query" },
+                num_results: { type: "integer", description: "Number of results", default: 5 }
+              },
+              required: ["query"]
+            }
+          },
+          {
+            name: "news_search",
+            description: "Search for recent news articles",
+            inputSchema: {
+              type: "object",
+              properties: {
+                topic: { type: "string", description: "News topic" },
+                days: { type: "integer", description: "Days back to search", default: 7 }
+              },
+              required: ["topic"]
+            }
+          }
+        ]
+      }
+    }
+  end
+
+  def handle_tool_call(request)
+    params = request["params"] || {}
+    tool_name = params["name"]
+    arguments = params["arguments"] || {}
+
+    result = case tool_name
+             when "web_search"
+               perform_web_search(arguments["query"], arguments["num_results"] || 5)
+             when "news_search"
+               perform_news_search(arguments["topic"], arguments["days"] || 7)
+             else
+               { error: "Unknown tool: #{tool_name}" }
+             end
+
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: result
+    }
+  end
+
+  def handle_ping(request)
+    {
+      jsonrpc: "2.0",
+      id: request["id"],
+      result: {
+        status: "pong",
+        timestamp: Time.now.iso8601
+      }
+    }
+  end
+
+  def perform_web_search(query, num_results)
+    # Simulate web search results
+    search_results = generate_mock_search_results(query, num_results)
+    
+    {
+      query: query,
+      num_results: num_results,
+      results: search_results
+    }
+  end
+
+  def perform_news_search(topic, days)
+    # Simulate news search results
+    news_articles = generate_mock_news_articles(topic, days)
+    
+    {
+      topic: topic,
+      days: days,
+      articles: news_articles
+    }
+  end
+
+  def generate_mock_search_results(query, num_results)
+    base_results = [
+      {
+        title: "#{query.capitalize} - Wikipedia",
+        snippet: "Learn about #{query} from the free encyclopedia. Comprehensive information and detailed explanations.",
+        url: "https://en.wikipedia.org/wiki/#{query.gsub(' ', '_')}"
+      },
+      {
+        title: "Ultimate Guide to #{query.capitalize}",
+        snippet: "Everything you need to know about #{query}. Expert insights and practical tips.",
+        url: "https://example.com/guide/#{query.gsub(' ', '-')}"
+      },
+      {
+        title: "#{query.capitalize} News and Updates",
+        snippet: "Latest news and developments related to #{query}. Stay informed with recent updates.",
+        url: "https://news.example.com/#{query.gsub(' ', '-')}"
+      },
+      {
+        title: "How to Use #{query.capitalize} Effectively",
+        snippet: "Professional tips and best practices for #{query}. Learn from industry experts.",
+        url: "https://howto.example.com/#{query.gsub(' ', '-')}"
+      },
+      {
+        title: "#{query.capitalize} Community Forum",
+        snippet: "Join the discussion about #{query}. Share experiences and get help from the community.",
+        url: "https://forum.example.com/#{query.gsub(' ', '-')}"
+      }
+    ]
+    
+    base_results.first(num_results)
+  end
+
+  def generate_mock_news_articles(topic, days)
+    base_articles = [
+      {
+        title: "Breaking: Major Development in #{topic.capitalize}",
+        summary: "Significant news about #{topic} has emerged, impacting the industry.",
+        published_date: (Date.today - rand(days)).strftime('%Y-%m-%d'),
+        url: "https://news.example.com/breaking-#{topic.gsub(' ', '-')}"
+      },
+      {
+        title: "#{topic.capitalize} Sees Unprecedented Growth",
+        summary: "Recent studies show remarkable progress in #{topic} sector.",
+        published_date: (Date.today - rand(days)).strftime('%Y-%m-%d'),
+        url: "https://business.example.com/#{topic.gsub(' ', '-')}-growth"
+      },
+      {
+        title: "Expert Analysis: Future of #{topic.capitalize}",
+        summary: "Industry experts weigh in on the future prospects of #{topic}.",
+        published_date: (Date.today - rand(days)).strftime('%Y-%m-%d'),
+        url: "https://analysis.example.com/future-#{topic.gsub(' ', '-')}"
+      }
+    ]
+    
+    base_articles.first(3)
+  end
+
+  def error_response(message, id = nil)
+    {
+      jsonrpc: "2.0",
+      id: id,
+      error: {
+        code: -32000,
+        message: message
+      }
+    }
+  end
+end
+
+# Start the stdio server
+if __FILE__ == $0
+  server = WebSearchMCPServer.new
+  server.run
+end
