@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+# Runner class - the orchestrator that manages multi-agent conversations and state
+# This is the primary interface for SDK users. The Runner maintains conversation continuity
+# across agent handoffs by preserving the complete history and shared context. When an agent
+# signals a handoff, the Runner seamlessly transitions to the new agent while ensuring it has
+# full visibility into previous interactions. The design allows for stateless agents while
+# maintaining stateful conversations, with built-in loop detection to prevent infinite handoffs.
+
 module Agents
   # Runner orchestrates multi-agent conversations with automatic handoffs
   # This is the main entry point for SDK users - they only need to call runner.process(message)

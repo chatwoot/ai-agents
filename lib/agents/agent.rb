@@ -1,5 +1,11 @@
 # frozen_string_literal: true
 
+# Core Agent class - the fundamental building block of the multi-agent system
+# This class provides the base implementation for creating AI agents with specific behaviors.
+# Agents maintain their own conversation context, can use tools to perform actions,
+# enforce input/output guardrails for safety, and seamlessly hand off conversations
+# to other specialized agents when needed. The DSL makes it easy to define agents declaratively.
+
 # Base class for AI agents with Ruby-like DSL and RubyLLM integration.
 # Agents can use tools, have conversations, and be composed together.
 #

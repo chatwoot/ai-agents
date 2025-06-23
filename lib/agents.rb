@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+# Main entry point for the Ruby AI Agents SDK
+# This file sets up the core Agents module namespace and provides global configuration
+# for the multi-agent system including LLM provider setup, API keys, and system defaults.
+# It serves as the central configuration hub that other components depend on.
+
 require "ruby_llm"
 require_relative "agents/version"
 

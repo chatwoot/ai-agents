@@ -1,5 +1,11 @@
 # frozen_string_literal: true
 
+# Context class - the shared state container that flows through the multi-agent system
+# Context provides a thread-safe way for agents and tools to share state across handoffs.
+# It acts as the "memory" of a conversation, storing both application data (like user info)
+# and system metadata (like handoff history). The Context design enables agents to be stateless
+# while maintaining conversation continuity - critical for complex multi-step workflows.
+
 # Context wrapper that provides shared state between agents and tools.
 # Similar to Python's RunContextWrapper, this allows tools to access and modify
 # shared context that persists across agent handoffs.

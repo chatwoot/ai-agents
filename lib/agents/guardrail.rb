@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+# Guardrail system - provides safety boundaries for agent inputs and outputs
+# Guardrails act as validation gates that can inspect and potentially block agent interactions
+# based on custom logic. Input guardrails validate user messages before processing, while output
+# guardrails check agent responses before returning them. This design ensures safety and compliance
+# without coupling validation logic to individual agents, allowing guardrails to be shared and
+# composed across different agent implementations for consistent behavior enforcement.
+
 module Agents
   class GuardrailViolation < Agents::Error
     attr_reader :guardrail_name, :output_info
