@@ -56,9 +56,6 @@ module Agents
           handoff_result = agent_response.handoff_result
           target_class = handoff_result.target_agent_class
 
-          # Special handling for seat booking - assign flight number
-          @context.assign_flight_number! if (target_class.name == "SeatBookingAgent") && !@context.flight_number
-
           # Record the handoff in context
           @context.record_agent_transition(
             @current_agent.class.name,
