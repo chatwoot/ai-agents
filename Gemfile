@@ -12,4 +12,4 @@ gem "minitest", "~> 5.16"
 
 gem "rubocop", "~> 1.21"
 
-gem "ruby_llm"
+gem "ruby_llm", "~> 1.3.1"
