@@ -104,13 +104,17 @@ module Agents
       # Get all input guardrails
       # @return [Array<InputGuardrail>] Array of input guardrails
       def get_input_guardrails
-        @agent_input_guardrails || []
+        (@agent_input_guardrails || []).map do |guardrail|
+          guardrail.is_a?(Class) ? guardrail.new : guardrail
+        end
       end
 
       # Get all output guardrails
       # @return [Array<OutputGuardrail>] Array of output guardrails
       def get_output_guardrails
-        @agent_output_guardrails || []
+        (@agent_output_guardrails || []).map do |guardrail|
+          guardrail.is_a?(Class) ? guardrail.new : guardrail
+        end
       end
 
       # Create and call agent in one step (class-level callable interface)
