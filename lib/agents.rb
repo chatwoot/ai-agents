@@ -19,6 +19,7 @@ require_relative "agents/handoff"
 require_relative "agents/guardrail"
 require_relative "agents/agent"
 require_relative "agents/runner"
+require_relative "agents/items"
 
 module Agents
   # Recommended prompt prefix for agents that use handoffs

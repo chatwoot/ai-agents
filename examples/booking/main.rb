@@ -19,7 +19,7 @@ require_relative "agents"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o"
-  config.debug = false
+  config.debug = true
 end
 
 # Check if we're properly configured
@@ -114,11 +114,5 @@ if context.agent_transitions.any?
   end
 end
 
-puts "\n🎉 Conversation History (#{runner.conversation_history.size} messages):"
-runner.conversation_history.each_with_index do |msg, i|
-  role_emoji = msg[:role] == "user" ? "👤" : "🤖"
-  agent_info = msg[:agent] ? " [#{msg[:agent].split("::").last}]" : ""
-  puts "  #{i + 1}. #{role_emoji} #{msg[:role].capitalize}#{agent_info}: #{msg[:content][0..100]}#{if msg[:content].length > 100
-                                                                                                     "..."
-                                                                                                   end}"
-end
+puts "\n🎉 Conversation Summary:"
+puts runner.conversation_summary
