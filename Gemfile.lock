@@ -34,7 +34,6 @@ GEM
     lint_roller (1.1.0)
     logger (1.7.0)
     marcel (1.0.4)
-    minitest (5.25.5)
     multipart-post (2.4.1)
     net-http (0.6.0)
       uri
@@ -117,7 +116,6 @@ PLATFORMS
 
 DEPENDENCIES
   irb
-  minitest (~> 5.16)
   rake (~> 13.0)
   rspec (~> 3.12)
   rubocop (~> 1.21)
