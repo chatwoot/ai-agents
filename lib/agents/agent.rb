@@ -171,12 +171,12 @@ module Agents
       # - String: Simple user message (for standalone agent calls)
       # - Array: Prepared input items from Runner (includes conversation history with tool calls)
       actual_input = nil
-      
+
       if input.is_a?(Array)
         # Input is an array of prepared items from the Runner
         # This includes the full conversation history with proper role distinctions
         # (user messages, assistant messages, tool calls, and tool outputs)
-        
+
         # Restore the conversation from prepared items
         input.each do |item|
           case item[:role]
@@ -208,7 +208,7 @@ module Agents
         # Input is a string - simple user message
         # This is used for standalone agent calls without Runner
         actual_input = input
-        
+
         # No conversation history to restore for simple string inputs
         # Each agent call is stateless unless using prepared input from Runner
       end
@@ -230,12 +230,12 @@ module Agents
       # If we have prepared input, we've already added all messages above
       # Otherwise, we pass the string input directly
       response = if input.is_a?(Array)
-        # All messages already added, just get completion
-        chat.complete
-      else
-        # Simple string input
-        chat.ask(input)
-      end
+                   # All messages already added, just get completion
+                   chat.complete
+                 else
+                   # Simple string input
+                   chat.ask(input)
+                 end
 
       # Run output guardrails
       output_guardrail_violation = check_output_guardrails(execution_context, response.content)
@@ -249,17 +249,13 @@ module Agents
       # Extract tool calls from the response
       # RubyLLM returns tool calls as part of the response when tools are invoked
       tool_calls = []
-      
+
       if response.respond_to?(:tool_calls) && response.tool_calls
         # Process each tool call
         response.tool_calls.each do |tool_call|
           # Get the tool result if it was executed
-          tool_result = if tool_call.respond_to?(:result)
-            tool_call.result
-          else
-            nil
-          end
-          
+          tool_result = (tool_call.result if tool_call.respond_to?(:result))
+
           # Build tool call information
           tool_calls << {
             id: tool_call.id || SecureRandom.uuid,
@@ -298,7 +294,6 @@ module Agents
         tools: self.class.tools.map(&:name)
       }
     end
-
 
     private
 
@@ -356,7 +351,6 @@ module Agents
         instructions.to_s
       end
     end
-
 
     # Create RubyLLM chat session
     # @param context [Hash] Execution context

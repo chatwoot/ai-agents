@@ -14,7 +14,7 @@ module Agents
   class RunItem
     # @return [Agent, nil] The agent that generated this item
     attr_reader :agent
-    
+
     # @return [Time] When this item was created
     attr_reader :timestamp
 
@@ -110,10 +110,10 @@ module Agents
   class ToolCallItem < RunItem
     # @return [String] The name of the tool being called
     attr_reader :tool_name
-    
+
     # @return [Hash] Arguments passed to the tool
     attr_reader :arguments
-    
+
     # @return [String] Unique identifier for this tool call
     attr_reader :call_id
 
@@ -122,7 +122,7 @@ module Agents
     # @param arguments [Hash] Arguments for the tool (default: {})
     # @param call_id [String, nil] Unique ID for this call (auto-generated if nil)
     # @param agent [Agent] The agent making this tool call
-    def initialize(tool_name:, arguments: {}, call_id: nil, agent:)
+    def initialize(tool_name:, agent:, arguments: {}, call_id: nil)
       super(agent: agent)
       @tool_name = tool_name
       @arguments = arguments
@@ -158,7 +158,7 @@ module Agents
   class ToolOutputItem < RunItem
     # @return [String] ID of the tool call this output corresponds to
     attr_reader :tool_call_id
-    
+
     # @return [Object] The output from the tool execution
     attr_reader :output
 
@@ -197,7 +197,7 @@ module Agents
   class HandoffOutputItem < ToolOutputItem
     # @return [Agent] The agent initiating the handoff
     attr_reader :source_agent
-    
+
     # @return [Agent, Class] The agent or agent class receiving the handoff
     attr_reader :target_agent
 

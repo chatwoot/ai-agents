@@ -29,10 +29,10 @@ module Agents
   class AgentResponse
     # @return [String, nil] The conversational content from the agent
     attr_reader :content
-    
+
     # @return [HandoffResult, nil] Information about a requested handoff
     attr_reader :handoff_result
-    
+
     # @return [Array<Hash>] Tool calls made by the agent
     attr_reader :tool_calls
 

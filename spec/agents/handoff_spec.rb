@@ -292,4 +292,3 @@ RSpec.describe "Handoff Components" do
     end
   end
 end
-
