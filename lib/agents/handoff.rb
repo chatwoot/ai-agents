@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+# Handoff mechanism - enables seamless transitions between specialized agents
+# This file defines the core handoff infrastructure that allows agents to transfer
+# conversations to other agents based on context or user needs. HandoffTools are generated
+# dynamically at runtime for each agent based on its declared handoffs, ensuring type safety
+# and preventing circular dependencies. The handoff is signaled through shared context rather
+# than return values, allowing the conversation flow to remain natural and uninterrupted.
+
 module Agents
   # Represents a handoff result from one agent to another
   class HandoffResult

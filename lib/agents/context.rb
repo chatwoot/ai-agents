@@ -1,5 +1,11 @@
 # frozen_string_literal: true
 
+# Context class - the shared state container that flows through the multi-agent system
+# Context provides a thread-safe way for agents and tools to share state across handoffs.
+# It acts as the "memory" of a conversation, storing both application data (like user info)
+# and system metadata (like handoff history). The Context design enables agents to be stateless
+# while maintaining conversation continuity - critical for complex multi-step workflows.
+
 # Context wrapper that provides shared state between agents and tools.
 # Similar to Python's RunContextWrapper, this allows tools to access and modify
 # shared context that persists across agent handoffs.
@@ -66,9 +72,16 @@ module Agents
     end
 
     # Update multiple values at once
-    # @param hash [Hash] Values to update
-    def update(hash)
-      hash.each { |key, value| self[key] = value }
+    # @param hash_or_context [Hash, Agents::Context] Values to update
+    def update(hash_or_context)
+      case hash_or_context
+      when Hash
+        hash_or_context.each { |key, value| self[key] = value }
+      when Agents::Context
+        hash_or_context.to_h.each { |key, value| self[key] = value }
+      else
+        raise ArgumentError, "Expected Hash or Agents::Context, got #{hash_or_context.class}"
+      end
     end
 
     # Check if a key exists

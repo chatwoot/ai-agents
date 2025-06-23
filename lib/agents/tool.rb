@@ -1,5 +1,11 @@
 # frozen_string_literal: true
 
+# Tool base class - enables agents to perform actions and interact with external systems
+# Tools are the primary way agents accomplish tasks beyond conversation. They receive
+# the current execution context automatically, allowing them to read/write shared state,
+# access conversation history, and signal handoffs to other agents. Tools use a Ruby-friendly
+# DSL for parameter definition and integrate seamlessly with the LLM's function calling.
+
 # Slim wrapper around RubyLLM::Tool with Ruby-like parameter syntax and context support.
 # All tools are context-aware by default and receive the current execution context.
 #

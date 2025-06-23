@@ -1,5 +1,11 @@
 # frozen_string_literal: true
 
+# Result class - standardized container for operation outcomes throughout the SDK
+# This class provides a consistent way to handle both successful and failed operations,
+# including agent executions, tool calls, and guardrail checks. The Result pattern allows
+# for clean error handling without exceptions, making it easier to chain operations and
+# handle failures gracefully. It carries metadata for debugging and performance monitoring.
+
 # Container for agent execution results.
 # Provides a consistent interface for both successful and failed executions.
 #
