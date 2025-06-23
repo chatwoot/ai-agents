@@ -28,7 +28,7 @@ ruby test/ruby/test_agents.rb
 
 # Lint code
 rake rubocop
-# OR  
+# OR
 bundle exec rubocop
 
 # Auto-fix linting issues
@@ -71,7 +71,7 @@ ruby examples/booking/automatic.rb
 
 **lib/agents/handoff.rb** - Contains the handoff system classes:
 - `HandoffResult` - Represents a handoff decision
-- `AgentResponse` - Wraps agent responses with optional handoff results  
+- `AgentResponse` - Wraps agent responses with optional handoff results
 - `HandoffTool` - Generic tool for transferring between agents using context-based signaling
 - **Generic handoff mechanism** - no assumptions about specific agent types
 
@@ -88,7 +88,7 @@ class MyAgent < Agents::Agent
   instructions "Behavior description" # Can be dynamic via Proc
   provider :openai  # Optional, defaults to configured provider
   model "gpt-4o"    # Optional, defaults to configured model
-  
+
   uses SomeTool     # Register tools by class
   handoffs OtherAgent, AnotherAgent  # Define possible handoff targets
 end
@@ -100,7 +100,7 @@ class MyTool < Agents::Tool
   description "What this tool does"
   param :input_param, String, "Parameter description"
   param :optional_param, Integer, "Optional param", required: false
-  
+
   def perform(input_param:, optional_param: nil, context:)
     # context is always available for state management
     # Must implement perform, not execute
@@ -132,6 +132,8 @@ Critical for multi-turn conversations:
 #### Documentation
 - Always write doc strings when writing functions
 - Use YARD format for documentation
+- Always write RDoc for new methods
+- When creating a new file, start the file with a description comment on what the file has and where does it fit in the project
 
 #### Model Defaults
 - Default model for OpenAI provider is `gpt-4.1-mini` (configured in lib/agents.rb)
