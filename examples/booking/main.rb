@@ -19,7 +19,7 @@ require_relative "agents"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o"
-  config.debug = true
+  config.debug = false
 end
 
 # Check if we're properly configured
