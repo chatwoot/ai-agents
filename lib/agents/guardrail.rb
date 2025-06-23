@@ -207,6 +207,9 @@ module Agents
 
       # Sets the pattern to match for triggering the guardrail
       #
+      # TODO: Replace this with structured output implementation
+      # Ref: https://github.com/danielfriis/ruby_llm-schema
+      #      https://github.com/crmne/ruby_llm/issues/11
       # @param pattern [Regexp] The pattern to match in agent responses
       # @example
       #   trigger_on /^INAPPROPRIATE:/
