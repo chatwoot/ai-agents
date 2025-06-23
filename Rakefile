@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 require "bundler/gem_tasks"
-require "minitest/test_task"
+require "rspec/core/rake_task"
 
-Minitest::TestTask.create
+RSpec::Core::RakeTask.new(:spec)
 
 require "rubocop/rake_task"
 
 RuboCop::RakeTask.new
 
-task default: %i[test rubocop]
+task default: %i[spec rubocop]
