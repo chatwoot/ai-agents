@@ -17,8 +17,7 @@ All agents share a common `AirlineContext` that maintains passenger information 
 - `context.rb` - AirlineContext class for shared state management
 - `tools.rb` - Context-aware tools (FAQ lookup, seat updates)
 - `agents.rb` - Agent definitions with instructions and tool assignments
-- `automatic.rb` - Automated demo showing the system in action
-- `interactive.rb` - Interactive chat interface to talk with the agents
+- `main.rb` - Interactive chat interface to talk with the agents
 
 ## Running the Examples
 
@@ -29,26 +28,12 @@ Set your OpenAI API key:
 export OPENAI_API_KEY=your_key_here
 ```
 
-### Automatic Demo
-
-Run the automated demo to see the system in action:
-
-```bash
-ruby examples/booking/automatic.rb
-```
-
-This will demonstrate:
-- FAQ agent answering baggage and seat questions
-- Seat booking agent updating passenger seat assignments
-- Shared context maintaining state across agents
-- Context-aware tools modifying shared data
-
 ### Interactive Chat
 
 Chat directly with the agents:
 
 ```bash
-ruby examples/booking/interactive.rb
+ruby examples/booking/main.rb
 ```
 
 Commands:
@@ -74,7 +59,7 @@ Example conversation:
 ## Key Features Demonstrated
 
 1. **Shared Context** - All agents share the same AirlineContext instance
-2. **Context-Aware Tools** - Tools automatically receive and can modify shared state  
+2. **Context-Aware Tools** - Tools automatically receive and can modify shared state
 3. **Agent Specialization** - Each agent handles specific types of requests
 4. **State Persistence** - Context persists across agent handoffs
 5. **Ruby Idioms** - Clean Ruby syntax with keyword arguments and blocks
