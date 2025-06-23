@@ -18,15 +18,18 @@ This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilitie
 # Install dependencies
 bundle install
 
-# Run tests
-rake test
+# Run tests with RSpec
+rake spec
 # OR
-bundle exec rake test
+bundle exec rspec
 
-# Run specific test
-ruby test/ruby/test_agents.rb
+# Run specific spec file
+bundle exec rspec spec/agents/agent_spec.rb
 
-# Lint code
+# Run tests with coverage report
+bundle exec rspec  # SimpleCov will generate coverage/index.html
+
+# Lint code (includes RSpec cops)
 rake rubocop
 # OR
 bundle exec rubocop
@@ -34,7 +37,7 @@ bundle exec rubocop
 # Auto-fix linting issues
 bundle exec rubocop -a
 
-# Run all checks (test + lint)
+# Run all checks (spec + lint)
 rake
 ```
 
