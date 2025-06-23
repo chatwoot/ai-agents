@@ -12,3 +12,12 @@ Style/StringLiteralsInInterpolation:
 
 RSpec/MultipleExpectations:
   Max: 10
+
+RSpec/ExampleLength:
+  Max: 20
+
+RSpec/MultipleMemoizedHelpers:
+  Max: 10
+
+Metrics/MethodLength:
+  Max: 20
