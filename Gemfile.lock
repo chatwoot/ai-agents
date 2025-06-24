@@ -10,6 +10,8 @@ GEM
     ast (2.4.3)
     base64 (0.3.0)
     date (3.4.1)
+    diff-lcs (1.6.2)
+    docile (1.4.1)
     erb (5.0.1)
     event_stream_parser (1.0.0)
     faraday (2.13.1)
@@ -32,7 +34,6 @@ GEM
     lint_roller (1.1.0)
     logger (1.7.0)
     marcel (1.0.4)
-    minitest (5.25.5)
     multipart-post (2.4.1)
     net-http (0.6.0)
       uri
@@ -56,6 +57,19 @@ GEM
     regexp_parser (2.10.0)
     reline (0.6.1)
       io-console (~> 0.5)
+    rspec (3.13.1)
+      rspec-core (~> 3.13.0)
+      rspec-expectations (~> 3.13.0)
+      rspec-mocks (~> 3.13.0)
+    rspec-core (3.13.4)
+      rspec-support (~> 3.13.0)
+    rspec-expectations (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-mocks (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-support (3.13.4)
     rubocop (1.76.1)
       json (~> 2.3)
       language_server-protocol (~> 3.17.0.2)
@@ -70,6 +84,9 @@ GEM
     rubocop-ast (1.45.1)
       parser (>= 3.3.7.2)
       prism (~> 1.4)
+    rubocop-rspec (3.6.0)
+      lint_roller (~> 1.1)
+      rubocop (~> 1.72, >= 1.72.1)
     ruby-progressbar (1.13.0)
     ruby_llm (1.3.1)
       base64
@@ -80,6 +97,12 @@ GEM
       faraday-retry (>= 1)
       marcel (~> 1.0)
       zeitwerk (~> 2)
+    simplecov (0.22.0)
+      docile (~> 1.1)
+      simplecov-html (~> 0.11)
+      simplecov_json_formatter (~> 0.1)
+    simplecov-html (0.13.1)
+    simplecov_json_formatter (0.1.4)
     stringio (3.1.7)
     unicode-display_width (3.1.4)
       unicode-emoji (~> 4.0, >= 4.0.4)
@@ -93,11 +116,13 @@ PLATFORMS
 
 DEPENDENCIES
   irb
-  minitest (~> 5.16)
   rake (~> 13.0)
+  rspec (~> 3.12)
   rubocop (~> 1.21)
+  rubocop-rspec (~> 3.0)
   ruby-agents!
   ruby_llm (~> 1.3.1)
+  simplecov (~> 0.22)
 
 BUNDLED WITH
    2.6.9

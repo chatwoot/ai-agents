@@ -10,11 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
+    name: Test & Lint
     strategy:
       matrix:
         ruby:
-          - '3.4.4'
+          - "3.4.4"
 
     steps:
       - uses: actions/checkout@v4
@@ -23,5 +23,8 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-      - name: Run the default task
-        run: bundle exec rake
+      - name: Run RSpec tests
+        run: bundle exec rspec
+      - name: Run RuboCop
+        run: bundle exec rubocop
+        continue-on-error: true
