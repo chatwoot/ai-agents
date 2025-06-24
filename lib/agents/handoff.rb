@@ -49,7 +49,7 @@ module Agents
     # Check if this response includes a handoff
     # @return [Boolean] True if a handoff is requested
     def handoff?
-      @handoff_result&.handoff?
+      @handoff_result&.handoff? || false
     end
 
     # Check if this response includes tool calls
