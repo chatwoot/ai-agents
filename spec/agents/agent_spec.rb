@@ -287,11 +287,10 @@ RSpec.describe Agents::Agent do
 
       context "with tool calls in response" do
         let(:tool_call) do
-          instance_double(ToolCall,
-                          id: "call_123",
-                          name: "test_tool",
-                          arguments: { input: "test" },
-                          result: "Tool result")
+          instance_double(RubyLLM::ToolCall,
+                         id: "call_123",
+                         name: "test_tool",
+                         arguments: { input: "test" })
         end
 
         let(:response_with_tools) do
@@ -309,7 +308,7 @@ RSpec.describe Agents::Agent do
                                             id: "call_123",
                                             name: "test_tool",
                                             arguments: { input: "test" },
-                                            result: "Tool result"
+                                            result: nil
                                           }])
         end
       end
