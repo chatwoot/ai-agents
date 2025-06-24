@@ -141,55 +141,6 @@ module Agents
       raise NotImplementedError, "Tools must implement #perform(tool_context, **params)"
     end
 
-    # Generate JSON schema for LLM function calling
-    # TODO: Implement this method to generate OpenAI-compatible function schemas
-    # This method should return a hash that describes the tool in OpenAI's function calling format
-    #
-    # Expected return format:
-    # {
-    #   "type": "function",
-    #   "function": {
-    #     "name": "tool_name",
-    #     "description": "Tool description",
-    #     "parameters": {
-    #       "type": "object",
-    #       "properties": {
-    #         "param1": {
-    #           "type": "string",
-    #           "description": "Description of param1"
-    #         },
-    #         "param2": {
-    #           "type": "integer",
-    #           "description": "Description of param2"
-    #         }
-    #       },
-    #       "required": ["param1"]
-    #     }
-    #   }
-    # }
-    #
-    # Implementation steps:
-    # 1. Get tool name from self.class.name
-    # 2. Get tool description from self.class.description
-    # 3. Iterate through self.class.params to build properties (skip :tool_context)
-    # 4. Determine required params (those without required: false)
-    # 5. Return the properly formatted hash
-    def to_json_schema
-      # Dummy implementation - replace with actual schema generation
-      {
-        type: "function",
-        function: {
-          name: self.class.name || "unnamed_tool",
-          description: self.class.description || "No description provided",
-          parameters: {
-            type: "object",
-            properties: {},
-            required: []
-          }
-        }
-      }
-    end
-
     # Create a tool instance using a functional style definition.
     # This is an alternative to creating a full class for simple tools.
     # The block becomes the tool's perform method.
