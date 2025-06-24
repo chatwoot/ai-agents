@@ -183,4 +183,6 @@ When writing tests, follow the rules:
 1. Avoid stubbing using allow_any_instance_of`
 2. Each example block `it ... end` should have less than 20 lines
 3. Example group should not have more than 10 memoized helpers, not more than 10 except statements
+4. Never use `receive_message_chain`
+5. When writing tests, always use verifying doubles and never normal doubles
 ```
