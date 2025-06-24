@@ -197,7 +197,7 @@ RSpec.describe Agents::Runner do
             tool_calls: [{
               id: "call_a",
               name: "transfer",
-              result: { type: "handoff", target_class: LoopingAgentB, message: "To B" }
+              arguments: {}
             }]
           )
         )
@@ -213,7 +213,7 @@ RSpec.describe Agents::Runner do
             tool_calls: [{
               id: "call_b",
               name: "transfer",
-              result: { type: "handoff", target_class: LoopingAgentA, message: "To A" }
+              arguments: {}
             }]
           )
         )
@@ -248,7 +248,7 @@ RSpec.describe Agents::Runner do
             tool_calls: [{
               id: "call_123",
               name: "transfer_to_test_agent_b",
-              result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+              arguments: {}
             }]
           )
         )
@@ -285,7 +285,7 @@ RSpec.describe Agents::Runner do
           tool_calls: [{
             id: "call_123",
             name: "transfer_to_test_agent_b",
-            result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+            arguments: {}
           }]
         ))
 
@@ -355,7 +355,7 @@ RSpec.describe Agents::Runner do
             tool_calls: [{
               id: "call_123",
               name: "transfer_to_test_agent_b",
-              result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+              arguments: {}
             }]
           )
         )
