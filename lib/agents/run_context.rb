@@ -54,51 +54,53 @@
 #   # - base_context remains unmodified
 #   # - Each run has isolated context via .dup
 #   # - No race conditions or data leakage between runs
-class Agents::RunContext
-  attr_reader :context, :usage
+module Agents
+  class RunContext
+    attr_reader :context, :usage
 
-  # Initialize a new RunContext with execution context and usage tracking
-  #
-  # @param context [Hash] The execution context data (will be duplicated for isolation)
-  def initialize(context)
-    @context = context
-    @usage = Usage.new
-  end
-
-  # Usage tracks token consumption across all LLM calls within a single run.
-  # This is very rudimentary usage reporting.
-  # We can use this further for billing purposes, but is not a replacement for tracing.
-  #
-  # @example Accumulating usage from multiple LLM calls
-  #   usage = Agents::RunContext::Usage.new
-  #
-  #   # Add usage from first call
-  #   usage.add(OpenStruct.new(input_tokens: 100, output_tokens: 50, total_tokens: 150))
-  #
-  #   # Add usage from second call
-  #   usage.add(OpenStruct.new(input_tokens: 200, output_tokens: 100, total_tokens: 300))
-  #
-  #   puts usage.total_tokens  # => 450
-  class Usage
-    attr_accessor :input_tokens, :output_tokens, :total_tokens
-
-    # Initialize a new Usage tracker with all counters at zero
-    def initialize
-      @input_tokens = 0
-      @output_tokens = 0
-      @total_tokens = 0
+    # Initialize a new RunContext with execution context and usage tracking
+    #
+    # @param context [Hash] The execution context data (will be duplicated for isolation)
+    def initialize(context)
+      @context = context
+      @usage = Usage.new
     end
 
-    # Add usage metrics from an LLM response to the running totals.
-    # Safely handles nil values in the usage object.
+    # Usage tracks token consumption across all LLM calls within a single run.
+    # This is very rudimentary usage reporting.
+    # We can use this further for billing purposes, but is not a replacement for tracing.
     #
-    # @param usage [Object] An object responding to input_tokens, output_tokens, and total_tokens
-    # @example Adding usage from an LLM response
-    #   usage.add(llm_response.usage)
-    def add(usage)
-      @input_tokens += usage.input_tokens || 0
-      @output_tokens += usage.output_tokens || 0
-      @total_tokens += usage.total_tokens || 0
+    # @example Accumulating usage from multiple LLM calls
+    #   usage = Agents::RunContext::Usage.new
+    #
+    #   # Add usage from first call
+    #   usage.add(OpenStruct.new(input_tokens: 100, output_tokens: 50, total_tokens: 150))
+    #
+    #   # Add usage from second call
+    #   usage.add(OpenStruct.new(input_tokens: 200, output_tokens: 100, total_tokens: 300))
+    #
+    #   puts usage.total_tokens  # => 450
+    class Usage
+      attr_accessor :input_tokens, :output_tokens, :total_tokens
+
+      # Initialize a new Usage tracker with all counters at zero
+      def initialize
+        @input_tokens = 0
+        @output_tokens = 0
+        @total_tokens = 0
+      end
+
+      # Add usage metrics from an LLM response to the running totals.
+      # Safely handles nil values in the usage object.
+      #
+      # @param usage [Object] An object responding to input_tokens, output_tokens, and total_tokens
+      # @example Adding usage from an LLM response
+      #   usage.add(llm_response.usage)
+      def add(usage)
+        @input_tokens += usage.input_tokens || 0
+        @output_tokens += usage.output_tokens || 0
+        @total_tokens += usage.total_tokens || 0
+      end
     end
   end
 end
