@@ -17,6 +17,11 @@ module Agents
         @use_sse = options[:use_sse] || false
         @uri = URI(@base_url)
         @http = nil
+        
+        # Auto-detect SSE from URL or headers
+        if @base_url.include?("/sse") || @headers["Accept"] == "text/event-stream"
+          @use_sse = true
+        end
       end
 
       def connect
@@ -77,7 +82,8 @@ module Agents
       end
 
       def send_sse_request(endpoint, request)
-        uri = URI.join(@base_url, endpoint)
+        # For SSE endpoints, use the base URL directly
+        uri = endpoint.empty? ? @uri : URI.join(@base_url, endpoint)
         http_request = Net::HTTP::Post.new(uri)
         
         # Set headers for SSE
