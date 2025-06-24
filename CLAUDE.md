@@ -176,3 +176,11 @@ Note: The airline booking scenario is purely demonstrative. The SDK is not limit
 5. **Thread Safety**: Agents are designed to be stateless with context passed through execution rather than stored in instance variables.
 
 6. **Library vs Example Code**: The core library (lib/agents/*) must remain completely generic and free of domain-specific logic. All domain-specific implementations (airline booking, FAQ systems, etc.) belong exclusively in the examples directory.
+
+### Testing Guidelines
+
+When writing tests, follow the rules: 
+1. Avoid stubbing using allow_any_instance_of`
+2. Each example block `it ... end` should have less than 20 lines
+3. Example group should not have more than 10 memoized helpers, not more than 10 except statements
+```

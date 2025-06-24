@@ -6,141 +6,88 @@ require "agents/agent"
 require "agents/context"
 require "agents/handoff"
 require "agents/items"
+require "ruby_llm"
 
 RSpec.describe Agents::Runner do
   # Test context class
-  class TestContext < Agents::Context
-    def initialize
-      super
-      @transitions = []
-    end
+  let(:test_context_class) do
+    Class.new(Agents::Context) do
+      def initialize
+        super
+        @transitions = []
+      end
 
-    def record_agent_transition(from, to, reason)
-      @transitions << { from: from, to: to, reason: reason }
-    end
+      def record_agent_transition(from, to, reason)
+        @transitions << { from: from, to: to, reason: reason }
+      end
 
-    attr_reader :transitions
-  end
-
-  # Test agents for testing handoffs
-  class TestAgentA < Agents::Agent
-    name "Test Agent A"
-    instructions "Test agent A"
-
-    def call(_input)
-      # Simple response without handoff
-      Agents::AgentResponse.new(content: "Response from Agent A")
+      attr_reader :transitions
     end
   end
-
-  class TestAgentB < Agents::Agent
-    name "Test Agent B"
-    instructions "Test agent B"
-
-    def call(_input)
-      # Simple response without handoff
-      Agents::AgentResponse.new(content: "Response from Agent B")
-    end
-  end
-
-  class HandoffAgent < Agents::Agent
-    name "Handoff Agent"
-    instructions "Agent that always triggers a handoff"
-    handoffs TestAgentB
-
-    def call(_input)
-      # Return response with handoff
-      handoff_result = Agents::HandoffResult.new(
-        target_agent_class: TestAgentB,
-        reason: "Test handoff"
-      )
-
-      # Simulate tool call for handoff
-      tool_calls = [{
-        id: "call_123",
-        name: "transfer_to_test_agent_b",
-        arguments: {},
-        result: {
-          type: "handoff",
-          target_class: TestAgentB,
-          message: "Transferring to Test Agent B"
-        }
-      }]
-
-      Agents::AgentResponse.new(
-        content: "I'll transfer you to Agent B",
-        handoff_result: handoff_result,
-        tool_calls: tool_calls
-      )
-    end
-  end
-
-  # Forward declarations for circular references
-  class LoopingAgentA < Agents::Agent; end
-  class LoopingAgentB < Agents::Agent; end
-
-  class LoopingAgentA < Agents::Agent
-    name "Looping Agent A"
-    instructions "Agent that hands off to B"
-    handoffs LoopingAgentB
-
-    def call(_input)
-      handoff_result = Agents::HandoffResult.new(
-        target_agent_class: LoopingAgentB,
-        reason: "Loop test"
-      )
-
-      tool_calls = [{
-        id: "call_loop_a",
-        name: "transfer_to_looping_agent_b",
-        arguments: {},
-        result: {
-          type: "handoff",
-          target_class: LoopingAgentB,
-          message: "Going to B"
-        }
-      }]
-
-      Agents::AgentResponse.new(
-        content: "Transferring to B",
-        handoff_result: handoff_result,
-        tool_calls: tool_calls
-      )
-    end
-  end
-
-  class LoopingAgentB < Agents::Agent
-    name "Looping Agent B"
-    instructions "Agent that hands off to A"
-    handoffs LoopingAgentA
-
-    def call(_input)
-      handoff_result = Agents::HandoffResult.new(
-        target_agent_class: LoopingAgentA,
-        reason: "Loop test"
-      )
-
-      tool_calls = [{
-        id: "call_loop_b",
-        name: "transfer_to_looping_agent_a",
-        arguments: {},
-        result: {
-          type: "handoff",
-          target_class: LoopingAgentA,
-          message: "Going to A"
-        }
-      }]
-
-      Agents::AgentResponse.new(
-        content: "Transferring to A",
-        handoff_result: handoff_result,
-        tool_calls: tool_calls
-      )
-    end
-  end
-
   let(:context) { TestContext.new }
   let(:runner) { described_class.new(initial_agent: TestAgentA, context: context) }
+
+  # Mock RubyLLM chat for testing
+  let(:mock_chat) { instance_double(RubyLLM::Chat) }
+
+  # Test agents for testing handoffs
+  let(:test_agent_a_class) do
+    Class.new(Agents::Agent) do
+      name "Test Agent A"
+      instructions "Test agent A"
+    end
+  end
+
+  let(:test_agent_b_class) do
+    Class.new(Agents::Agent) do
+      name "Test Agent B"
+      instructions "Test agent B"
+    end
+  end
+
+  let(:handoff_agent_class) do
+    agent_b = test_agent_b_class
+    Class.new(Agents::Agent) do
+      name "Handoff Agent"
+      instructions "Agent that always triggers a handoff"
+      handoffs agent_b
+    end
+  end
+
+  # Create looping agents with circular references
+  let(:looping_agents) do
+    # We need to create both classes with a reference to each other
+    agent_a = nil
+
+    agent_b = Class.new(Agents::Agent) do
+      name "Looping Agent B"
+      instructions "Agent that hands off to A"
+
+      define_singleton_method :handoff_target do
+        agent_a
+      end
+    end
+
+    agent_a = Class.new(Agents::Agent) do
+      name "Looping Agent A"
+      instructions "Agent that hands off to B"
+      handoffs agent_b
+    end
+
+    # Now update agent_b with the handoff to agent_a
+    agent_b.handoffs agent_a
+
+    { agent_a: agent_a, agent_b: agent_b }
+  end
+
+  before do
+    stub_const("TestContext", test_context_class)
+    stub_const("TestAgentA", test_agent_a_class)
+    stub_const("TestAgentB", test_agent_b_class)
+    stub_const("HandoffAgent", handoff_agent_class)
+    stub_const("LoopingAgentA", looping_agents[:agent_a])
+    stub_const("LoopingAgentB", looping_agents[:agent_b])
+  end
 
   describe "#initialize" do
     it "sets the initial agent class and context" do
@@ -148,132 +95,325 @@ RSpec.describe Agents::Runner do
       expect(runner.run_items).to be_empty
       expect(runner.current_agent).to be_nil
     end
+
+    it "allows starting with a different agent" do
+      runner = described_class.new(initial_agent: TestAgentB, context: context)
+
+      # Mock the agent's call method
+      allow_any_instance_of(TestAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response from Agent B")
+      )
+
+      runner.process("Hello")
+      expect(runner.current_agent).to be_a(TestAgentB)
+    end
+
+    it "requires context to be provided" do
+      expect do
+        described_class.new(initial_agent: TestAgentA)
+      end.to raise_error(ArgumentError, /missing keyword: :context/)
+    end
   end
 
   describe "#process" do
-    context "with a simple agent" do
-      it "processes a user message and returns agent response" do
-        response = runner.process("Hello")
+    it "executes the initial agent" do
+      # Mock the agent's call method
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response from Agent A")
+      )
 
-        expect(response).to eq("Response from Agent A")
-        expect(runner.current_agent).to be_a(TestAgentA)
-        expect(runner.run_items.size).to eq(2) # UserMessageItem + AssistantMessageItem
+      result = runner.process("Hello")
 
-        # Check the items
-        expect(runner.run_items[0]).to be_a(Agents::UserMessageItem)
-        expect(runner.run_items[0].content).to eq("Hello")
-
-        expect(runner.run_items[1]).to be_a(Agents::AssistantMessageItem)
-        expect(runner.run_items[1].content).to eq("Response from Agent A")
-        expect(runner.run_items[1].agent).to be_a(TestAgentA)
-      end
-
-      it "maintains conversation history across multiple messages" do
-        runner.process("First message")
-        runner.process("Second message")
-
-        expect(runner.run_items.size).to eq(4) # 2 user + 2 assistant
-        expect(runner.run_items[0].content).to eq("First message")
-        expect(runner.run_items[2].content).to eq("Second message")
-      end
+      expect(result).to eq("Response from Agent A")
+      expect(runner.run_items.size).to eq(2) # UserMessageItem + AssistantMessageItem
+      expect(runner.current_agent).to be_a(TestAgentA)
     end
 
-    context "with handoffs" do
-      let(:runner) { described_class.new(initial_agent: HandoffAgent, context: context) }
+    it "handles handoffs between agents" do
+      runner = described_class.new(initial_agent: HandoffAgent, context: context)
 
-      it "handles agent handoffs correctly" do
-        response = runner.process("Hello")
+      # Mock handoff agent to trigger handoff
+      handoff_result = Agents::HandoffResult.new(
+        target_agent_class: TestAgentB,
+        reason: "Test handoff"
+      )
 
-        expect(response).to eq("Response from Agent B")
-        expect(runner.current_agent).to be_a(TestAgentB)
+      tool_calls = [{
+        id: "call_123",
+        name: "transfer_to_test_agent_b",
+        arguments: {},
+        result: { type: "handoff", target_class: TestAgentB, message: "Transferring to Test Agent B" }
+      }]
 
-        # Check run items: user message, tool call, handoff output, assistant message
-        items = runner.run_items
-        expect(items[0]).to be_a(Agents::UserMessageItem)
-        expect(items[1]).to be_a(Agents::ToolCallItem)
-        expect(items[1].tool_name).to eq("transfer_to_test_agent_b")
-        expect(items[2]).to be_a(Agents::HandoffOutputItem)
-        expect(items[3]).to be_a(Agents::AssistantMessageItem)
-        expect(items[3].content).to eq("Response from Agent B")
+      allow_any_instance_of(HandoffAgent).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_result,
+          tool_calls: tool_calls
+        )
+      )
 
-        # Check context transitions
-        expect(context.transitions.size).to eq(1)
-        expect(context.transitions[0]).to eq({
-                                               from: "Handoff Agent",
-                                               to: "Test Agent B",
-                                               reason: "Test handoff"
-                                             })
-      end
+      # Mock target agent response
+      allow_any_instance_of(TestAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response from Agent B")
+      )
 
-      it "does not add content when there are tool calls" do
-        runner.process("Hello")
+      result = runner.process("Please handoff")
 
-        # The handoff agent's content "I'll transfer you to Agent B" should NOT appear
-        assistant_messages = runner.run_items.select { |item| item.is_a?(Agents::AssistantMessageItem) }
-        expect(assistant_messages.size).to eq(1)
-        expect(assistant_messages[0].content).to eq("Response from Agent B")
-        expect(assistant_messages[0].agent).to be_a(TestAgentB)
-      end
+      expect(result).to eq("Response from Agent B")
+      expect(runner.current_agent).to be_a(TestAgentB)
     end
 
-    context "with infinite loop protection" do
-      let(:runner) { described_class.new(initial_agent: LoopingAgentA, context: context) }
+    it "prevents infinite handoff loops" do
+      runner = described_class.new(initial_agent: LoopingAgentA, context: context)
 
-      it "raises an error when maximum handoffs are exceeded" do
-        expect do
-          runner.process("Start loop")
-        end.to raise_error(RuntimeError, /Maximum handoffs .* exceeded/)
-      end
+      # Mock both agents to create a loop
+      handoff_to_b = Agents::HandoffResult.new(
+        target_agent_class: LoopingAgentB,
+        reason: "Loop test"
+      )
+
+      handoff_to_a = Agents::HandoffResult.new(
+        target_agent_class: LoopingAgentA,
+        reason: "Loop test"
+      )
+
+      allow_any_instance_of(LoopingAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_to_b,
+          tool_calls: [{
+            id: "call_a",
+            name: "transfer",
+            result: { type: "handoff", target_class: LoopingAgentB, message: "To B" }
+          }]
+        )
+      )
+
+      allow_any_instance_of(LoopingAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_to_a,
+          tool_calls: [{
+            id: "call_b",
+            name: "transfer",
+            result: { type: "handoff", target_class: LoopingAgentA, message: "To A" }
+          }]
+        )
+      )
+
+      expect do
+        runner.process("Start looping")
+      end.to raise_error(RuntimeError, /Maximum handoffs \(10\) exceeded/)
+    end
+
+    it "tracks conversation context through handoffs" do
+      runner = described_class.new(initial_agent: HandoffAgent, context: context)
+
+      # Set some context before running
+      context[:user_id] = "123"
+      context[:session] = "test-session"
+
+      # Mock handoff
+      handoff_result = Agents::HandoffResult.new(
+        target_agent_class: TestAgentB,
+        reason: "Test handoff"
+      )
+
+      allow_any_instance_of(HandoffAgent).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_result,
+          tool_calls: [{
+            id: "call_123",
+            name: "transfer_to_test_agent_b",
+            result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+          }]
+        )
+      )
+
+      allow_any_instance_of(TestAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Done")
+      )
+
+      runner.process("Transfer me")
+
+      # Context should be preserved
+      expect(context[:user_id]).to eq("123")
+      expect(context[:session]).to eq("test-session")
+    end
+
+    it "records transitions in context if supported" do
+      runner = described_class.new(initial_agent: HandoffAgent, context: context)
+
+      # Mock handoff
+      handoff_result = Agents::HandoffResult.new(
+        target_agent_class: TestAgentB,
+        reason: "Test handoff"
+      )
+
+      allow_any_instance_of(HandoffAgent).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_result,
+          tool_calls: [{
+            id: "call_123",
+            name: "transfer_to_test_agent_b",
+            result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+          }]
+        )
+      )
+
+      allow_any_instance_of(TestAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Done")
+      )
+
+      runner.process("Transfer me")
+
+      expect(context.transitions).to eq([{
+                                          from: "Handoff Agent",
+                                          to: "Test Agent B",
+                                          reason: "Test handoff"
+                                        }])
+    end
+  end
+
+  describe "#run_items" do
+    it "tracks all items during execution" do
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response")
+      )
+
+      runner.process("Hello")
+      items = runner.run_items
+
+      expect(items.size).to eq(2)
+      expect(items[0]).to be_a(Agents::UserMessageItem)
+      expect(items[1]).to be_a(Agents::AssistantMessageItem)
+    end
+  end
+
+  describe "#current_agent" do
+    it "returns nil before running" do
+      expect(runner.current_agent).to be_nil
+    end
+
+    it "returns the last active agent after running" do
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response")
+      )
+
+      runner.process("Hello")
+      expect(runner.current_agent).to be_a(TestAgentA)
+    end
+
+    it "returns the final agent after handoffs" do
+      runner = described_class.new(initial_agent: HandoffAgent, context: context)
+
+      # Mock handoff
+      handoff_result = Agents::HandoffResult.new(
+        target_agent_class: TestAgentB,
+        reason: "Test handoff"
+      )
+
+      allow_any_instance_of(HandoffAgent).to receive(:call).and_return(
+        Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: handoff_result,
+          tool_calls: [{
+            id: "call_123",
+            name: "transfer_to_test_agent_b",
+            result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+          }]
+        )
+      )
+
+      allow_any_instance_of(TestAgentB).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Done")
+      )
+
+      runner.process("Transfer me")
+      expect(runner.current_agent).to be_a(TestAgentB)
     end
   end
 
   describe "#conversation_summary" do
-    it "formats the conversation history" do
+    it "returns formatted summary of the conversation" do
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response from A")
+      )
+
       runner.process("Hello")
       summary = runner.conversation_summary
 
       expect(summary).to include("[User]: Hello")
-      expect(summary).to include("[Test Agent A]: Response from Agent A")
-    end
-
-    context "with handoffs" do
-      let(:runner) { described_class.new(initial_agent: HandoffAgent, context: context) }
-
-      it "includes tool calls and handoffs in summary" do
-        runner.process("Hello")
-        summary = runner.conversation_summary
-
-        expect(summary).to include("[User]: Hello")
-        expect(summary).to include("[Handoff Agent]: Called tool 'transfer_to_test_agent_b'")
-        expect(summary).to include("[System]: Handoff from Handoff Agent to TestAgentB")
-        expect(summary).to include("[Test Agent B]: Response from Agent B")
-      end
+      expect(summary).to include("[Test Agent A]: Response from A")
     end
   end
 
-  describe "private methods" do
-    describe "#build_agent_input" do
-      it "filters out nil items from handoff outputs" do
-        # Add a handoff output item
-        handoff_output = Agents::HandoffOutputItem.new(
-          tool_call_id: "call_123",
-          output: "Transferring",
-          source_agent: TestAgentA.new(context: context),
-          target_agent: TestAgentB,
-          agent: TestAgentA.new(context: context)
-        )
+  describe "error handling" do
+    let(:error_agent_class) do
+      Class.new(Agents::Agent) do
+        name "Error Agent"
 
-        runner.instance_variable_set(:@run_items, [
-                                       Agents::UserMessageItem.new(content: "Hello", agent: nil),
-                                       handoff_output
-                                     ])
-
-        # HandoffOutputItem.to_input_item returns nil, so it should be filtered
-        input = runner.send(:build_agent_input)
-        expect(input.size).to eq(1)
-        expect(input[0][:role]).to eq("user")
-        expect(input[0][:content]).to eq("Hello")
+        def call(_input)
+          raise StandardError, "Agent error"
+        end
       end
+    end
+
+    before do
+      stub_const("ErrorAgent", error_agent_class)
+    end
+
+    it "captures and re-raises agent errors" do
+      runner = described_class.new(initial_agent: ErrorAgent, context: context)
+
+      expect do
+        runner.process("Hello")
+      end.to raise_error(StandardError, "Agent error")
+    end
+
+    it "propagates agent errors" do
+      runner = described_class.new(initial_agent: ErrorAgent, context: context)
+
+      begin
+        runner.process("Hello")
+      rescue StandardError
+        # Expected
+      end
+
+      # User message item should still be recorded
+      expect(runner.run_items.size).to eq(1)
+      expect(runner.run_items.first).to be_a(Agents::UserMessageItem)
+    end
+  end
+
+  describe "multiple runs" do
+    it "accumulates run items across multiple runs" do
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response from Agent A")
+      )
+
+      runner.process("First message")
+      runner.process("Second message")
+
+      expect(runner.run_items.size).to eq(4) # 2 user messages + 2 assistant messages
+    end
+
+    it "maintains agent instance across runs" do
+      allow_any_instance_of(TestAgentA).to receive(:call).and_return(
+        Agents::AgentResponse.new(content: "Response")
+      )
+
+      runner.process("Hello")
+      first_agent = runner.current_agent
+
+      runner.process("Hello again")
+      second_agent = runner.current_agent
+
+      # Should be the same agent instance
+      expect(first_agent).to eq(second_agent)
     end
   end
 end

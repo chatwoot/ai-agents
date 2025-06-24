@@ -19,5 +19,8 @@ RSpec/ExampleLength:
 RSpec/MultipleMemoizedHelpers:
   Max: 10
 
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
 Metrics/MethodLength:
   Max: 20
