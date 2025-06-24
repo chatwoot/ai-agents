@@ -150,32 +150,6 @@ module Agents
           agent: @current_agent
         )
         @run_items << tool_call_item
-
-        # Handle the result if it's already computed
-        next unless tool_call[:result]
-
-        result = tool_call[:result]
-
-        # Check if this is a handoff
-        if result.is_a?(Hash) && result[:type] == "handoff"
-          # Create handoff output item
-          handoff_output = HandoffOutputItem.new(
-            tool_call_id: tool_call_item.call_id,
-            output: result[:message],
-            source_agent: @current_agent,
-            target_agent: result[:target_class],
-            agent: @current_agent
-          )
-          @run_items << handoff_output
-        else
-          # Regular tool output
-          tool_output = ToolOutputItem.new(
-            tool_call_id: tool_call_item.call_id,
-            output: result,
-            agent: @current_agent
-          )
-          @run_items << tool_output
-        end
       end
     end
 

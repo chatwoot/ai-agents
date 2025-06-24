@@ -143,14 +143,6 @@ RSpec.describe Agents::Runner do
           reason: "Test handoff"
         )
       end
-      let(:tool_calls) do
-        [{
-          id: "call_123",
-          name: "transfer_to_test_agent_b",
-          arguments: {},
-          result: { type: "handoff", target_class: TestAgentB, message: "Transferring to Test Agent B" }
-        }]
-      end
 
       before do
         allow(HandoffAgent).to receive(:new).with(context: context).and_return(handoff_agent)
@@ -160,7 +152,11 @@ RSpec.describe Agents::Runner do
           Agents::AgentResponse.new(
             content: nil,
             handoff_result: handoff_result,
-            tool_calls: tool_calls
+            tool_calls: [{
+              id: "call_123",
+              name: "transfer_to_test_agent_b",
+              arguments: {}
+            }]
           )
         )
 

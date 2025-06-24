@@ -253,15 +253,11 @@ module Agents
       if response.respond_to?(:tool_calls) && response.tool_calls
         # Process each tool call
         response.tool_calls.each do |tool_call|
-          # Get the tool result if it was executed
-          tool_result = (tool_call.result if tool_call.respond_to?(:result))
-
           # Build tool call information
           tool_calls << {
             id: tool_call.id || SecureRandom.uuid,
             name: tool_call.name,
-            arguments: tool_call.arguments || {},
-            result: tool_result
+            arguments: tool_call.arguments || {}
           }
         end
       end

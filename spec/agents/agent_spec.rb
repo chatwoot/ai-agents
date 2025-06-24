@@ -307,8 +307,7 @@ RSpec.describe Agents::Agent do
           expect(result.tool_calls).to eq([{
                                             id: "call_123",
                                             name: "test_tool",
-                                            arguments: { input: "test" },
-                                            result: nil
+                                            arguments: { input: "test" }
                                           }])
         end
       end
