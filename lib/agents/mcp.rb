@@ -55,33 +55,45 @@ module Agents
 
         return @tools_cache if @cache_enabled && @tools_cache && !force_refresh
 
-        response = @transport.send_request({
-                                             jsonrpc: "2.0",
-                                             id: generate_request_id,
-                                             method: "tools/list",
-                                             params: {}
-                                           })
+        Agents::Tracing.with_span(
+          name: "MCP:list_tools",
+          category: :mcp,
+          metadata: mcp_list_tools_metadata
+        ) do
+          response = @transport.send_request({
+                                               jsonrpc: "2.0",
+                                               id: generate_request_id,
+                                               method: "tools/list",
+                                               params: {}
+                                             })
 
-        tools = parse_tools_response(response)
-        @tools_cache = tools if @cache_enabled
-        tools
+          tools = parse_tools_response(response)
+          @tools_cache = tools if @cache_enabled
+          tools
+        end
       end
 
       # Call a specific tool on the MCP server
       def call_tool(name, arguments = {})
         ensure_connected!
 
-        response = @transport.send_request({
-                                             jsonrpc: "2.0",
-                                             id: generate_request_id,
-                                             method: "tools/call",
-                                             params: {
-                                               name: name,
-                                               arguments: arguments
-                                             }
-                                           })
+        Agents::Tracing.with_span(
+          name: "MCP:call_tool:#{name}",
+          category: :mcp,
+          metadata: mcp_call_tool_metadata(name, arguments)
+        ) do
+          response = @transport.send_request({
+                                               jsonrpc: "2.0",
+                                               id: generate_request_id,
+                                               method: "tools/call",
+                                               params: {
+                                                 name: name,
+                                                 arguments: arguments
+                                               }
+                                             })
 
-        parse_tool_call_response(response)
+          parse_tool_call_response(response)
+        end
       end
 
       # Invalidate the tools cache
@@ -154,6 +166,56 @@ module Agents
           ToolResult.new(content)
         end
       end
+
+      # Generate metadata for MCP list_tools span
+      # @return [Hash] MCP list tools metadata
+      def mcp_list_tools_metadata
+        {
+          mcp_server: @name,
+          transport_type: @transport_type.to_s,
+          cache_enabled: @cache_enabled,
+          cached_result: @cache_enabled && @tools_cache ? true : false
+        }
+      end
+
+      # Generate metadata for MCP call_tool span
+      # @param tool_name [String] Name of the tool being called
+      # @param arguments [Hash] Tool arguments
+      # @return [Hash] MCP call tool metadata
+      def mcp_call_tool_metadata(tool_name, arguments)
+        metadata = {
+          mcp_server: @name,
+          transport_type: @transport_type.to_s,
+          tool_name: tool_name,
+          args_count: arguments.keys.length
+        }
+
+        # Include arguments if sensitive data is allowed
+        if Agents.configuration.respond_to?(:tracing) &&
+           Agents.configuration.tracing.respond_to?(:include_sensitive_data) &&
+           Agents.configuration.tracing.include_sensitive_data
+
+          metadata[:args] = truncate_mcp_args(arguments)
+        end
+
+        metadata
+      end
+
+      # Truncate MCP arguments for storage
+      # @param args [Hash] MCP arguments
+      # @return [Hash] Truncated arguments
+      def truncate_mcp_args(args)
+        args.transform_values do |value|
+          case value
+          when String
+            value.length > 200 ? "#{value[0...200]}... [truncated]" : value
+          when Hash, Array
+            value.inspect.length > 200 ? "#{value.inspect[0...200]}... [truncated]" : value
+          else
+            value
+          end
+        end
+      end
     end
 
     # MCP Tool representation - dynamically creates tool classes
@@ -188,9 +250,7 @@ module Agents
                            else String
                            end
               param_desc = prop_schema["description"] || ""
-              if prop_schema["enum"]
-                param_desc += " (Options: #{prop_schema["enum"].join(", ")})"
-              end
+              param_desc += " (Options: #{prop_schema["enum"].join(", ")})" if prop_schema["enum"]
             end
 
             is_required = required_props.include?(prop_name)
@@ -213,6 +273,28 @@ module Agents
             @client.call_tool(@mcp_name, mcp_args)
           end
 
+          # Override tool_span_metadata to indicate this is an MCP tool
+          define_method :tool_span_metadata do |args|
+            metadata = {
+              tool_name: @mcp_name,
+              tool_type: "mcp",
+              mcp_server: @client.name,
+              args_count: args.keys.length
+            }
+
+            # Include arguments if sensitive data is allowed
+            if Agents.configuration.respond_to?(:tracing) && 
+               Agents.configuration.tracing.respond_to?(:include_sensitive_data) &&
+               Agents.configuration.tracing.include_sensitive_data
+
+              # Filter out context from args for logging
+              safe_args = args.reject { |k, _| k == :context }
+              metadata[:args] = truncate_tool_args(safe_args)
+            end
+
+            metadata
+          end
+
           define_method :name do
             @mcp_name
           end
@@ -224,10 +306,6 @@ module Agents
 
         # Create instance of the dynamic class
         tool_class.new
-      end
-
-      def initialize
-        super()
       end
     end
 
@@ -266,7 +344,7 @@ end
 # This fixes OpenAI validation that requires array parameters to have items
 begin
   require "ruby_llm/providers/openai/tools"
-  
+
   module RubyLLM
     module Providers
       module OpenAI
@@ -277,12 +355,10 @@ begin
               type: param.type,
               description: param.description
             }.compact
-            
+
             # Add items for array types to fix OpenAI validation
-            if param.type == "array"
-              schema[:items] = { type: "string" }
-            end
-            
+            schema[:items] = { type: "string" } if param.type == "array"
+
             schema
           end
         end
