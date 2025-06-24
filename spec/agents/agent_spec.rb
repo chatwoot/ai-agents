@@ -199,7 +199,7 @@ RSpec.describe Agents::Agent do
 
     describe "#call" do
       let(:chat) { instance_double(RubyLLM::Chat) }
-      let(:response) { instance_double(LLMResponse, content: "AI response", tool_calls: nil) }
+      let(:response) { double("response", content: "AI response", tool_calls: nil) }
 
       before do
         allow(RubyLLM).to receive(:chat).and_return(chat)
@@ -285,21 +285,22 @@ RSpec.describe Agents::Agent do
       end
 
       it "handles tool calls in response" do
-        tool_call = instance_double(
-          ToolCall,
+        tool_call = double(
+          "tool_call",
           id: "call_123",
           name: "test_tool",
           arguments: { input: "test" },
           result: "Tool result"
         )
-        response_with_tools = instance_double(
-          LLMResponse,
+        response_with_tools = double(
+          "response",
           content: "AI response",
           tool_calls: [tool_call]
         )
         allow(chat).to receive(:ask).and_return(response_with_tools)
 
         result = agent.call("Use the tool")
+        expect(result).to be_a(Agents::AgentResponse)
         expect(result.tool_calls).to eq([{
                                           id: "call_123",
                                           name: "test_tool",
