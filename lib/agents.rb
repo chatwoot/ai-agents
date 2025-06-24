@@ -20,8 +20,12 @@ require_relative "agents/tool"
 # require_relative "agents/handoff"
 # require_relative "agents/guardrail"
 require_relative "agents/agent"
-# require_relative "agents/runner"
+require_relative "agents/contextualized_tool_wrapper"
+require_relative "agents/runner"
 # require_relative "agents/items"
+
+# Load RubyLLM extensions last to ensure monkey patching happens after all classes are defined
+require_relative "agents/ruby_llm_extensions"
 
 # module Agents
 #   # Recommended prompt prefix for agents that use handoffs
