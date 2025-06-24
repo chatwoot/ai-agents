@@ -199,7 +199,8 @@ RSpec.describe Agents::Agent do
 
     describe "#call" do
       let(:chat) { instance_double(RubyLLM::Chat) }
-      let(:response) { double("response", content: "AI response", tool_calls: nil) }
+
+      let(:response) { instance_double(RubyLLM::Message, content: "AI response", tool_calls: nil) }
 
       before do
         allow(RubyLLM).to receive(:chat).and_return(chat)
@@ -284,29 +285,33 @@ RSpec.describe Agents::Agent do
         expect(chat).to have_received(:with_tool).exactly(1).time # 1 handoff tool
       end
 
-      it "handles tool calls in response" do
-        tool_call = double(
-          "tool_call",
-          id: "call_123",
-          name: "test_tool",
-          arguments: { input: "test" },
-          result: "Tool result"
-        )
-        response_with_tools = double(
-          "response",
-          content: "AI response",
-          tool_calls: [tool_call]
-        )
-        allow(chat).to receive(:ask).and_return(response_with_tools)
+      context "with tool calls in response" do
+        let(:tool_call) do
+          instance_double(ToolCall,
+                          id: "call_123",
+                          name: "test_tool",
+                          arguments: { input: "test" },
+                          result: "Tool result")
+        end
 
-        result = agent.call("Use the tool")
-        expect(result).to be_a(Agents::AgentResponse)
-        expect(result.tool_calls).to eq([{
-                                          id: "call_123",
-                                          name: "test_tool",
-                                          arguments: { input: "test" },
-                                          result: "Tool result"
-                                        }])
+        let(:response_with_tools) do
+          instance_double(RubyLLM::Message,
+                          content: "AI response",
+                          tool_calls: [tool_call])
+        end
+
+        it "handles tool calls in response" do
+          allow(chat).to receive(:ask).and_return(response_with_tools)
+
+          result = agent.call("Use the tool")
+          expect(result).to be_a(Agents::AgentResponse)
+          expect(result.tool_calls).to eq([{
+                                            id: "call_123",
+                                            name: "test_tool",
+                                            arguments: { input: "test" },
+                                            result: "Tool result"
+                                          }])
+        end
       end
     end
 

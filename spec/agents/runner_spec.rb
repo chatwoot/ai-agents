@@ -279,27 +279,21 @@ RSpec.describe Agents::Runner do
         allow(TestAgentB).to receive(:new).with(context: context).and_return(agent_b)
 
         # Mock the class method to return the correct name
-        allow(handoff_agent).to receive_message_chain(:class, :name).and_return("Handoff Agent")
-        allow(agent_b).to receive_message_chain(:class, :name).and_return("Test Agent B")
 
-        allow(handoff_agent).to receive(:call).and_return(
-          Agents::AgentResponse.new(
-            content: nil,
-            handoff_result: Agents::HandoffResult.new(
-              target_agent_class: TestAgentB,
-              reason: "Test handoff"
-            ),
-            tool_calls: [{
-              id: "call_123",
-              name: "transfer_to_test_agent_b",
-              result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
-            }]
-          )
-        )
+        allow(handoff_agent).to receive_messages(class: HandoffAgent, call: Agents::AgentResponse.new(
+          content: nil,
+          handoff_result: Agents::HandoffResult.new(
+            target_agent_class: TestAgentB,
+            reason: "Test handoff"
+          ),
+          tool_calls: [{
+            id: "call_123",
+            name: "transfer_to_test_agent_b",
+            result: { type: "handoff", target_class: TestAgentB, message: "Transferring" }
+          }]
+        ))
 
-        allow(agent_b).to receive(:call).and_return(
-          Agents::AgentResponse.new(content: "Done")
-        )
+        allow(agent_b).to receive_messages(class: TestAgentB, call: Agents::AgentResponse.new(content: "Done"))
       end
 
       it "records transitions in context" do
@@ -386,10 +380,7 @@ RSpec.describe Agents::Runner do
     it "returns formatted summary of the conversation" do
       agent_a = instance_double(TestAgentA)
       allow(TestAgentA).to receive(:new).with(context: context).and_return(agent_a)
-      allow(agent_a).to receive(:call).and_return(
-        Agents::AgentResponse.new(content: "Response from A")
-      )
-      allow(agent_a).to receive_message_chain(:class, :name).and_return("Test Agent A")
+      allow(agent_a).to receive_messages(call: Agents::AgentResponse.new(content: "Response from A"), class: TestAgentA)
 
       runner.process("Hello")
       summary = runner.conversation_summary
