@@ -19,6 +19,9 @@ require_relative "agents/handoff"
 require_relative "agents/guardrail"
 require_relative "agents/agent"
 require_relative "agents/runner"
+require_relative "agents/mcp"
+require_relative "agents/mcp/stdio_transport"
+require_relative "agents/mcp/http_transport"
 
 module Agents
   # Recommended prompt prefix for agents that use handoffs

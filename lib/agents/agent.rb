@@ -32,7 +32,7 @@ module Agents
 
     class << self
       attr_reader :agent_name, :agent_instructions, :agent_provider, :agent_model, :agent_tools,
-                  :agent_input_guardrails, :agent_output_guardrails
+                  :agent_input_guardrails, :agent_output_guardrails, :agent_mcp_clients
 
       # Set or get the agent name
       # @param value [String, nil] The name to set
@@ -117,6 +117,19 @@ module Agents
         end
       end
 
+      # Register MCP clients for this agent
+      # @param clients [Array<Agents::MCP::Client>] MCP clients to register
+      def mcp_clients(*clients)
+        @agent_mcp_clients ||= []
+        @agent_mcp_clients.concat(clients.flatten)
+      end
+
+      # Get all registered MCP clients
+      # @return [Array<Agents::MCP::Client>] Array of MCP clients
+      def get_mcp_clients
+        @agent_mcp_clients || []
+      end
+
       # Create and call agent in one step (class-level callable interface)
       # @param input [String] The input message
       # @param context [Hash] Additional context
@@ -155,9 +168,12 @@ module Agents
       # Get tools for this agent
       agent_tools = instantiate_tools
 
+      # Get MCP tools from configured clients
+      mcp_tools = instantiate_mcp_tools
+
       # Add handoff tools (converted at runtime like OpenAI SDK)
       handoff_tools = create_handoff_tools
-      all_tools = agent_tools + handoff_tools
+      all_tools = agent_tools + mcp_tools + handoff_tools
 
       # Create RubyLLM chat session
       chat = create_chat_session(execution_context, **options)
@@ -319,6 +335,31 @@ module Agents
       end
 
       # Set context on all tools if we have one
+      tools.each { |tool| tool.set_context(@context) } if @context.is_a?(Agents::Context)
+
+      tools
+    end
+
+    # Instantiate MCP tools from configured clients
+    # @return [Array<Agents::MCP::Tool>] Array of MCP tool instances
+    def instantiate_mcp_tools
+      tools = []
+
+      self.class.get_mcp_clients.each do |mcp_client|
+        begin
+          # Ensure client is connected
+          mcp_client.connect unless mcp_client.connected?
+
+          # Get tools from this MCP server
+          client_tools = mcp_client.list_tools
+          tools.concat(client_tools)
+        rescue Agents::MCP::Error => e
+          # Log the error but don't fail the agent creation
+          warn "Failed to load tools from MCP client '#{mcp_client.name}': #{e.message}"
+        end
+      end
+
+      # Set context on all MCP tools if we have one
       tools.each { |tool| tool.set_context(@context) } if @context.is_a?(Agents::Context)
 
       tools
