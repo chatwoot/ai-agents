@@ -80,7 +80,7 @@ module Agents
 
         # Get response from LLM (RubyLLM handles tool execution)
         response = if current_turn == 1
-                     chat.chat(input)
+                     chat.ask(input)
                    else
                      chat.complete
                    end
@@ -138,11 +138,11 @@ module Agents
         ToolWrapper.new(tool, context_wrapper)
       end
 
-      RubyLLM.chat(
-        model: agent.model,
-        system: system_prompt,
-        tools: wrapped_tools
-      )
+      # Create chat with proper RubyLLM API
+      chat = RubyLLM.chat(model: agent.model)
+      chat.with_instructions(system_prompt) if system_prompt
+      chat.with_tools(*wrapped_tools) if wrapped_tools.any?
+      chat
     end
 
     def extract_messages(chat)
