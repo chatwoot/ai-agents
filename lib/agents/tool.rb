@@ -41,14 +41,20 @@ module Agents
       # @param required [Boolean] Whether the parameter is required
       def param(name, type = String, desc = nil, required: true, **options)
         # Convert Ruby types to JSON schema types
-        json_type = case type
-                    when String, "string" then "string"
-                    when Integer, "integer" then "integer"
-                    when Float, "number" then "number"
-                    when TrueClass, FalseClass, "boolean" then "boolean"
-                    when Array, "array" then "array"
-                    when Hash, "object" then "object"
-                    else "string"
+        json_type = if type == String || type == "string"
+                      "string"
+                    elsif type == Integer || type == "integer"
+                      "integer"
+                    elsif type == Float || type == "number"
+                      "number"
+                    elsif type == TrueClass || type == FalseClass || type == "boolean"
+                      "boolean"
+                    elsif type == Array || type == "array"
+                      "array"
+                    elsif type == Hash || type == "object"
+                      "object"
+                    else
+                      "string"
                     end
 
         # Call parent param method
