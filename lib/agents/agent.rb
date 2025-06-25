@@ -45,10 +45,9 @@ module Agents
       @handoff_agents = handoff_agents
 
       # Automatically create handoff tools
-      # TODO: Enable this once we have the complete implementation for HandoffTool
-      # @handoff_agents.each do |agent|
-      #   @tools << HandoffTool.new(agent: agent)
-      # end
+      @handoff_agents.each do |agent|
+        @tools << HandoffTool.new(agent)
+      end
 
       # Freeze the agent to make it immutable
       freeze

@@ -10,22 +10,28 @@ require_relative "agents/version"
 
 module Agents
   class Error < StandardError; end
+
+  # Logger for debugging (can be set by users)
+  class << self
+    attr_accessor :logger
+  end
 end
 
-# require_relative "agents/context"
-# require_relative "agents/result"
+# Core components
+require_relative "agents/result"
 require_relative "agents/run_context"
 require_relative "agents/tool_context"
 require_relative "agents/tool"
-# require_relative "agents/handoff"
-# require_relative "agents/guardrail"
+require_relative "agents/handoff"
 require_relative "agents/agent"
-require_relative "agents/contextualized_tool_wrapper"
-require_relative "agents/runner"
-# require_relative "agents/items"
 
-# Load RubyLLM extensions last to ensure monkey patching happens after all classes are defined
-require_relative "agents/ruby_llm_extensions"
+# Execution components
+require_relative "agents/tool_wrapper"
+require_relative "agents/runner"
+
+# NOTE: We no longer need these with the clean approach:
+# - agents/contextualized_tool_wrapper (no wrapper needed)
+# - agents/ruby_llm_extensions (no monkey patching)
 
 # module Agents
 #   # Recommended prompt prefix for agents that use handoffs

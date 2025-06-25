@@ -1,40 +1,54 @@
 # frozen_string_literal: true
 
-require "async"
-
 module Agents
-  # Runner orchestrates multi-agent conversations, handling the execution flow,
-  # tool calls, handoffs between agents, and conversation state management.
-  # It integrates with RubyLLM for LLM communication while adding agent-specific
-  # capabilities like handoffs and context management.
+  # The execution engine that orchestrates conversations between users and agents.
+  # Runner manages the conversation flow, handles tool execution through RubyLLM,
+  # coordinates handoffs between agents, and ensures thread-safe operation.
   #
-  # ## Key Responsibilities
-  # 1. Managing conversation turns and enforcing turn limits
-  # 2. Coordinating handoffs between agents
-  # 3. Tracking token usage across all LLM calls
-  # 4. Ensuring thread-safe context passing to tools
+  # The Runner follows a turn-based execution model where each turn consists of:
+  # 1. Sending a message to the LLM with current context
+  # 2. Receiving a response that may include tool calls
+  # 3. Executing tools and getting results (handled by RubyLLM)
+  # 4. Checking for agent handoffs
+  # 5. Continuing until no more tools are called
   #
-  # ## RubyLLM Integration
-  # The Runner works with our enhanced RubyLLM integration:
-  # - Tools are wrapped with ContextualizedToolWrapper before passing to RubyLLM
-  # - RubyLLM handles tool execution internally (we don't execute tools directly)
-  # - Our monkey patch enables parallel tool execution when beneficial
+  # ## Thread Safety
+  # The Runner ensures thread safety by:
+  # - Creating new context wrappers for each execution
+  # - Using tool wrappers that pass context through parameters
+  # - Never storing execution state in shared variables
   #
-  # @example Running a simple agent
-  #   result = Agents::Runner.run(
-  #     my_agent,
-  #     "What's the weather in NYC?",
-  #     context: { user_id: 123 }
+  # ## Integration with RubyLLM
+  # We leverage RubyLLM for LLM communication and tool execution while
+  # maintaining our own context management and handoff logic.
+  #
+  # @example Simple conversation
+  #   agent = Agents::Agent.new(
+  #     name: "Assistant",
+  #     instructions: "You are a helpful assistant",
+  #     tools: [weather_tool]
   #   )
-  #   puts result.output
   #
-  # @example Multi-agent conversation with handoffs
+  #   result = Agents::Runner.run(agent, "What's the weather?")
+  #   puts result.output
+  #   # => "Let me check the weather for you..."
+  #
+  # @example Conversation with context
   #   result = Agents::Runner.run(
   #     support_agent,
-  #     "I need help with my bill",
-  #     context: { customer_id: 456 },
-  #     max_turns: 20
+  #     "I need help with my order",
+  #     context: { user_id: 123, order_id: 456 }
   #   )
+  #
+  # @example Multi-agent handoff
+  #   triage = Agents::Agent.new(
+  #     name: "Triage",
+  #     instructions: "Route users to the right specialist",
+  #     handoff_agents: [billing_agent, tech_agent]
+  #   )
+  #
+  #   result = Agents::Runner.run(triage, "I can't pay my bill")
+  #   # Triage agent will handoff to billing_agent
   class Runner
     DEFAULT_MAX_TURNS = 10
 
@@ -57,53 +71,43 @@ module Agents
       context_wrapper = RunContext.new(context.dup)
       current_turn = 0
 
-      # RubyLLM maintains conversation history internally
-      # We just need to track the current conversation
+      # Create initial chat
+      chat = create_chat(current_agent, context_wrapper)
 
       loop do
         current_turn += 1
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Get system prompt (may be dynamic based on context)
-        system_prompt = current_agent.get_system_prompt(context_wrapper)
-
-        # Wrap tools with context before passing to RubyLLM
-        contextualized_tools = prepare_tools(current_agent.all_tools, context_wrapper)
-
-        # Create a new chat for this agent (RubyLLM handles message history)
-        chat = create_chat(current_agent, system_prompt, contextualized_tools)
-
-        # Add user input on first turn, otherwise continue conversation
+        # Get response from LLM (RubyLLM handles tool execution)
         response = if current_turn == 1
                      chat.chat(input)
                    else
-                     # For subsequent turns after handoff, we need to continue
-                     # This is a simplified approach - in production you might
-                     # want to maintain conversation history across handoffs
                      chat.complete
                    end
 
-        # Update token usage
+        # Update usage
         context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
 
-        # Check for handoff signaled through context
-        if (pending_handoff = context_wrapper.context[:pending_handoff])
-          # Log the handoff for debugging
-          Agents.logger&.debug "[Agents] Handoff from #{current_agent.name} to #{pending_handoff.name}"
+        # Check for handoff via context (set by HandoffTool)
+        if context_wrapper.context[:pending_handoff]
+          next_agent = context_wrapper.context[:pending_handoff]
+          Agents.logger&.debug "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
 
-          current_agent = pending_handoff
+          # Switch to new agent
+          current_agent = next_agent
           context_wrapper.context.delete(:pending_handoff)
-
-          # Continue with new agent
+          chat = create_chat(current_agent, context_wrapper)
           next
         end
 
-        # No handoff, return the result
-        return RunResult.new(
-          output: response.content,
-          messages: extract_messages(chat),
-          usage: context_wrapper.usage
-        )
+        # If no tools were called, we have our final response
+        unless response.tool_call?
+          return RunResult.new(
+            output: response.content,
+            messages: extract_messages(chat),
+            usage: context_wrapper.usage
+          )
+        end
       end
     rescue MaxTurnsExceeded => e
       # Return partial result on max turns
@@ -125,23 +129,22 @@ module Agents
 
     private
 
-    # Wrap each tool with context before passing to RubyLLM
-    # This ensures thread-safe context injection without modifying RubyLLM internals
-    def prepare_tools(tools, context_wrapper)
-      tools.map { |tool| ContextualizedToolWrapper.new(tool, context_wrapper) }
-    end
+    def create_chat(agent, context_wrapper)
+      # Get system prompt (may be dynamic)
+      system_prompt = agent.get_system_prompt(context_wrapper)
 
-    # Create a RubyLLM chat instance with our wrapped tools
-    def create_chat(agent, system_prompt, tools)
+      # Wrap tools with context for thread-safe execution
+      wrapped_tools = agent.all_tools.map do |tool|
+        ToolWrapper.new(tool, context_wrapper)
+      end
+
       RubyLLM.chat(
         model: agent.model,
         system: system_prompt,
-        tools: tools
+        tools: wrapped_tools
       )
     end
 
-    # Extract message history from RubyLLM chat
-    # Format may vary based on RubyLLM version
     def extract_messages(chat)
       return [] unless chat.respond_to?(:messages)
 
@@ -149,10 +152,7 @@ module Agents
         {
           role: msg.role,
           content: msg.content
-        }.tap do |h|
-          h[:tool_calls] = msg.tool_calls if msg.respond_to?(:tool_calls) && msg.tool_calls
-          h[:tool_call_id] = msg.tool_call_id if msg.respond_to?(:tool_call_id) && msg.tool_call_id
-        end
+        }.compact
       end
     end
   end

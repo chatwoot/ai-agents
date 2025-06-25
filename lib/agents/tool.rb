@@ -96,23 +96,17 @@ module Agents
     end
 
     # Execute the tool with proper error handling and context injection.
-    # This method is called by the agent runner and handles the thread-safe
+    # This method is called by the runner and handles the thread-safe
     # execution pattern by passing all state through parameters.
-    #
-    # Thread-safe execution - no instance variables for execution state!
-    # Override RubyLLM's execute to inject ToolContext.
     #
     # @param tool_context [Agents::ToolContext] The execution context containing shared state and usage tracking
     # @param params [Hash] Tool-specific parameters as defined by the tool's param declarations
     # @return [String] The tool's result or error message
-    # @example Runner executing a tool
-    #   tool_context = Agents::ToolContext.new(run_context: run_context)
-    #   result = weather_tool.execute(tool_context, location: "San Francisco")
     def execute(tool_context, **params)
       # Call perform with tool_context as first parameter
       perform(tool_context, **params)
     rescue StandardError => e
-      # Use failure_error_function if provided, like OpenAI
+      # Use failure_error_function if provided
       if @failure_error_function
         @failure_error_function.call(e, tool_context)
       else
