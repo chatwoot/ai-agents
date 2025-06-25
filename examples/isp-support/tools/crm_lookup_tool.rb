@@ -6,7 +6,7 @@ module ISPSupport
   # Tool for looking up customer information from the CRM system.
   class CrmLookupTool < Agents::Tool
     description "Look up customer account information by account ID"
-    param :account_id, desc: "Customer account ID (e.g., CUST001)"
+    param :account_id, String, "Customer account ID (e.g., CUST001)"
 
     def perform(_tool_context, account_id:)
       data_file = File.join(__dir__, "../data/customers.json")

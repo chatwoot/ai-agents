@@ -58,9 +58,9 @@ module Agents
       @description || @tool.description
     end
 
-    # RubyLLM might call this to check parameters
-    def params
-      @params || @tool.class.params
+    # RubyLLM calls this to get parameter definitions
+    def parameters
+      @tool.parameters
     end
 
     # Make this work with RubyLLM's tool calling
