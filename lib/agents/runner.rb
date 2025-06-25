@@ -50,6 +50,21 @@ module Agents
     # @return [String] The final agent response after all handoffs
     # @raise [RuntimeError] If maximum handoffs are exceeded
     def process(user_message)
+      # Start trace for this workflow run
+      Agents::Tracing.with_trace(workflow_name: determine_workflow_name, metadata: trace_metadata) do
+        Agents::Tracing.with_span(name: "Runner:process", category: :runner,
+                                  metadata: { user_message: user_message }) do
+          process_with_tracing(user_message)
+        end
+      end
+    end
+
+    private
+
+    # Internal process method with tracing context already established
+    # @param user_message [String] The user's input
+    # @return [String] The final agent response after all handoffs
+    def process_with_tracing(user_message)
       # Add user message as an item
       @run_items << UserMessageItem.new(content: user_message, agent: nil)
 
@@ -94,15 +109,27 @@ module Agents
           handoff_result = agent_response.handoff_result
           target_class = handoff_result.target_agent_class
 
-          # Record the handoff in context
-          @context.record_agent_transition(
-            @current_agent.class.name,
-            target_class.name,
-            handoff_result.reason
-          )
+          # Trace the handoff
+          Agents::Tracing.with_span(
+            name: "Handoff:#{@current_agent.class.name}→#{target_class.name}",
+            category: :handoff,
+            metadata: {
+              from_agent: @current_agent.class.name,
+              to_agent: target_class.name,
+              reason: handoff_result.reason,
+              handoff_count: handoff_count
+            }
+          ) do
+            # Record the handoff in context
+            @context.record_agent_transition(
+              @current_agent.class.name,
+              target_class.name,
+              handoff_result.reason
+            )
 
-          # Switch to new agent
-          @current_agent = target_class.new(context: @context)
+            # Switch to new agent
+            @current_agent = target_class.new(context: @context)
+          end
 
           # Continue loop to process with new agent
         else
@@ -115,6 +142,20 @@ module Agents
       final_response
     end
 
+    # Determine workflow name for tracing
+    # @return [String] Workflow name
+    def determine_workflow_name
+      "MultiAgentRunner"
+    end
+
+    # Generate trace metadata
+    # @return [Hash] Trace metadata
+    def trace_metadata
+      {
+        initial_agent: @initial_agent_class.name,
+        conversation_turns: @run_items.length
+      }
+    end
     # Get a summary of the conversation suitable for display
     # @return [String] Formatted conversation summary
     def conversation_summary

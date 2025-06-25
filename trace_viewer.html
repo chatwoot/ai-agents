@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruby Agents Trace Viewer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 700;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .upload-section {
+            padding: 25px;
+            border-bottom: 1px solid #eee;
+            background: #fafafa;
+            text-align: center;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .file-label {
+            display: inline-block;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            border: none;
+            font-size: 14px;
+        }
+        
+        .file-label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .trace-info {
+            padding: 25px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .trace-timeline {
+            padding: 25px;
+            overflow-x: auto;
+            min-height: 500px;
+            background: white;
+        }
+        
+        .timeline-container {
+            position: relative;
+            min-width: 1200px;
+        }
+        
+        .span-row {
+            margin: 3px 0;
+            position: relative;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+        }
+        
+        .span-row:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .span-label {
+            min-width: 350px;
+            max-width: 350px;
+            padding: 10px 15px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #2d3748;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px 0 0 8px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .span-category-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-right: 10px;
+            flex-shrink: 0;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        .span-bar-container {
+            flex: 1;
+            height: 45px;
+            position: relative;
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+            overflow: hidden;
+        }
+        
+        .span-bar {
+            height: 100%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            position: absolute;
+            top: 0;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .span-bar:hover {
+            filter: brightness(1.1);
+            transform: scaleY(1.05);
+            z-index: 10;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .span-bar-agent { background: linear-gradient(135deg, #48bb78, #38a169); }
+        .span-bar-tool { background: linear-gradient(135deg, #4299e1, #3182ce); }
+        .span-bar-mcp { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+        .span-bar-handoff { background: linear-gradient(135deg, #ed64a6, #d53f8c); }
+        .span-bar-runner { background: linear-gradient(135deg, #9f7aea, #805ad5); }
+        .span-bar-llm { background: linear-gradient(135deg, #38b2ac, #319795); }
+        .span-bar-context { background: linear-gradient(135deg, #718096, #4a5568); }
+        
+        .span-duration {
+            margin-left: auto;
+            font-size: 11px;
+            background: rgba(0,0,0,0.2);
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        
+        .span-details {
+            background: #f7fafc;
+            border-left: 4px solid #667eea;
+            border-radius: 0 8px 8px 8px;
+            padding: 20px;
+            margin: 8px 0 15px 0;
+            display: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .span-details.active {
+            display: block;
+            animation: slideDown 0.4s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-top: 15px;
+        }
+        
+        .detail-section h4 {
+            margin: 0 0 15px 0;
+            color: #2d3748;
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+        
+        .detail-item {
+            margin: 8px 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .detail-key {
+            font-weight: 600;
+            color: #4a5568;
+            margin-right: 10px;
+            display: inline-block;
+            min-width: 120px;
+        }
+        
+        .detail-value {
+            color: #2d3748;
+            word-break: break-word;
+        }
+        
+        .detail-value code {
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+        
+        .timeline-ruler {
+            height: 35px;
+            background: linear-gradient(to bottom, #edf2f7, #e2e8f0);
+            margin-bottom: 15px;
+            position: relative;
+            border: 1px solid #cbd5e0;
+            border-radius: 8px;
+            margin-left: 350px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .timeline-tick {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: #a0aec0;
+        }
+        
+        .timeline-label {
+            position: absolute;
+            top: 8px;
+            font-size: 11px;
+            color: #4a5568;
+            transform: translateX(-50%);
+            font-weight: 600;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 500;
+            color: #4a5568;
+        }
+        
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            margin-right: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        .error-message {
+            background: #fed7d7;
+            border: 1px solid #fc8181;
+            color: #c53030;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px;
+            font-weight: 500;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 80px 20px;
+            color: #718096;
+        }
+        
+        .no-data h3 {
+            margin-bottom: 15px;
+            color: #4a5568;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .no-data p {
+            font-size: 16px;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Ruby Agents Trace Viewer</h1>
+            <p>Visualize your multi-agent workflow traces with detailed timeline analysis</p>
+        </div>
+        
+        <div class="upload-section">
+            <input type="file" id="fileInput" class="file-input" accept=".json" />
+            <label for="fileInput" class="file-label">
+                📁 Upload Trace JSON File
+            </label>
+            <div id="fileName" style="margin-top: 15px; color: #4a5568; font-weight: 500;"></div>
+        </div>
+        
+        <div id="content">
+            <div class="no-data">
+                <h3>No trace data loaded</h3>
+                <p>Upload a trace JSON file to start analyzing your multi-agent workflows</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTrace = null;
+        
+        const spanCategories = {
+            agent: { color: '#48bb78', label: 'Agent Operations' },
+            tool: { color: '#4299e1', label: 'Tool Executions' },
+            mcp: { color: '#ed8936', label: 'MCP Communications' },
+            handoff: { color: '#ed64a6', label: 'Agent Handoffs' },
+            runner: { color: '#9f7aea', label: 'Runner Operations' },
+            llm: { color: '#38b2ac', label: 'LLM Calls' },
+            context_update: { color: '#718096', label: 'Context Updates' }
+        };
+        
+        document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+        
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            document.getElementById('fileName').textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const traceData = JSON.parse(e.target.result);
+                    renderTrace(traceData);
+                } catch (error) {
+                    showError('Invalid JSON file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function renderTrace(traceData) {
+            try {
+                const spans = extractSpans(traceData);
+                if (spans.length === 0) {
+                    showError('No spans found in trace data. Please ensure this is a valid OpenTelemetry trace file.');
+                    return;
+                }
+                
+                currentTrace = { spans, data: traceData };
+                
+                const content = document.getElementById('content');
+                content.innerHTML = renderTraceContent(spans);
+                
+                // Add click handlers for spans
+                document.querySelectorAll('.span-bar').forEach(spanEl => {
+                    spanEl.addEventListener('click', () => toggleSpanDetails(spanEl));
+                });
+                
+            } catch (error) {
+                showError('Error parsing trace data: ' + error.message);
+            }
+        }
+        
+        function extractSpans(traceData) {
+            const spans = [];
+            
+            if (traceData.resourceSpans) {
+                traceData.resourceSpans.forEach(resource => {
+                    resource.scopeSpans?.forEach(scope => {
+                        scope.spans?.forEach(span => {
+                            spans.push(processSpan(span));
+                        });
+                    });
+                });
+            }
+            
+            // Sort spans by start time
+            spans.sort((a, b) => a.startTime - b.startTime);
+            
+            return spans;
+        }
+        
+        function processSpan(span) {
+            const attributes = {};
+            span.attributes?.forEach(attr => {
+                const value = attr.value.stringValue || 
+                             attr.value.doubleValue || 
+                             attr.value.intValue || 
+                             attr.value.boolValue || 
+                             'unknown';
+                attributes[attr.key] = value;
+            });
+            
+            const category = attributes['span.category'] || 'unknown';
+            const startTime = parseInt(span.startTimeUnixNano) / 1000000; // Convert to ms
+            const endTime = parseInt(span.endTimeUnixNano) / 1000000;
+            const duration = endTime - startTime;
+            
+            return {
+                traceId: span.traceId,
+                spanId: span.spanId,
+                parentSpanId: span.parentSpanId,
+                name: span.name,
+                category: category,
+                startTime: startTime,
+                endTime: endTime,
+                duration: duration,
+                attributes: attributes,
+                status: span.status,
+                events: span.events || [],
+                links: span.links || []
+            };
+        }
+        
+        function renderTraceContent(spans) {
+            const traceStart = Math.min(...spans.map(s => s.startTime));
+            const traceEnd = Math.max(...spans.map(s => s.endTime));
+            const totalDuration = traceEnd - traceStart;
+            
+            const stats = calculateStats(spans);
+            const legend = renderLegend();
+            const timeline = renderTimeline(spans, traceStart, totalDuration);
+            
+            return `
+                <div class="trace-info">
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-value">${spans.length}</div>
+                            <div class="stat-label">Total Spans</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${formatDuration(totalDuration)}</div>
+                            <div class="stat-label">Total Duration</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.agentCount}</div>
+                            <div class="stat-label">Agent Operations</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.handoffCount}</div>
+                            <div class="stat-label">Agent Handoffs</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.mcpCount}</div>
+                            <div class="stat-label">MCP Operations</div>
+                        </div>
+                    </div>
+                    ${legend}
+                </div>
+                <div class="trace-timeline">
+                    ${timeline}
+                </div>
+            `;
+        }
+        
+        function calculateStats(spans) {
+            const agentCount = spans.filter(s => s.category === 'agent').length;
+            const handoffCount = spans.filter(s => s.category === 'handoff').length;
+            const mcpCount = spans.filter(s => s.category === 'mcp').length;
+            return { agentCount, handoffCount, mcpCount };
+        }
+        
+        function renderLegend() {
+            const legendItems = Object.entries(spanCategories)
+                .map(([key, config]) => `
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: ${config.color}"></div>
+                        <span>${config.label}</span>
+                    </div>
+                `).join('');
+            
+            return `<div class="legend">${legendItems}</div>`;
+        }
+        
+        function renderTimeline(spans, traceStart, totalDuration) {
+            const timelineRuler = renderTimelineRuler(totalDuration);
+            const spanElements = spans.map((span, index) => renderSpanElement(span, index, traceStart, totalDuration)).join('');
+            
+            return `
+                <div class="timeline-container">
+                    ${timelineRuler}
+                    ${spanElements}
+                </div>
+            `;
+        }
+        
+        function renderTimelineRuler(totalDuration) {
+            const tickCount = 10;
+            const ticks = [];
+            
+            for (let i = 0; i <= tickCount; i++) {
+                const position = (i / tickCount) * 100;
+                const time = (i / tickCount) * totalDuration;
+                ticks.push(`
+                    <div class="timeline-tick" style="left: ${position}%"></div>
+                    <div class="timeline-label" style="left: ${position}%">${formatDuration(time)}</div>
+                `);
+            }
+            
+            return `<div class="timeline-ruler">${ticks.join('')}</div>`;
+        }
+        
+        function renderSpanElement(span, index, traceStart, totalDuration) {
+            const relativeStart = span.startTime - traceStart;
+            const leftPercent = (relativeStart / totalDuration) * 100;
+            const widthPercent = Math.max((span.duration / totalDuration) * 100, 1); // Minimum 1% width
+            
+            const category = spanCategories[span.category] || spanCategories.tool;
+            
+            return `
+                <div class="span-row">
+                    <div class="span-label">
+                        <div class="span-category-indicator" style="background: ${category.color}"></div>
+                        <span title="${span.name}">${span.name}</span>
+                    </div>
+                    <div class="span-bar-container">
+                        <div class="span-bar span-bar-${span.category}" 
+                             data-span-id="${span.spanId}"
+                             style="left: ${leftPercent}%; width: ${widthPercent}%;"
+                             title="${span.name} - ${formatDuration(span.duration)}">
+                            <span class="span-duration">${formatDuration(span.duration)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="span-details" id="details-${span.spanId}">
+                    ${renderSpanDetails(span)}
+                </div>
+            `;
+        }
+        
+        function renderSpanDetails(span) {
+            const basicInfo = `
+                <div class="detail-section">
+                    <h4>📊 Basic Information</h4>
+                    <div class="detail-item">
+                        <span class="detail-key">Span Name:</span>
+                        <span class="detail-value"><strong>${span.name}</strong></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-key">Span ID:</span>
+                        <span class="detail-value"><code>${span.spanId}</code></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-key">Parent ID:</span>
+                        <span class="detail-value"><code>${span.parentSpanId || 'None (Root Span)'}</code></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-key">Category:</span>
+                        <span class="detail-value"><span style="background: ${spanCategories[span.category]?.color || '#999'}; color: white; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 600;">${span.category.toUpperCase()}</span></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-key">Duration:</span>
+                        <span class="detail-value"><strong style="color: #667eea; font-size: 16px;">${formatDuration(span.duration)}</strong></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-key">Status:</span>
+                        <span class="detail-value"><span style="color: ${span.status?.code === 1 ? '#48bb78' : '#e53e3e'}; font-size: 16px;">●</span> <strong>${span.status?.code === 1 ? 'SUCCESS' : 'ERROR'}</strong></span>
+                    </div>
+                </div>
+            `;
+            
+            // Get key metadata attributes
+            const importantAttributes = Object.entries(span.attributes)
+                .filter(([key]) => key.startsWith('span.metadata.'))
+                .map(([key, value]) => {
+                    const cleanKey = key.replace('span.metadata.', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    let displayValue = value;
+                    
+                    // Format different types of values
+                    if (typeof value === 'string' && value.length > 300) {
+                        displayValue = value.substring(0, 300) + '...';
+                    }
+                    
+                    return `
+                        <div class="detail-item">
+                            <span class="detail-key">${cleanKey}:</span>
+                            <span class="detail-value">${displayValue}</span>
+                        </div>
+                    `;
+                }).join('');
+            
+            const metadataSection = importantAttributes ? `
+                <div class="detail-section">
+                    <h4>🔧 Metadata & Attributes</h4>
+                    ${importantAttributes}
+                </div>
+            ` : '';
+            
+            return `
+                <div class="detail-grid">
+                    ${basicInfo}
+                    ${metadataSection}
+                </div>
+            `;
+        }
+        
+        function toggleSpanDetails(spanElement) {
+            const spanId = spanElement.dataset.spanId;
+            const detailsElement = document.getElementById(`details-${spanId}`);
+            
+            // Close all other details
+            document.querySelectorAll('.span-details').forEach(el => {
+                if (el.id !== `details-${spanId}`) {
+                    el.classList.remove('active');
+                }
+            });
+            
+            // Toggle current details
+            detailsElement.classList.toggle('active');
+        }
+        
+        function formatDuration(ms) {
+            if (ms < 0.001) return `${(ms * 1000000).toFixed(0)}ns`;
+            if (ms < 1) return `${(ms * 1000).toFixed(1)}μs`;
+            if (ms < 1000) return `${ms.toFixed(1)}ms`;
+            if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+            return `${(ms / 60000).toFixed(1)}m`;
+        }
+        
+        function showError(message) {
+            const content = document.getElementById('content');
+            content.innerHTML = `<div class="error-message"><strong>Error:</strong> ${message}</div>`;
+        }
+    </script>
+</body>
+</html>

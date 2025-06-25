@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 $LOAD_PATH.unshift(File.expand_path("../../lib", __dir__))
 
 require "agents"
@@ -9,6 +11,10 @@ require "agents"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o-mini"
+  # Enable comprehensive tracing
+  config.tracing.enabled = true
+  config.tracing.export_path = "./booking_traces"
+  config.tracing.include_sensitive_data = true
 end
 
 unless Agents.configuration.configured?
@@ -19,7 +25,7 @@ end
 
 # Create shared MCP clients
 MINTLIFY_CLIENT = Agents::MCP::Client.new(
-  name: "Mintlify", 
+  name: "Mintlify",
   command: "node",
   args: ["/Users/tanmaydeepsharma/.mcp/acme-d0cb791b/src/index.js"],
   cache_tools: true
@@ -35,15 +41,14 @@ FILESYSTEM_CLIENT = Agents::MCP::Client.new(
 # Define a shared context for the documentation workflow
 class DocumentationWorkflowContext < Agents::Context
   attr_accessor :search_results, :documentation_topic, :generated_content, :saved_files
-  
+
   def initialize
     super
     @saved_files = []
   end
 end
 
-
-# Editor agent - refines and saves documentation  
+# Editor agent - refines and saves documentation
 class DocumentationEditorAgent < Agents::Agent
   name "Documentation Editor"
   instructions <<~PROMPT
@@ -52,7 +57,7 @@ class DocumentationEditorAgent < Agents::Agent
     2. Save documentation to files using filesystem tools
     3. Organize and structure documentation projects
     4. Provide final polished output
-    
+
     Use the filesystem tools to save content to appropriate files in the user's home directory.
     Provide clear feedback about what files were created and their contents.
   PROMPT
@@ -69,7 +74,7 @@ class DocumentationGeneratorAgent < Agents::Agent
     1. Information from previous search results (context.search_results)
     2. User requirements and specifications
     3. Best practices for technical writing
-    
+
     After generating documentation:
     1. Save it to context.generated_content for other agents to use
     2. Create a file using the filesystem tools in the user's home directory
@@ -77,7 +82,7 @@ class DocumentationGeneratorAgent < Agents::Agent
     4. Use the write_file tool with just the filename (e.g., "api_authentication_guide.md")
     5. Add the filename to context.saved_files array
     6. Confirm what file was created and where it was saved
-    
+
     IMPORTANT: The filesystem server is configured for /Users/tanmaydeepsharma, so just use relative filenames like "api_authentication_guide.md" without any path prefix.
   PROMPT
 
@@ -94,10 +99,10 @@ class DocumentationSearchAgent < Agents::Agent
     2. Find the most relevant information for user queries
     3. Store search results in the shared context
     4. Summarize findings and suggest next steps
-    
+
     When you find relevant documentation, save the results to context.search_results
     and set context.documentation_topic to describe what was found.
-    
+
     If the user needs to create new documentation, transfer to DocumentationGeneratorAgent.
   PROMPT
 
@@ -114,7 +119,7 @@ class DocumentationTriageAgent < Agents::Agent
     2. Route them to the appropriate specialist:
        - DocumentationSearchAgent for finding existing documentation
        - DocumentationGeneratorAgent for creating new documentation
-    
+
     Analyze the user's request and transfer to the most appropriate agent.
   PROMPT
 
@@ -128,7 +133,7 @@ begin
     initial_agent: DocumentationTriageAgent,
     context: context
   )
-  
+
   # Test workflow scenarios
   workflow_scenarios = [
     "I need to understand how authentication works in our API. Can you find the documentation and create a simple guide?",
@@ -137,11 +142,11 @@ begin
 
   workflow_scenarios.each_with_index do |scenario, i|
     puts "#{i + 1}. User: #{scenario}"
-    
+
     begin
       response = runner.process(scenario)
       puts "Final Result: #{response}"
-      
+
       # Show workflow details
       if context.agent_transitions.any?
         puts "Agent workflow:"
@@ -149,7 +154,7 @@ begin
           puts "  #{transition[:from]} → #{transition[:to]}"
         end
       end
-      
+
       # Show saved files
       if context.saved_files.any?
         puts "Files saved:"
@@ -157,14 +162,13 @@ begin
           puts "  📄 #{file}"
         end
       end
-      
     rescue StandardError => e
       puts "Error in workflow: #{e.message}"
     end
-    
+
     puts "-" * 50
     puts
-    
+
     # Reset context for next scenario
     context = DocumentationWorkflowContext.new
     runner = Agents::Runner.new(
@@ -172,7 +176,6 @@ begin
       context: context
     )
   end
-
 rescue Agents::MCP::ConnectionError => e
   puts "Failed to connect to MCP servers: #{e.message}"
   puts "Setup Instructions:"

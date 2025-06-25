@@ -17,11 +17,11 @@ module Agents
         @use_sse = options[:use_sse] || false
         @uri = URI(@base_url)
         @http = nil
-        
+
         # Auto-detect SSE from URL or headers
-        if @base_url.include?("/sse") || @headers["Accept"] == "text/event-stream"
-          @use_sse = true
-        end
+        return unless @base_url.include?("/sse") || @headers["Accept"] == "text/event-stream"
+
+        @use_sse = true
       end
 
       def connect
@@ -60,16 +60,16 @@ module Agents
       def send_http_request(endpoint, request)
         uri = URI.join(@base_url, endpoint)
         http_request = Net::HTTP::Post.new(uri)
-        
+
         # Set headers
         http_request["Content-Type"] = "application/json"
         @headers.each { |key, value| http_request[key] = value }
-        
+
         # Set body
         http_request.body = JSON.generate(request)
 
         response = @http.request(http_request)
-        
+
         unless response.is_a?(Net::HTTPSuccess)
           raise ConnectionError, "HTTP request failed: #{response.code} #{response.message}"
         end
@@ -85,18 +85,18 @@ module Agents
         # For SSE endpoints, use the base URL directly
         uri = endpoint.empty? ? @uri : URI.join(@base_url, endpoint)
         http_request = Net::HTTP::Post.new(uri)
-        
+
         # Set headers for SSE
         http_request["Content-Type"] = "application/json"
         http_request["Accept"] = "text/event-stream"
         http_request["Cache-Control"] = "no-cache"
         @headers.each { |key, value| http_request[key] = value }
-        
+
         # Set body
         http_request.body = JSON.generate(request)
 
         response = @http.request(http_request)
-        
+
         unless response.is_a?(Net::HTTPSuccess)
           raise ConnectionError, "SSE request failed: #{response.code} #{response.message}"
         end
@@ -110,7 +110,7 @@ module Agents
 
         body.split("\n").each do |line|
           line = line.strip
-          
+
           if line.empty?
             # Empty line indicates end of event
             if current_event[:data]
@@ -121,12 +121,12 @@ module Agents
           end
 
           if line.start_with?("data: ")
-            data = line[6..-1] # Remove "data: " prefix
+            data = line[6..] # Remove "data: " prefix
             current_event[:data] = data
           elsif line.start_with?("event: ")
-            current_event[:event] = line[7..-1] # Remove "event: " prefix
+            current_event[:event] = line[7..] # Remove "event: " prefix
           elsif line.start_with?("id: ")
-            current_event[:id] = line[4..-1] # Remove "id: " prefix
+            current_event[:id] = line[4..] # Remove "id: " prefix
           end
         end
 
@@ -135,16 +135,14 @@ module Agents
 
         # For tool calls, we typically want the final result
         # Find the event with actual JSON data
-        data_event = events.find { |event| event[:data] && event[:data].start_with?("{") }
-        
-        if data_event
-          begin
-            JSON.parse(data_event[:data])
-          rescue JSON::ParserError => e
-            raise ProtocolError, "Invalid JSON in SSE data: #{e.message}"
-          end
-        else
-          raise ProtocolError, "No valid JSON data found in SSE response"
+        data_event = events.find { |event| event[:data]&.start_with?("{") }
+
+        raise ProtocolError, "No valid JSON data found in SSE response" unless data_event
+
+        begin
+          JSON.parse(data_event[:data])
+        rescue JSON::ParserError => e
+          raise ProtocolError, "Invalid JSON in SSE data: #{e.message}"
         end
       end
     end

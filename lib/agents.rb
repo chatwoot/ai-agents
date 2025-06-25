@@ -22,6 +22,8 @@ require_relative "agents/runner"
 require_relative "agents/mcp"
 require_relative "agents/mcp/stdio_transport"
 require_relative "agents/mcp/http_transport"
+require_relative "agents/tracing"
+require_relative "agents/tracing/file_exporter"
 require_relative "agents/items"
 
 module Agents
@@ -41,6 +43,8 @@ module Agents
       yield(configuration) if block_given?
       # Apply RubyLLM configuration after our configuration is set
       configure_ruby_llm!
+      # Setup tracing exporters after all configuration is complete
+      configuration.tracing.setup_default_exporters if configuration.tracing.enabled
       configuration
     end
 
@@ -83,6 +87,9 @@ module Agents
     # Agents-specific configuration
     attr_accessor :default_provider, :default_model, :debug
 
+    # Tracing configuration
+    attr_reader :tracing
+
     # Initialize with sensible defaults
     def initialize
       # Agents defaults
@@ -98,6 +105,9 @@ module Agents
       @gemini_api_key = ENV.fetch("GEMINI_API_KEY", nil)
       @request_timeout = 120
       @retry_attempts = 3
+
+      # Tracing defaults
+      @tracing = TracingConfiguration.new
     end
 
     # Check if at least one provider is configured
@@ -114,6 +124,53 @@ module Agents
       providers << :anthropic if @anthropic_api_key
       providers << :gemini if @gemini_api_key
       providers
+    end
+  end
+
+  # Tracing-specific configuration
+  class TracingConfiguration
+    attr_accessor :enabled, :export_path, :include_sensitive_data, :otel_format
+
+    def initialize
+      @enabled = false
+      @export_path = "./traces"
+      @include_sensitive_data = true
+      @otel_format = true
+    end
+
+    # Set tracing enabled and setup default exporters later
+    def enabled=(value)
+      @enabled = value
+      # Don't setup exporters immediately - wait until after all configuration is set
+      # This will be handled by the main configuration
+    end
+
+    # Setup default exporters when tracing is enabled
+    # This is public so it can be called manually if needed
+    def setup_default_exporters
+      return unless @enabled
+
+      # Add file exporter if not already present
+      begin
+        file_exporter = Agents::Tracing::FileExporter.new(@export_path)
+        tracer = Agents::Tracing::Tracer.instance
+        
+        # Clear existing file exporters to avoid duplicates with different paths
+        exporters = tracer.instance_variable_get(:@exporters)
+        exporters.reject! { |e| e.is_a?(Agents::Tracing::FileExporter) }
+        
+        # Add the new file exporter
+        tracer.add_exporter(file_exporter)
+      rescue => e
+        warn "Failed to setup file exporter: #{e.message}"
+        raise e
+      end
+    end
+
+    # Export format to use based on otel_format setting
+    # @return [Symbol] :otel or :json
+    def export_format
+      @otel_format ? :otel : :json
     end
   end
 end

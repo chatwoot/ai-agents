@@ -180,6 +180,23 @@ module Agents
     # @param context [Hash] Additional context
     # @return [Agents::AgentResponse] The agent's response with optional handoff
     def call(input, context: {}, **options)
+      # Wrap agent execution in a span
+      Agents::Tracing.with_span(
+        name: "Agent:#{self.class.name}",
+        category: :agent,
+        metadata: agent_span_metadata(input, context, options)
+      ) do
+        call_with_tracing(input, context: context, **options)
+      end
+    end
+
+    private
+
+    # Internal call method with tracing context established
+    # @param input [String] The user input
+    # @param context [Hash] Additional context
+    # @return [Agents::AgentResponse] The agent's response with optional handoff
+    def call_with_tracing(input, context: {}, **options)
       # Merge contexts appropriately
       execution_context = merge_contexts(@context, context)
 
@@ -264,16 +281,22 @@ module Agents
         )
       end
 
-      # Get response from the LLM
-      # If we have prepared input, we've already added all messages above
-      # Otherwise, we pass the string input directly
-      response = if input.is_a?(Array)
-                   # All messages already added, just get completion
-                   chat.complete
-                 else
-                   # Simple string input
-                   chat.ask(input)
-                 end
+      # Get response from LLM with tracing
+      response = Agents::Tracing.with_span(
+        name: "LLM:#{self.class.model}",
+        category: :llm,
+        metadata: llm_span_metadata(actual_input, resolved_instructions)
+      ) do
+        # If we have prepared input, we've already added all messages above
+        # Otherwise, we pass the string input directly
+        if input.is_a?(Array)
+          # All messages already added, just get completion
+          chat.complete
+        else
+          # Simple string input
+          chat.ask(input)
+        end
+      end
 
       # Run output guardrails
       output_guardrail_violation = check_output_guardrails(execution_context, response.content)
@@ -314,6 +337,51 @@ module Agents
       handle_error(e, input, execution_context)
     end
 
+    # Generate metadata for agent span
+    # @param input [String] User input
+    # @param context [Hash] Additional context
+    # @param options [Hash] Additional options
+    # @return [Hash] Agent span metadata
+    def agent_span_metadata(input, _context, _options)
+      metadata = {
+        agent_name: self.class.name,
+        agent_provider: self.class.provider,
+        agent_model: self.class.model,
+        input_length: input.length,
+        tools_count: self.class.tools.length,
+        mcp_clients_count: self.class.get_mcp_clients.length,
+        handoff_targets: self.class.handoffs.map(&:name)
+      }
+
+      # Include input if sensitive data is allowed
+      if Agents.configuration.tracing.include_sensitive_data
+        metadata[:input] = input.length > 500 ? "#{input[0...500]}... [truncated]" : input
+      end
+
+      metadata
+    end
+
+    # Generate metadata for LLM span
+    # @param input [String] User input
+    # @param instructions [String] Resolved instructions
+    # @return [Hash] LLM span metadata
+    def llm_span_metadata(input, instructions)
+      metadata = {
+        model: self.class.model,
+        provider: self.class.provider,
+        input_length: input.length
+      }
+
+      if Agents.configuration.tracing.include_sensitive_data
+        metadata[:input] = input.length > 300 ? "#{input[0...300]}... [truncated]" : input
+        if instructions
+          metadata[:instructions] = instructions.length > 200 ? "#{instructions[0...200]}... [truncated]" : instructions
+        end
+      end
+
+      metadata
+    end
+
     # Support for agent.() syntax
     alias [] call
 
@@ -345,6 +413,16 @@ module Agents
       }
     end
 
+    # Get conversation history
+    # @return [Array<Hash>] Array of conversation turns
+    def history
+      @conversation_history.dup
+    end
+
+    # Clear conversation history
+    def clear_history!
+      @conversation_history.clear
+    end
     private
 
     # Merge contexts based on their types
@@ -431,17 +509,15 @@ module Agents
       tools = []
 
       self.class.get_mcp_clients.each do |mcp_client|
-        begin
-          # Ensure client is connected
-          mcp_client.connect unless mcp_client.connected?
+        # Ensure client is connected
+        mcp_client.connect unless mcp_client.connected?
 
-          # Get tools from this MCP server
-          client_tools = mcp_client.list_tools
-          tools.concat(client_tools)
-        rescue Agents::MCP::Error => e
-          # Log the error but don't fail the agent creation
-          warn "Failed to load tools from MCP client '#{mcp_client.name}': #{e.message}"
-        end
+        # Get tools from this MCP server
+        client_tools = mcp_client.list_tools
+        tools.concat(client_tools)
+      rescue Agents::MCP::Error => e
+        # Log the error but don't fail the agent creation
+        warn "Failed to load tools from MCP client '#{mcp_client.name}': #{e.message}"
       end
 
       # Set context on all MCP tools if we have one

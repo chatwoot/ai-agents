@@ -41,17 +41,17 @@ module Agents
       # @param required [Boolean] Whether the parameter is required
       def param(name, type = String, desc = nil, required: true, **options)
         # Convert Ruby types to JSON schema types
-        json_type = if type == String || type == "string"
+        json_type = if [String, "string"].include?(type)
                       "string"
-                    elsif type == Integer || type == "integer"
+                    elsif [Integer, "integer"].include?(type)
                       "integer"
-                    elsif type == Float || type == "number"
+                    elsif [Float, "number"].include?(type)
                       "number"
-                    elsif type == TrueClass || type == FalseClass || type == "boolean"
+                    elsif [TrueClass, FalseClass, "boolean"].include?(type)
                       "boolean"
-                    elsif type == Array || type == "array"
+                    elsif [Array, "array"].include?(type)
                       "array"
-                    elsif type == Hash || type == "object"
+                    elsif [Hash, "object"].include?(type)
                       "object"
                     else
                       "string"
@@ -73,8 +73,15 @@ module Agents
     # @param args [Hash] Tool arguments
     # @return [Object] Tool result
     def execute(**args)
-      # Always pass context to tools, they can choose to use it or ignore it
-      perform(context: @execution_context, **args)
+      # Wrap tool execution in a span
+      Agents::Tracing.with_span(
+        name: "Tool:#{self.class.name}",
+        category: :tool,
+        metadata: tool_span_metadata(args)
+      ) do
+        # Always pass context to tools, they can choose to use it or ignore it
+        perform(context: @execution_context, **args)
+      end
     end
 
     # Default implementation - subclasses should override this
@@ -90,5 +97,46 @@ module Agents
     end
 
     alias [] execute
+
+    private
+
+    # Generate metadata for tool span
+    # @param args [Hash] Tool arguments
+    # @return [Hash] Tool span metadata
+    def tool_span_metadata(args)
+      metadata = {
+        tool_name: self.class.name,
+        tool_type: "local",
+        args_count: args.keys.length
+      }
+
+      # Include arguments if sensitive data is allowed
+      if Agents.configuration.respond_to?(:tracing) &&
+         Agents.configuration.tracing.respond_to?(:include_sensitive_data) &&
+         Agents.configuration.tracing.include_sensitive_data
+
+        # Filter out context from args for logging
+        safe_args = args.reject { |k, _| k == :context }
+        metadata[:args] = truncate_tool_args(safe_args)
+      end
+
+      metadata
+    end
+
+    # Truncate tool arguments for storage
+    # @param args [Hash] Tool arguments
+    # @return [Hash] Truncated arguments
+    def truncate_tool_args(args)
+      args.transform_values do |value|
+        case value
+        when String
+          value.length > 200 ? "#{value[0...200]}... [truncated]" : value
+        when Hash, Array
+          value.inspect.length > 200 ? "#{value.inspect[0...200]}... [truncated]" : value
+        else
+          value
+        end
+      end
+    end
   end
 end

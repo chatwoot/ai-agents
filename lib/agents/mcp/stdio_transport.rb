@@ -44,9 +44,19 @@ module Agents
 
         # Terminate process if still running
         if @wait_thread&.alive?
-          Process.kill("TERM", @wait_thread.pid) rescue nil
+          begin
+            Process.kill("TERM", @wait_thread.pid)
+          rescue StandardError
+            nil
+          end
           sleep(1)
-          Process.kill("KILL", @wait_thread.pid) rescue nil if @wait_thread.alive?
+          if @wait_thread.alive?
+            begin
+              Process.kill("KILL", @wait_thread.pid)
+            rescue StandardError
+              nil
+            end
+          end
         end
 
         @wait_thread = nil
@@ -55,7 +65,7 @@ module Agents
 
       def send_request(request)
         request_id = request[:id]
-        
+
         @mutex.synchronize do
           @pending_requests[request_id] = true
         end
@@ -67,7 +77,7 @@ module Agents
 
         # Wait for response
         response = wait_for_response(request_id)
-        
+
         @mutex.synchronize do
           @pending_requests.delete(request_id)
         end
@@ -79,22 +89,20 @@ module Agents
 
       def start_reader_thread
         @reader_thread = Thread.new do
-          begin
-            while (line = @stdout.gets)
-              line = line.strip
-              next if line.empty?
+          while (line = @stdout.gets)
+            line = line.strip
+            next if line.empty?
 
-              begin
-                response = JSON.parse(line)
-                @response_queue.push(response)
-              rescue JSON::ParserError => e
-                warn "Failed to parse MCP response: #{e.message}"
-                warn "Raw line: #{line}"
-              end
+            begin
+              response = JSON.parse(line)
+              @response_queue.push(response)
+            rescue JSON::ParserError => e
+              warn "Failed to parse MCP response: #{e.message}"
+              warn "Raw line: #{line}"
             end
-          rescue IOError
-            # Process terminated or IO closed
           end
+        rescue IOError
+          # Process terminated or IO closed
         end
       end
 
@@ -103,9 +111,7 @@ module Agents
 
         loop do
           # Check for timeout
-          if Time.now - start_time > @timeout
-            raise ConnectionError, "Request timeout after #{@timeout} seconds"
-          end
+          raise ConnectionError, "Request timeout after #{@timeout} seconds" if Time.now - start_time > @timeout
 
           # Try to get response from queue (non-blocking)
           begin
