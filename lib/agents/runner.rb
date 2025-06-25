@@ -6,13 +6,32 @@
 # signals a handoff, the Runner seamlessly transitions to the new agent while ensuring it has
 # full visibility into previous interactions. The design allows for stateless agents while
 # maintaining stateful conversations, with built-in loop detection to prevent infinite handoffs.
+#
+# This implementation uses an item-based tracking system where handoffs are recorded as tool
+# calls and outputs, preventing conversation pollution and infinite loops.
 
 module Agents
-  # Runner orchestrates multi-agent conversations with automatic handoffs
+  # Runner orchestrates multi-agent conversations with automatic handoffs.
   # This is the main entry point for SDK users - they only need to call runner.process(message)
   # and handoffs happen transparently while maintaining conversation history.
+  #
+  # @example Basic usage
+  #   runner = Runner.new(initial_agent: TriageAgent, context: AirlineContext.new)
+  #   response = runner.process("I need to change my seat")
+  #
+  # @example Accessing conversation items
+  #   runner.run_items.each do |item|
+  #     puts "#{item.class}: #{item.to_input_item}"
+  #   end
   class Runner
-    attr_reader :current_agent, :context, :conversation_history
+    # @return [Agent] The currently active agent
+    attr_reader :current_agent
+
+    # @return [Agents::Context] Shared context across all agents
+    attr_reader :context
+
+    # @return [Array<RunItem>] All items generated during the run
+    attr_reader :run_items
 
     # Initialize a new runner
     # @param initial_agent [Class] The agent class to start with (e.g., TriageAgent)
@@ -20,14 +39,16 @@ module Agents
     def initialize(initial_agent:, context:)
       @initial_agent_class = initial_agent
       @context = context
-      @conversation_history = []
+      @run_items = []
       @current_agent = nil
     end
 
-    # Process a user message through the agent system
-    # Automatically handles handoffs and maintains conversation history
+    # Process a user message through the agent system.
+    # Automatically handles handoffs and maintains conversation history.
+    #
     # @param user_message [String] The user's input
     # @return [String] The final agent response after all handoffs
+    # @raise [RuntimeError] If maximum handoffs are exceeded
     def process(user_message)
       # Start trace for this workflow run
       Agents::Tracing.with_trace(workflow_name: determine_workflow_name, metadata: trace_metadata) do
@@ -44,8 +65,8 @@ module Agents
     # @param user_message [String] The user's input
     # @return [String] The final agent response after all handoffs
     def process_with_tracing(user_message)
-      # Add user message to conversation history
-      @conversation_history << { role: "user", content: user_message, timestamp: Time.now }
+      # Add user message as an item
+      @run_items << UserMessageItem.new(content: user_message, agent: nil)
 
       # Start with initial agent if this is the first message, otherwise use current agent
       @current_agent ||= @initial_agent_class.new(context: @context)
@@ -59,16 +80,26 @@ module Agents
         # Clear any pending handoffs from previous iterations
         @context[:pending_handoff] = nil
 
-        # Call current agent with conversation history
-        agent_response = call_agent_with_history(@current_agent, user_message)
+        # Build clean input for agent from run items
+        agent_input = build_agent_input
 
-        # Add agent response to conversation history
-        @conversation_history << {
-          role: "assistant",
-          content: agent_response.content,
-          agent: @current_agent.class.name,
-          timestamp: Time.now
-        }
+        # Call agent with the prepared input array
+        # The agent will detect that input is an array and handle it appropriately
+        agent_response = @current_agent.call(agent_input)
+
+        # Process any tool calls (including handoffs)
+        if agent_response.has_tool_calls?
+          process_tool_calls(agent_response.tool_calls)
+          # Important: When there are tool calls, we DON'T add the content as an assistant message
+          # This prevents conversation pollution from messages like "I've connected you with someone..."
+        elsif agent_response.has_content?
+          # Only add assistant message if there's NO tool calls
+          # This matches Python's behavior where tool calls and content are mutually exclusive
+          @run_items << AssistantMessageItem.new(
+            content: agent_response.content,
+            agent: @current_agent
+          )
+        end
 
         # Check for handoffs
         if agent_response.handoff?
@@ -101,7 +132,6 @@ module Agents
           end
 
           # Continue loop to process with new agent
-          # The new agent will automatically see the original user message in conversation history
         else
           # No handoff, we have our final response
           final_response = agent_response.content
@@ -123,47 +153,54 @@ module Agents
     def trace_metadata
       {
         initial_agent: @initial_agent_class.name,
-        conversation_turns: @conversation_history.length
+        conversation_turns: @run_items.length
       }
     end
-
-    # Call an agent with the full conversation history
-    # @param agent [Agents::Agent] The agent to call
-    # @param current_message [String] The current user message
-    # @return [Agents::AgentResponse] The agent's response
-    def call_agent_with_history(agent, current_message)
-      # Set the conversation history in the agent
-      agent.instance_variable_set(:@conversation_history, format_conversation_for_agent)
-
-      # Call the agent with the current message
-      agent.call(current_message)
+    # Get a summary of the conversation suitable for display
+    # @return [String] Formatted conversation summary
+    def conversation_summary
+      @run_items.map do |item|
+        case item
+        when UserMessageItem
+          "[User]: #{item.content}"
+        when AssistantMessageItem
+          "[#{item.agent.class.name}]: #{item.content}"
+        when ToolCallItem
+          "[#{item.agent.class.name}]: Called tool '#{item.tool_name}'"
+        when HandoffOutputItem
+          "[System]: Handoff from #{item.source_agent.class.name} to #{item.target_agent}"
+        when ToolOutputItem
+          "[Tool Output]: #{item.output}"
+        else
+          "[#{item.class.name}]: #{item.inspect}"
+        end
+      end.join("\n")
     end
 
-    # Format conversation history for agent consumption
-    # Converts our internal format to the format expected by Agent.call
-    # @return [Array<Hash>] Formatted conversation history
-    def format_conversation_for_agent
-      formatted = []
+    private
 
-      # Group conversations by user/assistant pairs
-      @conversation_history.each_slice(2) do |user_msg, assistant_msg|
-        next unless user_msg && assistant_msg
-
-        formatted << {
-          user: user_msg[:content],
-          assistant: assistant_msg[:content],
-          timestamp: user_msg[:timestamp]
-        }
+    # Process tool calls from an agent response
+    # @param tool_calls [Array<Hash>] Tool calls to process
+    def process_tool_calls(tool_calls)
+      tool_calls.each do |tool_call|
+        # Create tool call item
+        tool_call_item = ToolCallItem.new(
+          tool_name: tool_call[:name],
+          arguments: tool_call[:arguments] || {},
+          call_id: tool_call[:id],
+          agent: @current_agent
+        )
+        @run_items << tool_call_item
       end
-
-      formatted
     end
 
-    # Get the last user message from conversation history
-    # Used when new agents need to process the original question
-    # @return [String, nil] The last user message content
-    def last_user_message
-      @conversation_history.reverse.find { |msg| msg[:role] == "user" }&.dig(:content)
+    # Build agent input from run items
+    # @return [Array<Hash>] Input items formatted for agent consumption
+    def build_agent_input
+      # Convert run items to format expected by agents
+      # This preserves tool calls and outputs in the conversation
+      # Filter out nil items (handoff outputs return nil)
+      @run_items.map(&:to_input_item).compact
     end
   end
 end

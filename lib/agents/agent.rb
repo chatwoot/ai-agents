@@ -173,11 +173,10 @@ module Agents
     # @param context [Hash, Agents::Context] Initial context for the agent
     def initialize(context: {})
       @context = context.is_a?(Agents::Context) ? context : Agents::Context.new(context)
-      @conversation_history = []
     end
 
     # Main callable interface for the agent
-    # @param input [String] The user input
+    # @param input [String, Array<Hash>] The user input (string) or prepared input items (array)
     # @param context [Hash] Additional context
     # @return [Agents::AgentResponse] The agent's response with optional handoff
     def call(input, context: {}, **options)
@@ -223,14 +222,58 @@ module Agents
       # Add tools to chat session
       all_tools.each { |tool| chat.with_tool(tool) }
 
-      # Restore conversation history to chat session (Runner manages this)
-      restore_conversation_history(chat)
+      # Handle input based on type:
+      # - String: Simple user message (for standalone agent calls)
+      # - Array: Prepared input items from Runner (includes conversation history with tool calls)
+      actual_input = nil
+
+      if input.is_a?(Array)
+        # Input is an array of prepared items from the Runner
+        # This includes the full conversation history with proper role distinctions
+        # (user messages, assistant messages, tool calls, and tool outputs)
+
+        # Restore the conversation from prepared items
+        input.each do |item|
+          case item[:role]
+          when "user"
+            # User message - add to chat
+            chat.add_message(role: :user, content: item[:content])
+            # Track the last user message as the actual input
+            actual_input = item[:content]
+          when "assistant"
+            # Assistant message - could be content or tool calls
+            if item[:tool_calls]
+              # This is a tool call (including handoffs)
+              chat.add_message(role: :assistant, tool_calls: item[:tool_calls])
+            else
+              # This is regular assistant content
+              chat.add_message(role: :assistant, content: item[:content])
+            end
+          when "tool"
+            # Tool output (including handoff acknowledgments)
+            # These are understood by the LLM as system information, not conversation
+            chat.add_message(
+              role: :tool,
+              tool_call_id: item[:tool_call_id],
+              content: item[:content]
+            )
+          end
+        end
+      else
+        # Input is a string - simple user message
+        # This is used for standalone agent calls without Runner
+        actual_input = input
+
+        # No conversation history to restore for simple string inputs
+        # Each agent call is stateless unless using prepared input from Runner
+      end
 
       # Clear any previous handoff signal
       @context[:pending_handoff] = nil if @context.is_a?(Agents::Context)
 
       # Run input guardrails
-      input_guardrail_violation = check_input_guardrails(execution_context, input)
+      # Use the actual user input string for guardrail checks
+      input_guardrail_violation = check_input_guardrails(execution_context, actual_input)
       if input_guardrail_violation
         return Agents::AgentResponse.new(
           content: input_guardrail_violation,
@@ -242,9 +285,17 @@ module Agents
       response = Agents::Tracing.with_span(
         name: "LLM:#{self.class.model}",
         category: :llm,
-        metadata: llm_span_metadata(input, resolved_instructions)
+        metadata: llm_span_metadata(actual_input, resolved_instructions)
       ) do
-        chat.ask(input)
+        # If we have prepared input, we've already added all messages above
+        # Otherwise, we pass the string input directly
+        if input.is_a?(Array)
+          # All messages already added, just get completion
+          chat.complete
+        else
+          # Simple string input
+          chat.ask(input)
+        end
       end
 
       # Run output guardrails
@@ -256,14 +307,31 @@ module Agents
         )
       end
 
+      # Extract tool calls from the response
+      # RubyLLM returns tool calls as part of the response when tools are invoked
+      tool_calls = []
+
+      if response.respond_to?(:tool_calls) && response.tool_calls
+        # Process each tool call
+        response.tool_calls.each do |tool_call|
+          # Build tool call information
+          tool_calls << {
+            id: tool_call.id || SecureRandom.uuid,
+            name: tool_call.name,
+            arguments: tool_call.arguments || {}
+          }
+        end
+      end
+
       # Check for handoffs from context (tools signal handoffs here)
       handoff_result = detect_handoff_from_context
 
-      # Return AgentResponse with content and optional handoff
-      # Note: Runner handles conversation history, not individual agents
+      # Return AgentResponse with content, tool calls, and optional handoff
+      # The Runner will process tool calls to identify handoffs and add them as items
       Agents::AgentResponse.new(
         content: response.content,
-        handoff_result: handoff_result
+        handoff_result: handoff_result,
+        tool_calls: tool_calls
       )
     rescue StandardError => e
       handle_error(e, input, execution_context)
@@ -355,6 +423,7 @@ module Agents
     def clear_history!
       @conversation_history.clear
     end
+    private
 
     # Merge contexts based on their types
     # @param base_context [Hash, Agents::Context] The base context
@@ -408,16 +477,6 @@ module Agents
         instructions
       else
         instructions.to_s
-      end
-    end
-
-    # Restore conversation history to RubyLLM chat session
-    # @param chat [RubyLLM::Chat] The chat session
-    def restore_conversation_history(chat)
-      # Restore our stored conversation history to the chat session
-      @conversation_history.each do |turn|
-        chat.add_message(role: :user, content: turn[:user])
-        chat.add_message(role: :assistant, content: turn[:assistant])
       end
     end
 

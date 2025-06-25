@@ -24,6 +24,7 @@ require_relative "agents/mcp/stdio_transport"
 require_relative "agents/mcp/http_transport"
 require_relative "agents/tracing"
 require_relative "agents/tracing/file_exporter"
+require_relative "agents/items"
 
 module Agents
   # Recommended prompt prefix for agents that use handoffs
