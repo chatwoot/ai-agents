@@ -37,7 +37,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Triage Agent",
         instructions: triage_instructions,
-        model: "gpt-4o",
+        model: "gpt-4.1-mini",
         tools: []
       )
     end
@@ -46,7 +46,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Customer Info Agent",
         instructions: customer_info_instructions,
-        model: "gpt-4o",
+        model: "gpt-4.1-mini",
         tools: [ISPSupport::CrmLookupTool.new]
       )
     end
@@ -55,7 +55,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Sales Agent",
         instructions: sales_instructions,
-        model: "gpt-4o",
+        model: "gpt-4.1-mini",
         tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new]
       )
     end
@@ -64,7 +64,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Support Agent",
         instructions: support_instructions,
-        model: "gpt-4o",
+        model: "gpt-4.1-mini",
         tools: [ISPSupport::SearchDocsTool.new, ISPSupport::EscalateToHumanTool.new]
       )
     end
