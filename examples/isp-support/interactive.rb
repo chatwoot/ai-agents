@@ -27,8 +27,9 @@ class ISPSupportDemo
       print "💬 You: "
       user_input = gets.chomp.strip
 
-      break if handle_command(user_input)
-      next if user_input.empty?
+      command_result = handle_command(user_input)
+      break if command_result == :exit
+      next if command_result == :handled || user_input.empty?
 
       # Determine which agent to use - either from context or triage agent
       current_agent = @context[:current_agent] || @triage_agent
@@ -40,8 +41,6 @@ class ISPSupportDemo
 
       puts "🤖 #{result.output || "[No output]"}"
 
-      # Show enhanced context debugging after each response
-      show_enhanced_context_debug
       puts
     end
   end
@@ -52,24 +51,26 @@ class ISPSupportDemo
     case input.downcase
     when "exit", "quit"
       puts "👋 Goodbye!"
-      return true
+      return :exit
     when "/help"
       show_help
+      return :handled
     when "/reset"
       @context.clear
       puts "🔄 Context reset. Starting fresh conversation."
+      return :handled
     when "/agents"
       show_agents
+      return :handled
     when "/tools"
       show_tools
+      return :handled
     when "/context"
       show_context
+      return :handled
     else
-      return false # Not a command, continue with normal processing
+      return :not_command # Not a command, continue with normal processing
     end
-
-    puts
-    false
   end
 
   def show_help
@@ -115,45 +116,6 @@ class ISPSupportDemo
     else
       @context.each do |key, value|
         puts "  #{key}: #{value}"
-      end
-    end
-  end
-
-  def show_enhanced_context_debug
-    puts "\n📊 **Enhanced Context Debug:**"
-    if @context.empty?
-      puts "  (empty context)"
-    else
-      # Show current agent
-      if @context[:current_agent]
-        puts "  🤖 Current Agent: #{@context[:current_agent].name}"
-      else
-        puts "  🤖 Current Agent: #{@triage_agent.name} (default)"
-      end
-
-      # Show conversation history count
-      history = @context[:conversation_history] || []
-      puts "  💬 Conversation History: #{history.length} messages"
-
-      # Show turn count
-      turn_count = @context[:turn_count] || 0
-      puts "  🔄 Turn Count: #{turn_count}"
-
-      # Show pending handoff if any
-      puts "  ⏳ Pending Handoff: #{@context[:pending_handoff].name}" if @context[:pending_handoff]
-
-      # Show last updated timestamp
-      puts "  ⏰ Last Updated: #{@context[:last_updated]}" if @context[:last_updated]
-
-      # Show other context data (excluding agent objects and history)
-      other_data = @context.reject do |k, _|
-        %i[current_agent conversation_history turn_count pending_handoff last_updated].include?(k)
-      end
-      unless other_data.empty?
-        puts "  📋 Other Data:"
-        other_data.each do |key, value|
-          puts "    #{key}: #{value.inspect}"
-        end
       end
     end
   end
