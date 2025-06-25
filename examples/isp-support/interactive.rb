@@ -51,25 +51,25 @@ class ISPSupportDemo
     case input.downcase
     when "exit", "quit"
       puts "👋 Goodbye!"
-      return :exit
+      :exit
     when "/help"
       show_help
-      return :handled
+      :handled
     when "/reset"
       @context.clear
       puts "🔄 Context reset. Starting fresh conversation."
-      return :handled
+      :handled
     when "/agents"
       show_agents
-      return :handled
+      :handled
     when "/tools"
       show_tools
-      return :handled
+      :handled
     when "/context"
       show_context
-      return :handled
+      :handled
     else
-      return :not_command # Not a command, continue with normal processing
+      :not_command # Not a command, continue with normal processing
     end
   end
 

@@ -42,22 +42,55 @@ module Agents
       @instructions = instructions
       @model = model
       @tools = tools.dup
-      @handoff_agents = handoff_agents
+      @handoff_agents = []
 
-      # Automatically create handoff tools
-      @handoff_agents.each do |agent|
-        @tools << HandoffTool.new(agent)
-      end
+      # Mutex for thread-safe handoff registration
+      # While agents are typically configured at startup, we want to ensure
+      # that concurrent handoff registrations don't result in lost data.
+      # For example, in a web server with multiple threads initializing
+      # different parts of the system, we might have:
+      #   Thread 1: triage.register_handoffs(billing)
+      #   Thread 2: triage.register_handoffs(support)
+      # Without synchronization, one registration could overwrite the other.
+      @mutex = Mutex.new
 
-      # Freeze the agent to make it immutable
-      freeze
+      # Register initial handoff agents if provided
+      register_handoffs(*handoff_agents) unless handoff_agents.empty?
     end
 
     # Get all tools available to this agent, including any auto-generated handoff tools
     #
     # @return [Array<Agents::Tool>] All tools available to the agent
     def all_tools
-      @tools
+      @mutex.synchronize do
+        # Compute handoff tools dynamically
+        handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
+        @tools + handoff_tools
+      end
+    end
+
+    # Register agents that this agent can hand off to.
+    # This method can be called after agent creation to set up handoff relationships.
+    # Thread-safe: Multiple threads can safely call this method concurrently.
+    #
+    # @param agents [Array<Agents::Agent>] Agents to register as handoff targets
+    # @return [self] Returns self for method chaining
+    # @example Setting up hub-and-spoke pattern
+    #   # Create agents
+    #   triage = Agent.new(name: "Triage", instructions: "Route to specialists")
+    #   billing = Agent.new(name: "Billing", instructions: "Handle payments")
+    #   support = Agent.new(name: "Support", instructions: "Fix technical issues")
+    #
+    #   # Wire up handoffs after creation - much cleaner than complex factories!
+    #   triage.register_handoffs(billing, support)
+    #   billing.register_handoffs(triage)  # Specialists only handoff back to triage
+    #   support.register_handoffs(triage)
+    def register_handoffs(*agents)
+      @mutex.synchronize do
+        @handoff_agents.concat(agents)
+        @handoff_agents.uniq! # Prevent duplicates
+      end
+      self
     end
 
     # Creates a new agent instance with modified attributes while preserving immutability.
