@@ -123,6 +123,28 @@ module Agents
         @agent_mcp_clients ||= []
         @agent_mcp_clients.concat(clients.flatten)
       end
+      
+      # Register an MCP client with tool filtering
+      # @param client [Agents::MCP::Client] MCP client to register
+      # @param include_tools [String, Array<String>, Regexp] Tools to include (nil = all)
+      # @param exclude_tools [String, Array<String>, Regexp] Tools to exclude (nil = none)
+      # @return [Agents::MCP::Client] The configured client
+      def mcp_client(client, include_tools: nil, exclude_tools: nil)
+        # If filtering is specified, create a new client with filters
+        if include_tools || exclude_tools
+          filtered_client = client.class.new(
+            name: client.name,
+            include_tools: include_tools,
+            exclude_tools: exclude_tools,
+            **client.instance_variable_get(:@options)
+          )
+          mcp_clients(filtered_client)
+          filtered_client
+        else
+          mcp_clients(client)
+          client
+        end
+      end
 
       # Get all registered MCP clients
       # @return [Array<Agents::MCP::Client>] Array of MCP clients
@@ -230,12 +252,28 @@ module Agents
     # Get agent metadata
     # @return [Hash] Agent metadata
     def metadata
+      # Get static tools
+      static_tools = self.class.tools.map(&:name)
+      
+      # Get MCP tools (if any are configured)
+      mcp_tool_names = []
+      begin
+        mcp_tools = instantiate_mcp_tools
+        mcp_tool_names = mcp_tools.map(&:name)
+      rescue Agents::MCP::Error => e
+        # If MCP tools can't be loaded, just continue with static tools
+        warn "Could not load MCP tools for metadata: #{e.message}" if $DEBUG
+      end
+      
+      # Get handoff tool names
+      handoff_tool_names = self.class.handoffs.map { |target| "handoff_to_#{target.name}" }
+      
       {
         name: self.class.name,
         instructions: self.class.instructions,
         provider: self.class.provider,
         model: self.class.model,
-        tools: self.class.tools.map(&:name)
+        tools: static_tools + mcp_tool_names + handoff_tool_names
       }
     end
 
