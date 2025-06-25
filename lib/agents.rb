@@ -128,12 +128,13 @@ module Agents
 
   # Tracing-specific configuration
   class TracingConfiguration
-    attr_accessor :enabled, :export_path, :include_sensitive_data
+    attr_accessor :enabled, :export_path, :include_sensitive_data, :otel_format
 
     def initialize
       @enabled = false
       @export_path = "./traces"
       @include_sensitive_data = true
+      @otel_format = true
     end
 
     # Set tracing enabled and setup default exporters later
@@ -163,6 +164,12 @@ module Agents
         warn "Failed to setup file exporter: #{e.message}"
         raise e
       end
+    end
+
+    # Export format to use based on otel_format setting
+    # @return [Symbol] :otel or :json
+    def export_format
+      @otel_format ? :otel : :json
     end
   end
 end

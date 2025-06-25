@@ -18,14 +18,42 @@ module Agents
 
       # Export a trace to a JSON file
       # @param trace [Trace] The trace to export
-      def export(trace)
+      # @param format [Symbol] Export format (:json or :otel)
+      def export(trace, format: :json)
         return unless trace
 
-        filename = generate_filename(trace)
+        filename = generate_filename(trace, format)
         filepath = File.join(@export_path, filename)
 
         begin
-          File.write(filepath, trace.to_json)
+          content = case format
+                   when :otel
+                     JSON.pretty_generate({
+                       resourceLogs: [
+                         {
+                           resource: {
+                             attributes: {
+                               "service.name" => "ruby-agents",
+                               "service.version" => "1.0.0"
+                             }
+                           },
+                           scopeLogs: [
+                             {
+                               scope: {
+                                 name: "agents.tracer",
+                                 version: "1.0.0"
+                               },
+                               logRecords: trace.to_otel_logs
+                             }
+                           ]
+                         }
+                       ]
+                     })
+                   else
+                     trace.to_json
+                   end
+          
+          File.write(filepath, content)
         rescue StandardError => e
           warn "Failed to export trace #{trace.trace_id}: #{e.message}"
           raise TracingError, "Trace export failed: #{e.message}"
@@ -43,11 +71,13 @@ module Agents
 
       # Generate filename for trace
       # @param trace [Trace] The trace
+      # @param format [Symbol] Export format
       # @return [String] Filename
-      def generate_filename(trace)
+      def generate_filename(trace, format = :json)
         timestamp = trace.start_time ? Time.at(trace.start_time).strftime("%Y%m%d_%H%M%S") : "unknown"
         workflow = trace.workflow_name ? "_#{sanitize_filename(trace.workflow_name)}" : ""
-        "#{timestamp}#{workflow}_#{trace.trace_id}.json"
+        format_suffix = format == :otel ? "_otel" : ""
+        "#{timestamp}#{workflow}_#{trace.trace_id}#{format_suffix}.json"
       end
 
       # Sanitize filename by removing unsafe characters

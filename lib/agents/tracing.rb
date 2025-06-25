@@ -262,11 +262,25 @@ module Agents
       # Export trace using all registered exporters
       # @param trace [Trace] Trace to export
       def export_trace(trace)
+        format = get_export_format
         @exporters.each do |exporter|
-          exporter.export(trace)
+          if exporter.method(:export).arity.abs >= 2
+            exporter.export(trace, format: format)
+          else
+            exporter.export(trace)
+          end
         rescue StandardError => e
           warn "Trace export failed: #{e.message}"
         end
+      end
+
+      # Get the configured export format
+      # @return [Symbol] Export format (:json or :otel)
+      def get_export_format
+        return :json unless Agents.configuration.respond_to?(:tracing)
+        return :json unless Agents.configuration.tracing.respond_to?(:export_format)
+        
+        Agents.configuration.tracing.export_format
       end
 
       # Truncate data for storage (to prevent huge spans)
@@ -322,6 +336,47 @@ module Agents
         }
       end
 
+      # Convert trace to OpenTelemetry log format
+      # @return [Hash] OpenTelemetry-compatible log records
+      def to_otel_logs
+        logs = []
+        
+        # Create a log record for the trace itself
+        trace_log = {
+          timestamp: @start_time ? (@start_time * 1_000_000_000).to_i : nil,
+          observedTimestamp: @end_time ? (@end_time * 1_000_000_000).to_i : nil,
+          severityNumber: 9, # INFO level
+          severityText: "INFO",
+          body: {
+            message: "Trace completed",
+            traceWorkflow: @workflow_name
+          },
+          attributes: {
+            "trace.id" => @trace_id,
+            "workflow.name" => @workflow_name,
+            "trace.duration_ms" => @duration_ms,
+            "trace.span_count" => @spans.length
+          }.merge(@metadata.transform_keys { |k| "trace.metadata.#{k}" }),
+          traceId: @trace_id.gsub('trace_', ''),
+          resource: {
+            "service.name" => "ruby-agents",
+            "service.version" => "1.0.0"
+          },
+          instrumentationScope: {
+            name: "agents.tracer",
+            version: "1.0.0"
+          }
+        }
+        logs << trace_log
+        
+        # Create log records for each span
+        @spans.each do |span|
+          logs << span.to_otel_log
+        end
+        
+        logs
+      end
+
       # Convert trace to JSON
       # @return [String] JSON representation
       def to_json(*args)
@@ -361,6 +416,52 @@ module Agents
           duration_ms: @duration_ms,
           status: @status.to_s,
           metadata: @metadata
+        }
+      end
+
+      # Convert span to OpenTelemetry log record
+      # @return [Hash] OpenTelemetry-compatible log record
+      def to_otel_log
+        severity_number = case @status
+                         when :error then 17 # ERROR
+                         when :ok then 9     # INFO
+                         else 9              # INFO (default)
+                         end
+        
+        severity_text = case @status
+                       when :error then "ERROR"
+                       when :ok then "INFO"
+                       else "INFO"
+                       end
+        
+        {
+          timestamp: @start_time ? (@start_time * 1_000_000_000).to_i : nil,
+          observedTimestamp: @end_time ? (@end_time * 1_000_000_000).to_i : nil,
+          severityNumber: severity_number,
+          severityText: severity_text,
+          body: {
+            message: "Span #{@status == :error ? 'failed' : 'completed'}",
+            spanName: @name,
+            spanCategory: @category.to_s
+          },
+          attributes: {
+            "span.id" => @span_id,
+            "span.name" => @name,
+            "span.category" => @category.to_s,
+            "span.duration_ms" => @duration_ms,
+            "span.status" => @status.to_s,
+            "span.parent_id" => @parent_id
+          }.merge(@metadata.transform_keys { |k| "span.metadata.#{k}" }),
+          traceId: @trace_id.gsub('trace_', ''),
+          spanId: @span_id.gsub('span_', ''),
+          resource: {
+            "service.name" => "ruby-agents",
+            "service.version" => "1.0.0"
+          },
+          instrumentationScope: {
+            name: "agents.tracer",
+            version: "1.0.0"
+          }
         }
       end
     end
