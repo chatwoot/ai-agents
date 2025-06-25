@@ -34,17 +34,19 @@ module Agents
         config.anthropic_api_key = configuration.anthropic_api_key if configuration.anthropic_api_key
         config.gemini_api_key = configuration.gemini_api_key if configuration.gemini_api_key
         config.default_model = configuration.default_model
+        config.log_level = configuration.debug == true ? :debug : :info
         config.request_timeout = configuration.request_timeout if configuration.request_timeout
       end
     end
   end
 
   class Configuration
-    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key, :request_timeout, :default_model
+    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key, :request_timeout, :default_model, :debug
 
     def initialize
       @default_model = "gpt-4o-mini"
       @request_timeout = 120
+      @debug = false
     end
 
     # Check if at least one provider is configured
