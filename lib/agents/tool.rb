@@ -65,6 +65,23 @@
 #   # => "8"
 module Agents
   class Tool < RubyLLM::Tool
+    class << self
+      def param(name, type = String, desc = nil, required: true, **options)
+        # Convert Ruby types to JSON schema types
+        json_type = case type
+                    when String, "string" then "string"
+                    when Integer, "integer" then "integer"
+                    when Float, "number" then "number"
+                    when TrueClass, FalseClass, "boolean" then "boolean"
+                    when Array, "array" then "array"
+                    when Hash, "object" then "object"
+                    else "string"
+                    end
+
+        # Call parent param method
+        super(name, type: json_type, desc: desc, required: required, **options)
+      end
+    end
     # Execute the tool with context injection.
     # This method is called by the runner and handles the thread-safe
     # execution pattern by passing all state through parameters.
