@@ -1,3 +1,6 @@
+require:
+  - rubocop-rspec
+
 AllCops:
   TargetRubyVersion: 3.1
 
@@ -6,3 +9,18 @@ Style/StringLiterals:
 
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
+
+RSpec/MultipleExpectations:
+  Max: 10
+
+RSpec/ExampleLength:
+  Max: 20
+
+RSpec/MultipleMemoizedHelpers:
+  Max: 15
+
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+Metrics/MethodLength:
+  Max: 20

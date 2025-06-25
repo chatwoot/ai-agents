@@ -90,7 +90,10 @@ class FaqAgent < Agents::Agent
     # Routine
     1. Identify the last question asked by the customer from the conversation.
     2. Use the faq lookup tool to answer the question. Do not rely on your own knowledge.
-    3. If you cannot answer the question, use transfer_to_triage_agent.
+    3. If the faq lookup tool returns "I'm sorry, I don't know the answer to that question", then:
+       - DO NOT transfer to another agent
+       - Simply respond: "I'm sorry, I don't have information about flight durations for that route. You may need to check with the airline directly or visit their website for specific flight times."
+    4. Only use transfer_to_triage_agent for questions that are completely unrelated to FAQs (like seat changes, booking modifications, etc.)
   INSTRUCTIONS
 
   uses FaqLookupTool
