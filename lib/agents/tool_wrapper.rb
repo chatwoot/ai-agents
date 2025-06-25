@@ -43,10 +43,10 @@ module Agents
       @params = tool.class.params if tool.class.respond_to?(:params)
     end
 
-    # RubyLLM calls this method
-    def execute(**args)
+    # RubyLLM calls this method (follows RubyLLM::Tool pattern)
+    def call(args)
       tool_context = ToolContext.new(run_context: @context_wrapper)
-      @tool.execute(tool_context, **args)
+      @tool.execute(tool_context, **args.transform_keys(&:to_sym))
     end
 
     # Delegate metadata methods to the tool
