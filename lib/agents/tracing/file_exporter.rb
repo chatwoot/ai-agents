@@ -29,7 +29,7 @@ module Agents
           content = case format
                    when :otel
                      JSON.pretty_generate({
-                       resourceLogs: [
+                       resourceSpans: [
                          {
                            resource: {
                              attributes: {
@@ -37,13 +37,13 @@ module Agents
                                "service.version" => "1.0.0"
                              }
                            },
-                           scopeLogs: [
+                           scopeSpans: [
                              {
                                scope: {
                                  name: "agents.tracer",
                                  version: "1.0.0"
                                },
-                               logRecords: trace.to_otel_logs
+                               spans: trace.to_otel_spans
                              }
                            ]
                          }

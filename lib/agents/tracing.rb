@@ -336,6 +336,12 @@ module Agents
         }
       end
 
+      # Convert trace to OpenTelemetry spans format
+      # @return [Array] OpenTelemetry-compatible spans
+      def to_otel_spans
+        @spans.map(&:to_otel_span)
+      end
+
       # Convert trace to OpenTelemetry log format
       # @return [Hash] OpenTelemetry-compatible log records
       def to_otel_logs
@@ -417,6 +423,41 @@ module Agents
           status: @status.to_s,
           metadata: @metadata
         }
+      end
+
+      # Convert span to OpenTelemetry span format
+      # @return [Hash] OpenTelemetry-compatible span
+      def to_otel_span
+        {
+          traceId: @trace_id.gsub('trace_', ''),
+          spanId: @span_id.gsub('span_', ''),
+          parentSpanId: @parent_id ? @parent_id.gsub('span_', '') : nil,
+          name: @name,
+          kind: 1, # SPAN_KIND_INTERNAL
+          startTimeUnixNano: @start_time ? (@start_time * 1_000_000_000).to_i : nil,
+          endTimeUnixNano: @end_time ? (@end_time * 1_000_000_000).to_i : nil,
+          attributes: [
+            { key: "span.category", value: { stringValue: @category.to_s } },
+            { key: "span.status", value: { stringValue: @status.to_s } },
+            { key: "span.duration_ms", value: { doubleValue: @duration_ms } }
+          ] + @metadata.map { |k, v| 
+            { 
+              key: "span.metadata.#{k}", 
+              value: case v
+                     when String then { stringValue: v }
+                     when Numeric then { doubleValue: v.to_f }
+                     when TrueClass, FalseClass then { boolValue: v }
+                     else { stringValue: v.to_s }
+                     end
+            }
+          },
+          status: {
+            code: @status == :error ? 2 : 1, # STATUS_CODE_ERROR : STATUS_CODE_OK
+            message: @status == :error ? "Error occurred" : ""
+          },
+          events: [],
+          links: []
+        }.compact
       end
 
       # Convert span to OpenTelemetry log record
