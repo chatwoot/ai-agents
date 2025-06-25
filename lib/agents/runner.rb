@@ -67,12 +67,17 @@ module Agents
     # @param max_turns [Integer] Maximum conversation turns before stopping
     # @return [RunResult] The result containing output, messages, and usage
     def run(starting_agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
-      current_agent = starting_agent
-      context_wrapper = RunContext.new(context.dup)
+      # Determine current agent from context or use starting agent
+      current_agent = context[:current_agent] || starting_agent
+
+      # Create context wrapper with deep copy for thread safety
+      context_copy = deep_copy_context(context)
+      context_wrapper = RunContext.new(context_copy)
       current_turn = 0
 
-      # Create initial chat
+      # Create chat and restore conversation history
       chat = create_chat(current_agent, context_wrapper)
+      restore_conversation_history(chat, context_wrapper)
 
       loop do
         current_turn += 1
@@ -91,43 +96,108 @@ module Agents
         # Check for handoff via context (set by HandoffTool)
         if context_wrapper.context[:pending_handoff]
           next_agent = context_wrapper.context[:pending_handoff]
-          Agents.logger&.debug "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
+          puts "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
+
+          # Save current conversation state before switching
+          save_conversation_state(chat, context_wrapper, current_agent)
 
           # Switch to new agent
           current_agent = next_agent
+          context_wrapper.context[:current_agent] = next_agent
           context_wrapper.context.delete(:pending_handoff)
+
+          # Create new chat for new agent with restored history
           chat = create_chat(current_agent, context_wrapper)
+          restore_conversation_history(chat, context_wrapper)
           next
         end
 
         # If no tools were called, we have our final response
-        unless response.tool_call?
-          return RunResult.new(
-            output: response.content,
-            messages: extract_messages(chat),
-            usage: context_wrapper.usage
-          )
-        end
+        next if response.tool_call?
+
+        # Save final state before returning
+        save_conversation_state(chat, context_wrapper, current_agent)
+
+        return RunResult.new(
+          output: response.content,
+          messages: extract_messages(chat),
+          usage: context_wrapper.usage,
+          context: context_wrapper.context
+        )
       end
     rescue MaxTurnsExceeded => e
-      # Return partial result on max turns
+      # Save state even on error
+      save_conversation_state(chat, context_wrapper, current_agent) if chat
+
       RunResult.new(
         output: "Conversation ended: #{e.message}",
-        messages: [],
+        messages: chat ? extract_messages(chat) : [],
         usage: context_wrapper.usage,
-        error: e
+        error: e,
+        context: context_wrapper.context
       )
     rescue StandardError => e
-      # Return error result
+      # Save state even on error
+      save_conversation_state(chat, context_wrapper, current_agent) if chat
+
       RunResult.new(
         output: nil,
-        messages: [],
+        messages: chat ? extract_messages(chat) : [],
         usage: context_wrapper.usage,
-        error: e
+        error: e,
+        context: context_wrapper.context
       )
     end
 
     private
+
+    def deep_copy_context(context)
+      # Handle deep copying for thread safety
+      context.dup.tap do |copied|
+        copied[:conversation_history] = context[:conversation_history]&.map(&:dup) || []
+        # Don't copy agents - they're immutable
+        copied[:current_agent] = context[:current_agent]
+        copied[:turn_count] = context[:turn_count] || 0
+      end
+    end
+
+    def restore_conversation_history(chat, context_wrapper)
+      history = context_wrapper.context[:conversation_history] || []
+
+      history.each do |msg|
+        # Only restore user and assistant messages with content
+        next unless %i[user assistant].include?(msg[:role])
+        next unless msg[:content] && !msg[:content].strip.empty?
+
+        chat.add_message(
+          role: msg[:role].to_sym,
+          content: msg[:content]
+        )
+      rescue StandardError => e
+        # Continue with partial history on error
+        puts "[Agents] Failed to restore message: #{e.message}"
+      end
+    rescue StandardError => e
+      # If history restoration completely fails, continue with empty history
+      puts "[Agents] Failed to restore conversation history: #{e.message}"
+      context_wrapper.context[:conversation_history] = []
+    end
+
+    def save_conversation_state(chat, context_wrapper, current_agent)
+      # Extract messages from chat
+      messages = extract_messages(chat)
+
+      # Update context with latest state
+      context_wrapper.context[:conversation_history] = messages
+      context_wrapper.context[:current_agent] = current_agent
+      context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
+      context_wrapper.context[:last_updated] = Time.now
+
+      # Clean up temporary handoff state
+      context_wrapper.context.delete(:pending_handoff)
+    rescue StandardError => e
+      puts "[Agents] Failed to save conversation state: #{e.message}"
+    end
 
     def create_chat(agent, context_wrapper)
       # Get system prompt (may be dynamic)
@@ -148,11 +218,15 @@ module Agents
     def extract_messages(chat)
       return [] unless chat.respond_to?(:messages)
 
-      chat.messages.map do |msg|
+      chat.messages.filter_map do |msg|
+        # Only include user and assistant messages with content
+        next unless %i[user assistant].include?(msg.role)
+        next unless msg.content && !msg.content.strip.empty?
+
         {
           role: msg.role,
           content: msg.content
-        }.compact
+        }
       end
     end
   end
