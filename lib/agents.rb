@@ -40,8 +40,7 @@ module Agents
   end
 
   class Configuration
-    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key
-    attr_accessor :request_timeout, :default_model
+    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key, :request_timeout, :default_model
 
     def initialize
       @default_model = "gpt-4o-mini"
