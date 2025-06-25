@@ -156,24 +156,4 @@ module Agents
       end
     end
   end
-
-  # Represents the result of running an agent
-  class RunResult
-    attr_reader :output, :messages, :usage, :error
-
-    def initialize(output:, messages:, usage:, error: nil)
-      @output = output
-      @messages = messages
-      @usage = usage
-      @error = error
-    end
-
-    def success?
-      error.nil? && !output.nil?
-    end
-
-    def failed?
-      !success?
-    end
-  end
 end
