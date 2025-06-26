@@ -90,7 +90,67 @@ module Agents
     # @param params [Hash] Tool-specific parameters as defined by the tool's param declarations
     # @return [String] The tool's result
     def execute(tool_context, **params)
-      perform(tool_context, **params)
+      Tracing.in_span("tool.#{name}", kind: :internal,
+                      "tool.name" => name,
+                      "tool.class" => self.class.name,
+                      "tool.description" => description || "no description",
+                      "tool.param_count" => params.keys.length,
+                      "tool.param_names" => params.keys.join(","),
+                      "tool.context_available" => !tool_context.nil?,
+                      "tool.run_context_keys" => tool_context&.context&.keys&.join(",") || "none") do |span|
+        
+        # Add parameter details if sensitive data is allowed
+        if Agents.configuration.tracing.include_sensitive_data
+          params.each do |key, value|
+            span.set_attribute("tool.param.#{key}", value.to_s) if value.to_s.length < 200
+          end
+        end
+        
+        span.add_event("tool.execution_started", attributes: {
+          "execution.context_size" => tool_context&.context&.keys&.length || 0,
+          "execution.params_provided" => params.keys.length
+        })
+        
+        start_time = Time.now
+        begin
+          result = perform(tool_context, **params)
+          duration = Time.now - start_time
+          
+          # Add comprehensive execution metadata
+          span.set_attribute("tool.execution_time_ms", (duration * 1000).round(2))
+          span.set_attribute("tool.execution_success", true)
+          span.set_attribute("tool.result_type", result.class.name)
+          span.set_attribute("tool.result_length", result.to_s.length)
+          
+          # Add result to span if not sensitive and reasonable size
+          if Agents.configuration.tracing.include_sensitive_data && result.is_a?(String) && result.length < 1000
+            span.set_attribute("tool.result", result)
+          end
+          
+          span.add_event("tool.execution_completed", attributes: {
+            "execution.duration_ms" => (duration * 1000).round(2),
+            "execution.result_size" => result.to_s.length,
+            "execution.success" => true
+          })
+          
+          result
+        rescue => e
+          duration = Time.now - start_time
+          span.set_attribute("tool.execution_time_ms", (duration * 1000).round(2))
+          span.set_attribute("tool.execution_success", false)
+          span.set_attribute("tool.error_type", e.class.name)
+          span.set_attribute("tool.error_message", e.message)
+          
+          span.add_event("tool.execution_failed", attributes: {
+            "execution.duration_ms" => (duration * 1000).round(2),
+            "execution.error" => e.class.name,
+            "execution.error_message" => e.message,
+            "execution.stacktrace" => e.backtrace&.first(3)&.join("\n") || "unknown"
+          })
+          
+          raise
+        end
+      end
     end
 
     # Perform the tool's action. Subclasses must implement this method.

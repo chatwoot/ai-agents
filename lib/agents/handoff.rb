@@ -60,6 +60,19 @@ module Agents
 
     # Handoff tools don't need parameters - just the intent to transfer
     def perform(tool_context)
+      # Add tracing for handoff request
+      if Agents.configuration.tracing.enabled
+        Agents::Tracing.tracer.current_span&.add_event("handoff.requested", attributes: {
+          "handoff.target_agent" => @target_agent.name,
+          "handoff.target_agent_class" => @target_agent.class.name,
+          "handoff.tool_name" => name,
+          "handoff.initiated_by" => "llm_tool_call"
+        })
+        
+        # Override the span name to be more specific
+        Agents::Tracing.tracer.current_span&.instance_variable_set(:@name, "handoff_to_#{@target_agent.name.downcase.gsub(/\s+/, '_')}")
+      end
+
       # Signal the handoff through context
       tool_context.context[:pending_handoff] = @target_agent
 

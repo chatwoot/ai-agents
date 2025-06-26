@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: agents-jaeger
+    ports:
+      - "16686:16686"    # Jaeger UI
+      - "14268:14268"    # HTTP collector endpoint
+      - "6831:6831/udp"  # UDP endpoint for clients (optional)
+      - "6832:6832/udp"  # UDP endpoint for clients (optional)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=info
+    volumes:
+      - jaeger-data:/tmp
+    networks:
+      - agents-tracing
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:16686/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  jaeger-data:
+    driver: local
+
+networks:
+  agents-tracing:
+    driver: bridge
+    name: agents-tracing
