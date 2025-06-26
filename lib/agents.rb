@@ -68,3 +68,6 @@ require_relative "agents/agent"
 # Execution components
 require_relative "agents/tool_wrapper"
 require_relative "agents/runner"
+
+# MCP integration (optional)
+require_relative "agents/mcp"
