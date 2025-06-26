@@ -38,50 +38,50 @@ require 'agents'
 # Configure with your API key
 Agents.configure do |config|
   config.openai_api_key = ENV['OPENAI_API_KEY']
-  config.default_model = 'gpt-4o'
 end
 
 # Create a simple agent
-class WeatherAgent < Agents::Agent
-  name "Weather Assistant"
-  instructions "Help users get weather information"
+agent = Agents::Agent.new(
+  name: "Weather Assistant",
+  instructions: "Help users get weather information",
+  tools: [WeatherTool.new]
+)
 
-  uses WeatherTool
-end
-
-# Use the agent
-agent = WeatherAgent.new
-response = agent.call("What's the weather like today?")
-puts response.content
+# Use the agent with the Runner
+result = Agents::Runner.run(agent, "What's the weather like today?")
+puts result.output
 ```
 
-### Multi-Agent Workflows with Runner
+### Multi-Agent Workflows with Handoffs
 
 The real power comes from multi-agent workflows with automatic handoffs:
 
 ```ruby
-# Define specialized agents
-class TriageAgent < Agents::Agent
-  name "Triage Agent"
-  instructions "Route customers to the right specialist"
-  handoffs FaqAgent, SupportAgent
-end
-
-class FaqAgent < Agents::Agent
-  name "FAQ Agent"
-  instructions "Answer frequently asked questions"
-  uses FaqLookupTool
-end
-
-# Create a runner for seamless multi-agent conversations
-context = Agents::Context.new
-runner = Agents::Runner.new(
-  initial_agent: TriageAgent,
-  context: context
+# Create specialized agents
+triage = Agents::Agent.new(
+  name: "Triage Agent",
+  instructions: "Route customers to the right specialist"
 )
 
-# One call handles everything - handoffs are invisible to users
-response = runner.process("How many seats are on the plane?")
+faq = Agents::Agent.new(
+  name: "FAQ Agent",
+  instructions: "Answer frequently asked questions",
+  tools: [FaqLookupTool.new]
+)
+
+support = Agents::Agent.new(
+  name: "Support Agent",
+  instructions: "Handle technical issues",
+  tools: [TicketTool.new]
+)
+
+# Wire up handoff relationships - clean and simple!
+triage.register_handoffs(faq, support)
+faq.register_handoffs(triage)     # Can route back to triage
+support.register_handoffs(triage)  # Hub-and-spoke pattern
+
+# Run a conversation with automatic handoffs
+result = Agents::Runner.run(triage, "How many seats are on the plane?")
 # User gets direct answer from FAQ agent without knowing about the handoff!
 ```
 
@@ -97,6 +97,25 @@ response = runner.process("How many seats are on the plane?")
 
 ### Agent Definition
 
+Agents can be created in two ways:
+
+#### Instance-based (Recommended for dynamic agents)
+
+```ruby
+# Create agents as instances
+agent = Agents::Agent.new(
+  name: "Customer Service",
+  instructions: "You are a helpful customer service agent.",
+  model: "gpt-4o",
+  tools: [EmailTool.new, TicketTool.new]
+)
+
+# Register handoffs after creation
+agent.register_handoffs(technical_support, billing)
+```
+
+#### Class-based (Coming soon)
+
 ```ruby
 class CustomerServiceAgent < Agents::Agent
   name "Customer Service"
@@ -105,11 +124,8 @@ class CustomerServiceAgent < Agents::Agent
     Always be polite and professional.
   PROMPT
 
-  provider :openai
   model "gpt-4o"
-
   uses EmailTool, TicketTool
-  handoffs TechnicalSupportAgent, BillingAgent
 end
 ```
 
@@ -129,24 +145,69 @@ class EmailTool < Agents::Tool
 end
 ```
 
+### Handoff Patterns
+
+#### Hub-and-Spoke Pattern (Recommended)
+
+```ruby
+# Central triage agent routes to specialists
+triage = Agents::Agent.new(name: "Triage")
+billing = Agents::Agent.new(name: "Billing")
+support = Agents::Agent.new(name: "Support")
+
+# Triage can route to any specialist
+triage.register_handoffs(billing, support)
+
+# Specialists only route back to triage
+billing.register_handoffs(triage)
+support.register_handoffs(triage)
+```
+
+#### Circular Handoffs
+
+```ruby
+# Agents can hand off to each other
+sales = Agents::Agent.new(name: "Sales")
+customer_info = Agents::Agent.new(name: "Customer Info")
+
+# Both agents can transfer to each other
+sales.register_handoffs(customer_info)
+customer_info.register_handoffs(sales)
+```
+
 ### Context Management
 
 ```ruby
-class OrderContext < Agents::Context
-  attr_accessor :customer_id, :order_number, :status
+# Context is automatically managed by the Runner
+context = {}
+result = Agents::Runner.run(agent, "Hello", context: context)
 
-  def initialize
-    super
-    @customer_id = nil
-    @order_number = nil
-    @status = "pending"
-  end
-end
+# Access conversation history and agent state
+puts context[:conversation_history]
+puts context[:current_agent].name
 ```
 
-## 📋 Example: Airline Customer Service
+## 📋 Examples
 
-See the complete airline booking example in `examples/booking/`:
+### ISP Customer Support
+
+See the complete ISP support example in `examples/isp-support/`:
+
+```ruby
+# Run the interactive demo
+ruby examples/isp-support/interactive.rb
+```
+
+This showcases:
+- **Triage Agent**: Routes customers to appropriate specialists
+- **Customer Info Agent**: Handles account info and billing inquiries
+- **Sales Agent**: Manages new connections and upgrades
+- **Support Agent**: Provides technical troubleshooting
+- **Hub-and-Spoke Handoffs**: Clean architecture pattern
+
+### Airline Customer Service
+
+See the airline booking example in `examples/booking/`:
 
 ```ruby
 # Run the interactive demo

@@ -1,158 +1,116 @@
 # frozen_string_literal: true
 
-# Handoff mechanism - enables seamless transitions between specialized agents
-# This file defines the core handoff infrastructure that allows agents to transfer
-# conversations to other agents based on context or user needs. HandoffTools are generated
-# dynamically at runtime for each agent based on its declared handoffs, ensuring type safety
-# and preventing circular dependencies. The handoff is signaled through shared context rather
-# than return values, allowing the conversation flow to remain natural and uninterrupted.
-
 module Agents
-  # Represents a handoff result from one agent to another
-  class HandoffResult
-    attr_reader :target_agent_class, :reason, :context
-
-    def initialize(target_agent_class:, reason: nil, context: nil)
-      @target_agent_class = target_agent_class
-      @reason = reason
-      @context = context
-    end
-
-    def handoff?
-      !@target_agent_class.nil?
-    end
-  end
-
-  # Represents an agent response that may include content, tool calls, and handoffs.
-  # This enhanced version tracks tool calls separately from conversational content,
-  # allowing the Runner to properly handle handoffs as tool executions.
-  class AgentResponse
-    # @return [String, nil] The conversational content from the agent
-    attr_reader :content
-
-    # @return [HandoffResult, nil] Information about a requested handoff
-    attr_reader :handoff_result
-
-    # @return [Array<Hash>] Tool calls made by the agent
-    attr_reader :tool_calls
-
-    # Initialize a new agent response
-    # @param content [String, nil] Conversational content (can be nil if only tool calls)
-    # @param handoff_result [HandoffResult, nil] Handoff information if applicable
-    # @param tool_calls [Array<Hash>] Array of tool call information
-    def initialize(content: nil, handoff_result: nil, tool_calls: [])
-      @content = content
-      @handoff_result = handoff_result
-      @tool_calls = tool_calls || []
-    end
-
-    # Check if this response includes a handoff
-    # @return [Boolean] True if a handoff is requested
-    def handoff?
-      @handoff_result&.handoff? || false
-    end
-
-    # Check if this response includes tool calls
-    # @return [Boolean] True if tool calls were made
-    def has_tool_calls?
-      !@tool_calls.empty?
-    end
-
-    # Check if this response has any conversational content
-    # @return [Boolean] True if there's non-empty content
-    def has_content?
-      !@content.nil? && !@content.strip.empty?
-    end
-  end
-
-  # A single handoff tool that can transfer to any target agent.
-  # HandoffTools are special tools that signal agent transitions. Unlike regular tools
-  # that return simple values, HandoffTools return structured data that allows the
-  # Runner to properly track handoffs as tool calls rather than conversation content.
+  # A special tool that enables agents to transfer conversations to other specialized agents.
+  # Handoffs are implemented as tools (following OpenAI's pattern) because this allows
+  # the LLM to naturally decide when to transfer based on the conversation context.
+  #
+  # ## How Handoffs Work
+  # 1. Agent A is configured with handoff_agents: [Agent B, Agent C]
+  # 2. This automatically creates HandoffTool instances for B and C
+  # 3. The LLM can call these tools like any other tool
+  # 4. The tool signals the handoff through context
+  # 5. The Runner detects this and switches to the new agent
+  #
+  # ## First-Call-Wins Implementation
+  # This implementation uses "first-call-wins" semantics to prevent infinite handoff loops.
+  #
+  # ### The Problem We Solved
+  # During development, we discovered that LLMs could call the same handoff tool multiple times
+  # in a single response, leading to infinite loops:
+  #
+  # 1. User: "My internet isn't working but my account shows active"
+  # 2. Triage Agent hands off to Support Agent
+  # 3. Support Agent sees account info is needed, hands back to Triage Agent
+  # 4. Triage Agent sees technical issue, hands off to Support Agent again
+  # 5. This creates an infinite ping-pong loop
+  #
+  # ### Root Cause Analysis
+  # Unlike OpenAI's SDK which processes tool calls before execution, RubyLLM automatically
+  # executes all tool calls in a response. This meant:
+  # - LLM calls handoff tool 10+ times in one response
+  # - Each call sets context[:pending_handoff], overwriting previous values
+  # - Runner processes handoffs after tool execution, seeing only the last one
+  # - Multiple handoff signals created conflicting state
+  #
+  # TODO: Overall, this problem can be tackled better if we replace the RubyLLM chat
+  # program with our own implementation.
+  #
+  # ### The Solution
+  # We implemented first-call-wins semantics inspired by OpenAI's approach:
+  # - First handoff call in a response sets the pending handoff
+  # - Subsequent calls are ignored with a "transfer in progress" message
+  # - This prevents loops and mirrors OpenAI SDK behavior
+  #
+  # ## Why Tools Instead of Instructions
+  # Using tools for handoffs has several advantages:
+  # - LLMs reliably use tools when appropriate
+  # - Clear schema tells the LLM when each handoff is suitable
+  # - No parsing of free text needed
+  # - Works consistently across different LLM providers
+  #
+  # @example Basic handoff setup
+  #   billing_agent = Agent.new(name: "Billing", instructions: "Handle payments")
+  #   support_agent = Agent.new(name: "Support", instructions: "Technical help")
+  #
+  #   triage = Agent.new(
+  #     name: "Triage",
+  #     instructions: "Route users to the right team",
+  #     handoff_agents: [billing_agent, support_agent]
+  #   )
+  #   # Creates tools: handoff_to_billing, handoff_to_support
+  #
+  # @example How the LLM sees it
+  #   # User: "I can't pay my bill"
+  #   # LLM thinks: "This is a payment issue, I should transfer to billing"
+  #   # LLM calls: handoff_to_billing()
+  #   # Runner switches to billing_agent for the next turn
+  #
+  # @example First-call-wins in action
+  #   # Single LLM response with multiple handoff calls:
+  #   # Call 1: handoff_to_support() -> Sets pending_handoff, returns "Transferring to Support"
+  #   # Call 2: handoff_to_support() -> Ignored, returns "Transfer already in progress"
+  #   # Call 3: handoff_to_billing() -> Ignored, returns "Transfer already in progress"
+  #   # Result: Only transfers to Support Agent (first call wins)
   class HandoffTool < Tool
-    description "Transfer to another agent"
-    param :reason, type: "string", desc: "Reason for the transfer (optional)", required: false
+    attr_reader :target_agent
 
-    # @return [Class] The target agent class for this handoff
-    attr_reader :target_agent_class
+    def initialize(target_agent)
+      @target_agent = target_agent
 
-    # Initialize a new handoff tool
-    # @param target_agent_class [Class] The agent class to transfer to
-    # @param description [String, nil] Custom description for this handoff
-    def initialize(target_agent_class, description: nil)
-      @target_agent_class = target_agent_class
-      # Use the actual Ruby class name, not the agent display name
-      ruby_class_name = target_agent_class.to_s.split("::").last
-      @tool_name = "transfer_to_#{ruby_class_name.underscore}"
-      @tool_description = description || "Transfer to #{target_agent_class.name}"
+      # Set up the tool with a standardized name and description
+      @tool_name = "handoff_to_#{target_agent.name.downcase.gsub(/\s+/, "_")}"
+      @tool_description = "Transfer conversation to #{target_agent.name}"
 
       super()
     end
 
-    # @return [String] The tool name (e.g., "transfer_to_faq_agent")
+    # Override the auto-generated name to use our specific name
     def name
       @tool_name
     end
 
-    # @return [String] The tool description
+    # Override the description
     def description
       @tool_description
     end
 
-    # Execute the handoff, returning structured data instead of a simple message.
-    # This allows the Runner to identify handoffs and handle them appropriately.
-    #
-    # @param context [Agents::Context] The execution context
-    # @param reason [String, nil] Optional reason for the handoff
-    # @return [Hash] Structured handoff data with type, target, and message
-    def perform(context:, reason: nil)
-      # Signal handoff through the existing context system
-      if context
-        context[:pending_handoff] = {
-          target_agent_class: @target_agent_class,
-          reason: reason
-        }
-
-        # Execute any handoff hooks
-        execute_handoff_hook(context)
-
-        # Record the handoff in context
-        context[:last_handoff] = {
-          target: @target_agent_class.name,
-          reason: reason,
-          timestamp: Time.now
-        }
+    # Handoff tools implement first-call-wins semantics to prevent infinite loops
+    # Multiple handoff calls in a single response are ignored (like OpenAI SDK)
+    def perform(tool_context)
+      # First-call-wins: only set handoff if not already set
+      if tool_context.context[:pending_handoff]
+        return "Transfer request noted (already processing a handoff)."
       end
 
-      # Return structured response indicating this is a handoff
-      # This allows the Runner to identify it as a handoff vs regular tool output
-      reason_text = reason ? " (#{reason})" : ""
-      {
-        type: "handoff",
-        target: @target_agent_class.name,
-        target_class: @target_agent_class,
-        reason: reason,
-        message: "Transferring to #{@target_agent_class.name}#{reason_text}..."
-      }
+      # Set the handoff target
+      tool_context.context[:pending_handoff] = @target_agent
+
+      # Return a message that will be shown to the user
+      "I'll transfer you to #{@target_agent.name} who can better assist you with this."
     end
 
-    private
-
-    # Hook for executing handoff-specific logic
-    # Override in subclasses if needed
-    def execute_handoff_hook(context)
-      # Generic handoff hook - override in subclasses if needed
-    end
-  end
-end
-
-# Helper method to convert class names to underscore format
-class String
-  def underscore
-    gsub(/::/, "/")
-      .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
-      .gsub(/([a-z\d])([A-Z])/, '\1_\2')
-      .tr("-", "_")
-      .downcase
+    # NOTE: RubyLLM will handle schema generation internally when needed
+    # Handoff tools have no parameters, which RubyLLM will detect automatically
   end
 end

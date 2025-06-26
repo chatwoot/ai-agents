@@ -1,165 +1,233 @@
 # frozen_string_literal: true
 
-# Runner class - the orchestrator that manages multi-agent conversations and state
-# This is the primary interface for SDK users. The Runner maintains conversation continuity
-# across agent handoffs by preserving the complete history and shared context. When an agent
-# signals a handoff, the Runner seamlessly transitions to the new agent while ensuring it has
-# full visibility into previous interactions. The design allows for stateless agents while
-# maintaining stateful conversations, with built-in loop detection to prevent infinite handoffs.
-#
-# This implementation uses an item-based tracking system where handoffs are recorded as tool
-# calls and outputs, preventing conversation pollution and infinite loops.
-
 module Agents
-  # Runner orchestrates multi-agent conversations with automatic handoffs.
-  # This is the main entry point for SDK users - they only need to call runner.process(message)
-  # and handoffs happen transparently while maintaining conversation history.
+  # The execution engine that orchestrates conversations between users and agents.
+  # Runner manages the conversation flow, handles tool execution through RubyLLM,
+  # coordinates handoffs between agents, and ensures thread-safe operation.
   #
-  # @example Basic usage
-  #   runner = Runner.new(initial_agent: TriageAgent, context: AirlineContext.new)
-  #   response = runner.process("I need to change my seat")
+  # The Runner follows a turn-based execution model where each turn consists of:
+  # 1. Sending a message to the LLM with current context
+  # 2. Receiving a response that may include tool calls
+  # 3. Executing tools and getting results (handled by RubyLLM)
+  # 4. Checking for agent handoffs
+  # 5. Continuing until no more tools are called
   #
-  # @example Accessing conversation items
-  #   runner.run_items.each do |item|
-  #     puts "#{item.class}: #{item.to_input_item}"
-  #   end
+  # ## Thread Safety
+  # The Runner ensures thread safety by:
+  # - Creating new context wrappers for each execution
+  # - Using tool wrappers that pass context through parameters
+  # - Never storing execution state in shared variables
+  #
+  # ## Integration with RubyLLM
+  # We leverage RubyLLM for LLM communication and tool execution while
+  # maintaining our own context management and handoff logic.
+  #
+  # @example Simple conversation
+  #   agent = Agents::Agent.new(
+  #     name: "Assistant",
+  #     instructions: "You are a helpful assistant",
+  #     tools: [weather_tool]
+  #   )
+  #
+  #   result = Agents::Runner.run(agent, "What's the weather?")
+  #   puts result.output
+  #   # => "Let me check the weather for you..."
+  #
+  # @example Conversation with context
+  #   result = Agents::Runner.run(
+  #     support_agent,
+  #     "I need help with my order",
+  #     context: { user_id: 123, order_id: 456 }
+  #   )
+  #
+  # @example Multi-agent handoff
+  #   triage = Agents::Agent.new(
+  #     name: "Triage",
+  #     instructions: "Route users to the right specialist",
+  #     handoff_agents: [billing_agent, tech_agent]
+  #   )
+  #
+  #   result = Agents::Runner.run(triage, "I can't pay my bill")
+  #   # Triage agent will handoff to billing_agent
   class Runner
-    # @return [Agent] The currently active agent
-    attr_reader :current_agent
+    DEFAULT_MAX_TURNS = 10
 
-    # @return [Agents::Context] Shared context across all agents
-    attr_reader :context
+    class MaxTurnsExceeded < StandardError; end
 
-    # @return [Array<RunItem>] All items generated during the run
-    attr_reader :run_items
-
-    # Initialize a new runner
-    # @param initial_agent [Class] The agent class to start with (e.g., TriageAgent)
-    # @param context [Agents::Context] Shared context for the conversation
-    def initialize(initial_agent:, context:)
-      @initial_agent_class = initial_agent
-      @context = context
-      @run_items = []
-      @current_agent = nil
+    # Convenience class method for running agents
+    def self.run(agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
+      new.run(agent, input, context: context, max_turns: max_turns)
     end
 
-    # Process a user message through the agent system.
-    # Automatically handles handoffs and maintains conversation history.
+    # Execute an agent with the given input and context
     #
-    # @param user_message [String] The user's input
-    # @return [String] The final agent response after all handoffs
-    # @raise [RuntimeError] If maximum handoffs are exceeded
-    def process(user_message)
-      # Add user message as an item
-      @run_items << UserMessageItem.new(content: user_message, agent: nil)
+    # @param starting_agent [Agents::Agent] The initial agent to run
+    # @param input [String] The user's input message
+    # @param context [Hash] Shared context data accessible to all tools
+    # @param max_turns [Integer] Maximum conversation turns before stopping
+    # @return [RunResult] The result containing output, messages, and usage
+    def run(starting_agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
+      # Determine current agent from context or use starting agent
+      current_agent = context[:current_agent] || starting_agent
 
-      # Start with initial agent if this is the first message, otherwise use current agent
-      @current_agent ||= @initial_agent_class.new(context: @context)
+      # Create context wrapper with deep copy for thread safety
+      context_copy = deep_copy_context(context)
+      context_wrapper = RunContext.new(context_copy)
+      current_turn = 0
 
-      # Process through agent loop until no more handoffs
-      final_response = nil
-      max_handoffs = 10 # Prevent infinite loops
-      handoff_count = 0
+      # Create chat and restore conversation history
+      chat = create_chat(current_agent, context_wrapper)
+      restore_conversation_history(chat, context_wrapper)
 
       loop do
-        # Clear any pending handoffs from previous iterations
-        @context[:pending_handoff] = nil
+        current_turn += 1
+        raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Build clean input for agent from run items
-        agent_input = build_agent_input
+        # Get response from LLM (RubyLLM handles tool execution)
+        response = if current_turn == 1
+                     chat.ask(input)
+                   else
+                     chat.complete
+                   end
 
-        # Call agent with the prepared input array
-        # The agent will detect that input is an array and handle it appropriately
-        agent_response = @current_agent.call(agent_input)
+        # Update usage
+        context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
 
-        # Process any tool calls (including handoffs)
-        if agent_response.has_tool_calls?
-          process_tool_calls(agent_response.tool_calls)
-          # Important: When there are tool calls, we DON'T add the content as an assistant message
-          # This prevents conversation pollution from messages like "I've connected you with someone..."
-        elsif agent_response.has_content?
-          # Only add assistant message if there's NO tool calls
-          # This matches Python's behavior where tool calls and content are mutually exclusive
-          @run_items << AssistantMessageItem.new(
-            content: agent_response.content,
-            agent: @current_agent
-          )
-        end
+        # Check for handoff via context (set by HandoffTool)
+        if context_wrapper.context[:pending_handoff]
+          next_agent = context_wrapper.context[:pending_handoff]
+          puts "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
 
-        # Check for handoffs
-        if agent_response.handoff?
-          handoff_count += 1
-          raise "Maximum handoffs (#{max_handoffs}) exceeded. Possible infinite loop." if handoff_count > max_handoffs
-
-          handoff_result = agent_response.handoff_result
-          target_class = handoff_result.target_agent_class
-
-          # Record the handoff in context
-          @context.record_agent_transition(
-            @current_agent.class.name,
-            target_class.name,
-            handoff_result.reason
-          )
+          # Save current conversation state before switching
+          save_conversation_state(chat, context_wrapper, current_agent)
 
           # Switch to new agent
-          @current_agent = target_class.new(context: @context)
+          current_agent = next_agent
+          context_wrapper.context[:current_agent] = next_agent
+          context_wrapper.context.delete(:pending_handoff)
 
-          # Continue loop to process with new agent
-        else
-          # No handoff, we have our final response
-          final_response = agent_response.content
-          break
+          # Create new chat for new agent with restored history
+          chat = create_chat(current_agent, context_wrapper)
+          restore_conversation_history(chat, context_wrapper)
+          next
         end
+
+        # If no tools were called, we have our final response
+        next if response.tool_call?
+
+        # Save final state before returning
+        save_conversation_state(chat, context_wrapper, current_agent)
+
+        return RunResult.new(
+          output: response.content,
+          messages: extract_messages(chat),
+          usage: context_wrapper.usage,
+          context: context_wrapper.context
+        )
       end
+    rescue MaxTurnsExceeded => e
+      # Save state even on error
+      save_conversation_state(chat, context_wrapper, current_agent) if chat
 
-      final_response
-    end
+      RunResult.new(
+        output: "Conversation ended: #{e.message}",
+        messages: chat ? extract_messages(chat) : [],
+        usage: context_wrapper.usage,
+        error: e,
+        context: context_wrapper.context
+      )
+    rescue StandardError => e
+      # Save state even on error
+      save_conversation_state(chat, context_wrapper, current_agent) if chat
 
-    # Get a summary of the conversation suitable for display
-    # @return [String] Formatted conversation summary
-    def conversation_summary
-      @run_items.map do |item|
-        case item
-        when UserMessageItem
-          "[User]: #{item.content}"
-        when AssistantMessageItem
-          "[#{item.agent.class.name}]: #{item.content}"
-        when ToolCallItem
-          "[#{item.agent.class.name}]: Called tool '#{item.tool_name}'"
-        when HandoffOutputItem
-          "[System]: Handoff from #{item.source_agent.class.name} to #{item.target_agent}"
-        when ToolOutputItem
-          "[Tool Output]: #{item.output}"
-        else
-          "[#{item.class.name}]: #{item.inspect}"
-        end
-      end.join("\n")
+      RunResult.new(
+        output: nil,
+        messages: chat ? extract_messages(chat) : [],
+        usage: context_wrapper.usage,
+        error: e,
+        context: context_wrapper.context
+      )
     end
 
     private
 
-    # Process tool calls from an agent response
-    # @param tool_calls [Array<Hash>] Tool calls to process
-    def process_tool_calls(tool_calls)
-      tool_calls.each do |tool_call|
-        # Create tool call item
-        tool_call_item = ToolCallItem.new(
-          tool_name: tool_call[:name],
-          arguments: tool_call[:arguments] || {},
-          call_id: tool_call[:id],
-          agent: @current_agent
-        )
-        @run_items << tool_call_item
+    def deep_copy_context(context)
+      # Handle deep copying for thread safety
+      context.dup.tap do |copied|
+        copied[:conversation_history] = context[:conversation_history]&.map(&:dup) || []
+        # Don't copy agents - they're immutable
+        copied[:current_agent] = context[:current_agent]
+        copied[:turn_count] = context[:turn_count] || 0
       end
     end
 
-    # Build agent input from run items
-    # @return [Array<Hash>] Input items formatted for agent consumption
-    def build_agent_input
-      # Convert run items to format expected by agents
-      # This preserves tool calls and outputs in the conversation
-      # Filter out nil items (handoff outputs return nil)
-      @run_items.map(&:to_input_item).compact
+    def restore_conversation_history(chat, context_wrapper)
+      history = context_wrapper.context[:conversation_history] || []
+
+      history.each do |msg|
+        # Only restore user and assistant messages with content
+        next unless %i[user assistant].include?(msg[:role])
+        next unless msg[:content] && !msg[:content].strip.empty?
+
+        chat.add_message(
+          role: msg[:role].to_sym,
+          content: msg[:content]
+        )
+      rescue StandardError => e
+        # Continue with partial history on error
+        puts "[Agents] Failed to restore message: #{e.message}"
+      end
+    rescue StandardError => e
+      # If history restoration completely fails, continue with empty history
+      puts "[Agents] Failed to restore conversation history: #{e.message}"
+      context_wrapper.context[:conversation_history] = []
+    end
+
+    def save_conversation_state(chat, context_wrapper, current_agent)
+      # Extract messages from chat
+      messages = extract_messages(chat)
+
+      # Update context with latest state
+      context_wrapper.context[:conversation_history] = messages
+      context_wrapper.context[:current_agent] = current_agent
+      context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
+      context_wrapper.context[:last_updated] = Time.now
+
+      # Clean up temporary handoff state
+      context_wrapper.context.delete(:pending_handoff)
+    rescue StandardError => e
+      puts "[Agents] Failed to save conversation state: #{e.message}"
+    end
+
+    def create_chat(agent, context_wrapper)
+      # Get system prompt (may be dynamic)
+      system_prompt = agent.get_system_prompt(context_wrapper)
+
+      # Wrap tools with context for thread-safe execution
+      wrapped_tools = agent.all_tools.map do |tool|
+        ToolWrapper.new(tool, context_wrapper)
+      end
+
+      # Create chat with proper RubyLLM API
+      chat = RubyLLM.chat(model: agent.model)
+      chat.with_instructions(system_prompt) if system_prompt
+      chat.with_tools(*wrapped_tools) if wrapped_tools.any?
+      chat
+    end
+
+    def extract_messages(chat)
+      return [] unless chat.respond_to?(:messages)
+
+      chat.messages.filter_map do |msg|
+        # Only include user and assistant messages with content
+        next unless %i[user assistant].include?(msg.role)
+        next unless msg.content && !msg.content.strip.empty?
+
+        {
+          role: msg.role,
+          content: msg.content
+        }
+      end
     end
   end
 end
