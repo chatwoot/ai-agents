@@ -48,7 +48,6 @@ module ISPSupport
       )
     end
 
-
     def create_sales_agent
       Agents::Agent.new(
         name: "Sales Agent",
@@ -65,7 +64,7 @@ module ISPSupport
         model: "gpt-4.1-mini",
         tools: [
           ISPSupport::CrmLookupTool.new,
-          ISPSupport::SearchDocsTool.new, 
+          ISPSupport::SearchDocsTool.new,
           ISPSupport::EscalateToHumanTool.new
         ]
       )
@@ -88,7 +87,6 @@ module ISPSupport
         Keep responses brief and professional. Use handoff tools to transfer to specialists.
       INSTRUCTIONS
     end
-
 
     def sales_instructions
       <<~INSTRUCTIONS

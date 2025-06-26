@@ -83,20 +83,28 @@ module Agents
         current_turn += 1
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Get response from LLM (RubyLLM handles tool execution)
-        response = if current_turn == 1
-                     chat.ask(input)
-                   else
-                     chat.complete
-                   end
+        # Get response from LLM (Extended Chat handles tool execution with handoff detection)
+        if current_turn == 1
+          puts "[DEBUG-RUNNER] Turn #{current_turn}: asking with input: #{input}"
+          result = chat.ask(input)
+          puts "[DEBUG-RUNNER] chat.ask returned: #{result.class}"
+        else
+          puts "[DEBUG-RUNNER] Turn #{current_turn}: completing conversation for #{current_agent.name}"
+          result = chat.complete
+          puts "[DEBUG-RUNNER] chat.complete returned: #{result.class}"
+        end
+        response = result
+
+        puts "[DEBUG-RUNNER] Response received: #{response.class}"
+        puts "[DEBUG-RUNNER] Is HandoffResponse?: #{response.is_a?(Agents::Chat::HandoffResponse)}"
 
         # Update usage
         context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
 
-        # Check for handoff via context (set by HandoffTool)
-        if context_wrapper.context[:pending_handoff]
-          next_agent = context_wrapper.context[:pending_handoff]
-          puts "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
+        # Check for handoff response from our extended chat
+        if response.is_a?(Agents::Chat::HandoffResponse)
+          next_agent = response.target_agent
+          puts "[DEBUG-RUNNER] HANDOFF DETECTED! From #{current_agent.name} to #{next_agent.name}"
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
@@ -104,12 +112,18 @@ module Agents
           # Switch to new agent
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent
-          context_wrapper.context.delete(:pending_handoff)
 
           # Create new chat for new agent with restored history
           chat = create_chat(current_agent, context_wrapper)
           restore_conversation_history(chat, context_wrapper)
+
+          # Force the new agent to respond to the conversation context
+          # This ensures the user gets a response from the new agent
+          puts "[DEBUG-RUNNER] New agent #{current_agent.name} will respond on next turn"
+          input = nil
           next
+        else
+          puts "[DEBUG-RUNNER] No handoff detected, checking if final response"
         end
 
         # If no tools were called, we have our final response
@@ -203,15 +217,22 @@ module Agents
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Wrap tools with context for thread-safe execution
-      wrapped_tools = agent.all_tools.map do |tool|
-        ToolWrapper.new(tool, context_wrapper)
-      end
+      # Separate handoff tools from regular tools
+      handoff_tools = agent.handoff_agents.map { |target_agent| HandoffTool.new(target_agent) }
+      regular_tools = agent.tools
 
-      # Create chat with proper RubyLLM API
-      chat = RubyLLM.chat(model: agent.model)
+      # Only wrap regular tools - handoff tools will be handled directly by Chat
+      wrapped_regular_tools = regular_tools.map { |tool| ToolWrapper.new(tool, context_wrapper) }
+
+      # Create extended chat with handoff awareness and context
+      chat = Agents::Chat.new(
+        model: agent.model,
+        handoff_tools: handoff_tools,        # Direct tools, no wrapper
+        context_wrapper: context_wrapper     # Pass context directly
+      )
+
       chat.with_instructions(system_prompt) if system_prompt
-      chat.with_tools(*wrapped_tools) if wrapped_tools.any?
+      chat.with_tools(*wrapped_regular_tools) if wrapped_regular_tools.any?
       chat
     end
 

@@ -95,18 +95,12 @@ module Agents
       @tool_description
     end
 
-    # Handoff tools implement first-call-wins semantics to prevent infinite loops
-    # Multiple handoff calls in a single response are ignored (like OpenAI SDK)
-    def perform(tool_context)
-      # First-call-wins: only set handoff if not already set
-      if tool_context.context[:pending_handoff]
-        return "Transfer request noted (already processing a handoff)."
-      end
+    # Handoff tools now work with the extended Chat class for proper handoff handling
+    # No longer need context signaling - the Chat class detects handoffs directly
+    def perform(_tool_context)
+      puts "[DEBUG] HandoffTool.perform called: #{@target_agent.name}"
 
-      # Set the handoff target
-      tool_context.context[:pending_handoff] = @target_agent
-
-      # Return a message that will be shown to the user
+      # Simply return the transfer message - Chat class will handle the handoff
       "I'll transfer you to #{@target_agent.name} who can better assist you with this."
     end
 
