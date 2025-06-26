@@ -64,8 +64,20 @@ module Agents
       def connect
         return if connected?
         
-        @transport.connect
-        @connected = true
+        # Add MCP connection tracing
+        if Agents.configuration&.tracing&.enabled
+          Agents::Tracing.in_span("mcp.connect.#{name}", kind: :client,
+                                  "mcp.client_name" => name,
+                                  "mcp.transport_type" => @transport.class.name.split('::').last) do |span|
+            span.add_event("mcp.connection_started")
+            @transport.connect
+            @connected = true
+            span.add_event("mcp.connection_established")
+          end
+        else
+          @transport.connect
+          @connected = true
+        end
       end
 
       # Check if client is connected to the MCP server
@@ -87,33 +99,85 @@ module Agents
           # Return cached tools unless refresh requested
           return @tools_cache.dup if @tools_cache && !refresh
 
-          begin
-            # Send tools/list request
-            response = @transport.send_request({
-              "jsonrpc" => "2.0",
-              "method" => "tools/list",
-              "params" => {}
-            })
+          # Add MCP list_tools tracing
+          if Agents.configuration&.tracing&.enabled
+            Agents::Tracing.in_span("mcp.list_tools", kind: :client,
+                                    "mcp.client_name" => name,
+                                    "mcp.refresh_requested" => refresh,
+                                    "mcp.has_cache" => !@tools_cache.nil?) do |span|
+              span.add_event("mcp.list_tools_started")
+              
+              begin
+                # Send tools/list request
+                response = @transport.send_request({
+                  "jsonrpc" => "2.0",
+                  "method" => "tools/list",
+                  "params" => {}
+                })
 
+                # Extract tools from response
+                tools_data = extract_tools_from_response(response)
+                span.set_attribute("mcp.tools_discovered", tools_data.length)
+                
+                # Apply filtering
+                filtered_tools = filter_tools(tools_data)
+                span.set_attribute("mcp.tools_after_filtering", filtered_tools.length)
+                
+                # Create tool instances
+                tool_instances = create_tool_instances(filtered_tools)
+                span.set_attribute("mcp.tools_final_count", tool_instances.length)
+                span.set_attribute("mcp.tool_names", tool_instances.map(&:name).join(","))
+                
+                span.add_event("mcp.list_tools_completed", attributes: {
+                  "tools.discovered" => tools_data.length,
+                  "tools.filtered" => filtered_tools.length,
+                  "tools.final" => tool_instances.length
+                })
+                
+                # Cache the results
+                @tools_cache = tool_instances
+                
+                tool_instances.dup
+              rescue => e
+                span.add_event("mcp.list_tools_failed", attributes: {
+                  "error.type" => e.class.name,
+                  "error.message" => e.message
+                })
+                # Log error but don't raise - allow agent to continue without MCP tools
+                warn "Failed to list tools from MCP client '#{@name}': #{e.message}"
+                @tools_cache = []
+                []
+              end
+            end
+          else
+            # Original code without tracing
+            begin
+              # Send tools/list request
+              response = @transport.send_request({
+                "jsonrpc" => "2.0",
+                "method" => "tools/list",
+                "params" => {}
+              })
 
-            # Extract tools from response
-            tools_data = extract_tools_from_response(response)
-            
-            # Apply filtering
-            filtered_tools = filter_tools(tools_data)
-            
-            # Create tool instances
-            tool_instances = create_tool_instances(filtered_tools)
-            
-            # Cache the results
-            @tools_cache = tool_instances
-            
-            tool_instances.dup
-          rescue => e
-            # Log error but don't raise - allow agent to continue without MCP tools
-            warn "Failed to list tools from MCP client '#{@name}': #{e.message}"
-            @tools_cache = []
-            []
+              # Extract tools from response
+              tools_data = extract_tools_from_response(response)
+              
+              # Apply filtering
+              filtered_tools = filter_tools(tools_data)
+              
+              # Create tool instances
+              tool_instances = create_tool_instances(filtered_tools)
+              
+              # Cache the results
+              @tools_cache = tool_instances
+              
+              tool_instances.dup
+            rescue => e
+              # Log error but don't raise - allow agent to continue without MCP tools
+              warn "Failed to list tools from MCP client '#{@name}': #{e.message}"
+              @tools_cache = []
+              []
+            end
           end
         end
       end
@@ -128,31 +192,86 @@ module Agents
       def call_tool(tool_name, arguments = {})
         connect unless connected?
 
-        begin
-          response = @transport.send_request({
-            "jsonrpc" => "2.0",
-            "method" => "tools/call",
-            "params" => {
-              "name" => tool_name,
-              "arguments" => arguments
-            }
-          })
+        # Add basic MCP tracing
+        if Agents.configuration&.tracing&.enabled
+          Agents::Tracing.in_span("mcp.#{tool_name}", kind: :client,
+                                  "mcp.client_name" => name,
+                                  "mcp.tool_name" => tool_name,
+                                  "mcp.arg_count" => arguments.keys.length,
+                                  "mcp.server_connected" => connected?) do |span|
+            
+            span.add_event("mcp.tool_call_started", attributes: {
+              "tool.name" => tool_name,
+              "client.name" => name
+            })
+            
+            begin
+              response = @transport.send_request({
+                "jsonrpc" => "2.0",
+                "method" => "tools/call",
+                "params" => {
+                  "name" => tool_name,
+                  "arguments" => arguments
+                }
+              })
 
-          # Convert response to ToolResult
-          if response["result"]
-            ToolResult.from_mcp_response(response)
-          elsif response["error"]
-            error_msg = response["error"]["message"] || "Unknown error"
-            raise ServerError, "Tool call failed: #{error_msg}"
-          else
-            # Fallback for unexpected response format
-            ToolResult.new(
-              content: [{"type" => "text", "text" => response.to_json}],
-              is_error: false
-            )
+              span.add_event("mcp.tool_call_completed", attributes: {
+                "response.has_result" => !response["result"].nil?,
+                "response.has_error" => !response["error"].nil?
+              })
+
+              # Convert response to ToolResult
+              if response["result"]
+                ToolResult.from_mcp_response(response)
+              elsif response["error"]
+                error_msg = response["error"]["message"] || "Unknown error"
+                span.add_event("mcp.tool_call_error", attributes: {
+                  "error.message" => error_msg
+                })
+                raise ServerError, "Tool call failed: #{error_msg}"
+              else
+                # Fallback for unexpected response format
+                ToolResult.new(
+                  content: [{"type" => "text", "text" => response.to_json}],
+                  is_error: false
+                )
+              end
+            rescue => e
+              span.add_event("mcp.tool_call_failed", attributes: {
+                "error.type" => e.class.name,
+                "error.message" => e.message
+              })
+              raise ServerError, "Failed to call tool #{tool_name}: #{e.message}"
+            end
           end
-        rescue => e
-          raise ServerError, "Failed to call tool #{tool_name}: #{e.message}"
+        else
+          # Original code without tracing
+          begin
+            response = @transport.send_request({
+              "jsonrpc" => "2.0",
+              "method" => "tools/call",
+              "params" => {
+                "name" => tool_name,
+                "arguments" => arguments
+              }
+            })
+
+            # Convert response to ToolResult
+            if response["result"]
+              ToolResult.from_mcp_response(response)
+            elsif response["error"]
+              error_msg = response["error"]["message"] || "Unknown error"
+              raise ServerError, "Tool call failed: #{error_msg}"
+            else
+              # Fallback for unexpected response format
+              ToolResult.new(
+                content: [{"type" => "text", "text" => response.to_json}],
+                is_error: false
+              )
+            end
+          rescue => e
+            raise ServerError, "Failed to call tool #{tool_name}: #{e.message}"
+          end
         end
       end
 

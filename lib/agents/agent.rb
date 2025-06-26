@@ -30,7 +30,7 @@ require "set"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents
+    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :service_name
 
     # Initialize a new Agent instance
     #
@@ -40,13 +40,16 @@ module Agents
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
     # @param mcp_clients [Array<Agents::MCP::Client>, Agents::MCP::Client, nil] MCP clients to attach
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], mcp_clients: nil)
+    # @param service_name [String, nil] Optional service name for tracing (defaults to agent name)
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], mcp_clients: nil,
+                   service_name: nil)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
       @mcp_clients = []
+      @service_name = service_name || name.downcase.gsub(/\s+/, "_")
 
       # Mutex for thread-safe handoff registration and MCP client management
       # While agents are typically configured at startup, we want to ensure
@@ -60,7 +63,7 @@ module Agents
 
       # Register initial handoff agents if provided
       register_handoffs(*handoff_agents) unless handoff_agents.empty?
-      
+
       # Add MCP clients if provided
       add_mcp_clients(mcp_clients) if mcp_clients
     end
@@ -107,16 +110,16 @@ module Agents
     # @example Adding MCP clients
     #   filesystem_client = Agents::MCP::Client.new(name: "fs", command: "npx", args: ["fs-server"])
     #   agent.add_mcp_clients(filesystem_client)
-    #   
+    #
     #   # Or add multiple clients
     #   agent.add_mcp_clients([filesystem_client, api_client])
     def add_mcp_clients(clients)
       clients_array = Array(clients)
-      
+
       clients_array.each do |client|
         add_mcp_client(client)
       end
-      
+
       self
     end
 
@@ -128,12 +131,12 @@ module Agents
       @mutex.synchronize do
         # Store the client reference
         @mcp_clients << client unless @mcp_clients.include?(client)
-        
+
         # Connect and load tools
         begin
           client.connect unless client.connected?
           mcp_tools = client.list_tools
-          
+
           # Check for tool name collisions and warn
           existing_tool_names = @tools.map { |t| t.class.name }.to_set
           mcp_tools.each do |tool|
@@ -145,13 +148,12 @@ module Agents
               existing_tool_names << tool_name
             end
           end
-          
-        rescue => e
+        rescue StandardError => e
           warn "Failed to load tools from MCP client '#{client.name}': #{e.message}"
           # Continue without this client's tools rather than failing entirely
         end
       end
-      
+
       self
     end
 
@@ -163,19 +165,17 @@ module Agents
       @mutex.synchronize do
         # Remove existing MCP tools
         @tools.reject! { |tool| tool.is_a?(MCP::Tool) }
-        
+
         # Reload tools from all MCP clients
         @mcp_clients.each do |client|
-          begin
-            client.invalidate_tools_cache
-            mcp_tools = client.list_tools(refresh: true)
-            @tools.concat(mcp_tools)
-          rescue => e
-            warn "Failed to refresh tools from MCP client '#{client.name}': #{e.message}"
-          end
+          client.invalidate_tools_cache
+          mcp_tools = client.list_tools(refresh: true)
+          @tools.concat(mcp_tools)
+        rescue StandardError => e
+          warn "Failed to refresh tools from MCP client '#{client.name}': #{e.message}"
         end
       end
-      
+
       self
     end
 
@@ -220,6 +220,7 @@ module Agents
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
     # @option changes [Array<Agents::MCP::Client>] :mcp_clients New MCP clients
+    # @option changes [String] :service_name New service name for tracing
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
       # Filter out MCP tools from current tools if we're providing new MCP clients
@@ -235,7 +236,8 @@ module Agents
         model: changes.fetch(:model, @model),
         tools: changes.fetch(:tools, base_tools),
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
-        mcp_clients: changes.fetch(:mcp_clients, changes.key?(:mcp_clients) ? nil : @mcp_clients)
+        mcp_clients: changes.fetch(:mcp_clients, changes.key?(:mcp_clients) ? nil : @mcp_clients),
+        service_name: changes.fetch(:service_name, @service_name)
       )
     end
 
