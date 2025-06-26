@@ -98,17 +98,13 @@ module Agents
     # Handoff tools implement first-call-wins semantics to prevent infinite loops
     # Multiple handoff calls in a single response are ignored (like OpenAI SDK)
     def perform(tool_context)
-      puts "[DEBUG] HandoffTool.perform called: #{@target_agent.name}"
-
       # First-call-wins: only set handoff if not already set
       if tool_context.context[:pending_handoff]
-        puts "[DEBUG] Handoff already pending to #{tool_context.context[:pending_handoff].name}, ignoring duplicate call"
         return "Transfer request noted (already processing a handoff)."
       end
 
       # Set the handoff target
       tool_context.context[:pending_handoff] = @target_agent
-      puts "[DEBUG] Handoff set to: #{@target_agent.name}"
 
       # Return a message that will be shown to the user
       "I'll transfer you to #{@target_agent.name} who can better assist you with this."
