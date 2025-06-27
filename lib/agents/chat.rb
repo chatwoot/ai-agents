@@ -37,7 +37,6 @@ module Agents
 
     # Override the problematic auto-execution method from RubyLLM::Chat
     def complete(&block)
-      puts "[DEBUG-CHAT] complete() called"
       @on[:new_message]&.call
       response = @provider.complete(
         messages,
@@ -47,18 +46,13 @@ module Agents
         connection: @connection,
         &block
       )
-      puts "[DEBUG-CHAT] Got response from provider, tool_call?: #{response.tool_call?}"
       @on[:end_message]&.call(response)
 
       add_message(response)
 
       if response.tool_call?
-        puts "[DEBUG-CHAT] Response has tool calls, handling..."
-        result = handle_tools_with_handoff_detection(response, &block)
-        puts "[DEBUG-CHAT] complete() returning: #{result.class}"
-        result
+        handle_tools_with_handoff_detection(response, &block)
       else
-        puts "[DEBUG-CHAT] No tool calls, returning regular response"
         response
       end
     end
@@ -66,36 +60,22 @@ module Agents
     private
 
     def handle_tools_with_handoff_detection(response, &block)
-      puts "[DEBUG-CHAT] handle_tools_with_handoff_detection called"
-      puts "[DEBUG-CHAT] Tool calls in response: #{response.tool_calls.keys}"
-
       handoff_calls, regular_calls = classify_tool_calls(response.tool_calls)
-      puts "[DEBUG-CHAT] Classified - handoffs: #{handoff_calls.size}, regular: #{regular_calls.size}"
 
       if handoff_calls.any?
-        puts "[DEBUG-CHAT] Handoff detected in response, executing: #{handoff_calls.first.name}"
-
         # Execute first handoff only
         handoff_result = execute_handoff_tool(handoff_calls.first)
-        puts "[DEBUG-CHAT] Handoff result: #{handoff_result.inspect}"
 
         # Add tool result to conversation
         add_tool_result(handoff_calls.first.id, handoff_result[:message])
-        puts "[DEBUG-CHAT] Added tool result to conversation"
 
         # Return handoff response to signal agent switch (ends turn)
-        handoff_response = HandoffResponse.new(
+        HandoffResponse.new(
           target_agent: handoff_result[:target_agent],
           response: response,
           handoff_message: handoff_result[:message]
         )
-        puts "[DEBUG-CHAT] Created HandoffResponse: #{handoff_response.class}"
-        puts "[DEBUG-CHAT] Target agent: #{handoff_response.target_agent.name}"
-        puts "[DEBUG-CHAT] Returning HandoffResponse to Runner"
-        handoff_response
       else
-        puts "[DEBUG-CHAT] No handoffs detected, executing #{regular_calls.size} regular tools"
-
         # Use RubyLLM's original tool execution for regular tools
         execute_regular_tools_and_continue(regular_calls, &block)
       end
@@ -119,19 +99,12 @@ module Agents
     end
 
     def execute_handoff_tool(tool_call)
-      puts "[DEBUG-CHAT] execute_handoff_tool called for: #{tool_call.name}"
       tool = @handoff_tools.find { |t| t.name.to_s == tool_call.name }
-      puts "[DEBUG-CHAT] Found tool: #{tool.class}"
       raise "Handoff tool not found: #{tool_call.name}" unless tool
 
-      # Execute the handoff tool directly with context - no more ToolWrapper!
-      puts "[DEBUG-CHAT] Calling tool directly with context"
+      # Execute the handoff tool directly with context
       tool_context = ToolContext.new(run_context: @context_wrapper)
       result = tool.execute(tool_context, **{}) # Handoff tools take no additional params
-      puts "[DEBUG-CHAT] Tool call result: #{result}"
-
-      # Direct access to target agent - much cleaner!
-      puts "[DEBUG-CHAT] Direct access to target_agent: #{tool.target_agent.name}"
 
       {
         target_agent: tool.target_agent,

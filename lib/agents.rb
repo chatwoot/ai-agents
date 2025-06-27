@@ -13,7 +13,7 @@ module Agents
 
   # OpenAI's recommended system prompt prefix for multi-agent workflows
   # This helps agents understand they're part of a coordinated system
-  RECOMMENDED_HANDOFF_PROMPT_PREFIX = (
+  RECOMMENDED_HANDOFF_PROMPT_PREFIX =
     "# System context\n" \
     "You are part of a multi-agent system called the Ruby Agents SDK, designed to make agent " \
     "coordination and execution easy. Agents uses two primary abstraction: **Agents** and " \
@@ -22,7 +22,6 @@ module Agents
     "Handoffs are achieved by calling a handoff function, generally named " \
     "`handoff_to_<agent_name>`. Transfers between agents are handled seamlessly in the background; " \
     "do not mention or draw attention to these transfers in your conversation with the user.\n"
-  ).freeze
 
   class << self
     # Logger for debugging (can be set by users)

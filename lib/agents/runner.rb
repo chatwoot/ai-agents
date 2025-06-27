@@ -84,19 +84,12 @@ module Agents
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
         # Get response from LLM (Extended Chat handles tool execution with handoff detection)
-        if current_turn == 1
-          puts "[DEBUG-RUNNER] Turn #{current_turn}: asking with input: #{input}"
-          result = chat.ask(input)
-          puts "[DEBUG-RUNNER] chat.ask returned: #{result.class}"
-        else
-          puts "[DEBUG-RUNNER] Turn #{current_turn}: completing conversation for #{current_agent.name}"
-          result = chat.complete
-          puts "[DEBUG-RUNNER] chat.complete returned: #{result.class}"
-        end
+        result = if current_turn == 1
+                   chat.ask(input)
+                 else
+                   chat.complete
+                 end
         response = result
-
-        puts "[DEBUG-RUNNER] Response received: #{response.class}"
-        puts "[DEBUG-RUNNER] Is HandoffResponse?: #{response.is_a?(Agents::Chat::HandoffResponse)}"
 
         # Update usage
         context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
@@ -104,7 +97,6 @@ module Agents
         # Check for handoff response from our extended chat
         if response.is_a?(Agents::Chat::HandoffResponse)
           next_agent = response.target_agent
-          puts "[DEBUG-RUNNER] HANDOFF DETECTED! From #{current_agent.name} to #{next_agent.name}"
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
@@ -119,11 +111,8 @@ module Agents
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
-          puts "[DEBUG-RUNNER] New agent #{current_agent.name} will respond on next turn"
           input = nil
           next
-        else
-          puts "[DEBUG-RUNNER] No handoff detected, checking if final response"
         end
 
         # If no tools were called, we have our final response

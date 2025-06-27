@@ -98,8 +98,6 @@ module Agents
     # Handoff tools now work with the extended Chat class for proper handoff handling
     # No longer need context signaling - the Chat class detects handoffs directly
     def perform(_tool_context)
-      puts "[DEBUG] HandoffTool.perform called: #{@target_agent.name}"
-
       # Simply return the transfer message - Chat class will handle the handoff
       "I'll transfer you to #{@target_agent.name} who can better assist you with this."
     end
