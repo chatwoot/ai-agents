@@ -4,7 +4,7 @@ require_relative "../../lib/agents"
 
 RSpec.describe Agents::Agent do
   let(:test_tool) { instance_double(Agents::Tool, "TestTool") }
-  let(:other_agent) { instance_double(Agents::Agent, name: "Other Agent") }
+  let(:other_agent) { instance_double(described_class, name: "Other Agent") }
   let(:context) { double("Context") }
 
   describe "#initialize" do
@@ -61,8 +61,8 @@ RSpec.describe Agents::Agent do
 
   describe "#register_handoffs" do
     let(:agent) { described_class.new(name: "Test Agent") }
-    let(:agent1) { instance_double(Agents::Agent, "Agent1") }
-    let(:agent2) { instance_double(Agents::Agent, "Agent2") }
+    let(:agent1) { instance_double(described_class, "Agent1") }
+    let(:agent2) { instance_double(described_class, "Agent2") }
 
     it "registers single handoff agent" do
       result = agent.register_handoffs(agent1)
@@ -84,7 +84,7 @@ RSpec.describe Agents::Agent do
     end
 
     it "is thread-safe with concurrent registrations" do
-      agents = 10.times.map { instance_double(Agents::Agent, "Agent#{_1}") }
+      agents = 10.times.map { instance_double(described_class, "Agent#{_1}") }
 
       threads = agents.map do |test_agent|
         Thread.new { agent.register_handoffs(test_agent) }
@@ -103,7 +103,7 @@ RSpec.describe Agents::Agent do
 
   describe "#all_tools" do
     let(:agent) { described_class.new(name: "Test Agent", tools: [test_tool]) }
-    let(:handoff_agent) { instance_double(Agents::Agent, name: "Handoff Agent") }
+    let(:handoff_agent) { instance_double(described_class, name: "Handoff Agent") }
 
     it "returns regular tools when no handoffs registered" do
       expect(agent.all_tools).to eq([test_tool])
