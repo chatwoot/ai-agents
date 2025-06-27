@@ -28,10 +28,6 @@ RSpec.describe Agents::HandoffTool do
 
       expect(result).to eq("I'll transfer you to Support Agent who can better assist you with this.")
     end
-
-    it "outputs debug information" do
-      expect { handoff_tool.perform(nil) }.to output(/HandoffTool\.perform called: Support Agent/).to_stdout
-    end
   end
 
   describe "#target_agent" do

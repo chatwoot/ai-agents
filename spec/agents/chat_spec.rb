@@ -4,36 +4,43 @@ require_relative "../../lib/agents"
 
 RSpec.describe Agents::Chat do
   before do
-    # Mock RubyLLM configuration to avoid setup requirements
-    allow(RubyLLM).to receive(:configure)
-    allow_any_instance_of(RubyLLM::Chat).to receive(:initialize).and_return(nil)
+    # Configure RubyLLM for testing
+    RubyLLM.configure do |config|
+      config.openai_api_key = "test"
+    end
   end
+
   let(:ruby_llm_chat) { instance_double(RubyLLM::Chat, "RubyLLMChat") }
   let(:context) { instance_double(Agents::RunContext, "RunContext") }
   let(:regular_tool) { instance_double(Agents::Tool, "RegularTool") }
-  let(:handoff_tool) { instance_double(Agents::HandoffTool, "HandoffTool") }
+  let(:handoff_tool) { instance_double(Agents::HandoffTool, "HandoffTool", name: "handoff_to_support_agent") }
   let(:target_agent) { instance_double(Agents::Agent, name: "Support Agent") }
 
-  describe "#handle_tools_with_handoff_detection" do
-    # TODO: This test requires mocking RubyLLM::Chat initialization
-    # let(:chat) { described_class.new(handoff_tools: [], context_wrapper: context) }
+  describe "#classify_tool_calls" do
+    let(:chat) { described_class.new(handoff_tools: [handoff_tool], context_wrapper: context) }
 
-    xit "classifies tools correctly" do
-      # tool_calls = [
-      #   instance_double("ToolCall", name: "regular_tool"),
-      #   instance_double("ToolCall", name: "handoff_to_support_agent")
-      # ]
+    it "separates handoff tools from regular tools" do
+      allow(handoff_tool).to receive(:name).and_return("handoff_to_support_agent")
 
-      # allow(chat).to receive(:find_tool_by_name).with("regular_tool").and_return(regular_tool)
-      # allow(chat).to receive(:find_tool_by_name).with("handoff_to_support_agent").and_return(handoff_tool)
+      tool_calls = {
+        "1" => instance_double("ToolCall", name: "regular_tool"),
+        "2" => instance_double("ToolCall", name: "handoff_to_support_agent")
+      }
 
-      # TODO: This test needs more detailed mocking of RubyLLM behavior
-      # Would test the tool classification logic
+      handoff_calls, regular_calls = chat.send(:classify_tool_calls, tool_calls)
+
+      expect(handoff_calls.size).to eq(1)
+      expect(regular_calls.size).to eq(1)
+      expect(handoff_calls.first.name).to eq("handoff_to_support_agent")
+      expect(regular_calls.first.name).to eq("regular_tool")
     end
   end
 
   describe "HandoffResponse" do
-    let(:handoff_response) { described_class::HandoffResponse.new(target_agent: target_agent, response: "response", handoff_message: "Transfer message") }
+    let(:handoff_response) do
+      described_class::HandoffResponse.new(target_agent: target_agent, response: "response",
+                                           handoff_message: "Transfer message")
+    end
 
     it "stores target agent and message" do
       expect(handoff_response.target_agent).to eq(target_agent)
@@ -42,24 +49,28 @@ RSpec.describe Agents::Chat do
   end
 
   describe "#execute_handoff_tool" do
-    # TODO: This test requires mocking RubyLLM::Chat initialization
-    # let(:chat) { described_class.new(handoff_tools: [handoff_tool], context_wrapper: context) }
+    let(:chat) { described_class.new(handoff_tools: [handoff_tool], context_wrapper: context) }
+    let(:tool_call) { instance_double("ToolCall", name: "handoff_to_support_agent") }
 
-    xit "executes handoff tool and returns HandoffResponse" do
-      # allow(handoff_tool).to receive(:target_agent).and_return(target_agent)
-      # allow(handoff_tool).to receive(:perform).with(context: context).and_return("Transfer message")
+    it "executes handoff tool and returns result hash" do
+      allow(handoff_tool).to receive(:name).and_return("handoff_to_support_agent")
+      allow(handoff_tool).to receive(:target_agent).and_return(target_agent)
+      allow(handoff_tool).to receive(:execute).and_return("Transfer message")
+      allow(Agents::ToolContext).to receive(:new).and_return(double("ToolContext"))
 
-      # TODO: This test requires mocking tool call execution
-      # Would test handoff tool execution and response creation
+      result = chat.send(:execute_handoff_tool, tool_call)
+
+      expect(result[:target_agent]).to eq(target_agent)
+      expect(result[:message]).to eq("Transfer message")
     end
   end
 
-  describe "tool separation" do
-    it "separates handoff tools from regular tools" do
+  describe "initialization" do
+    it "stores handoff tools and context wrapper" do
       chat = described_class.new(handoff_tools: [handoff_tool], context_wrapper: context)
 
-      # TODO: Test tool separation logic
-      # Would verify that handoff tools and regular tools are handled separately
+      expect(chat.instance_variable_get(:@handoff_tools)).to eq([handoff_tool])
+      expect(chat.instance_variable_get(:@context_wrapper)).to eq(context)
     end
   end
 end
