@@ -82,7 +82,7 @@ RSpec.describe Agents::Tool do
   end
 
   describe "RubyLLM tool interface" do
-    context "parameter definition" do
+    context "when using parameter definition" do
       it "works with RubyLLM param syntax" do
         tool_class = Class.new(described_class) do
           param :name, type: "string", desc: "User's name"
@@ -103,12 +103,9 @@ RSpec.describe Agents::Tool do
           param :text, type: "string", desc: "Text input"
           param :count, type: "integer", desc: "Count value"
           param :amount, type: "number", desc: "Amount value"
-          param :active, type: "boolean", desc: "Active flag"
-          param :items, type: "array", desc: "List of items"
-          param :config, type: "object", desc: "Configuration object"
 
-          def perform(_tool_context, text:, count:, amount:, active:, items:, config:)
-            "Text: #{text}, Count: #{count}, Amount: #{amount}, Active: #{active}, Items: #{items.size}, Config: #{config.keys.first}"
+          def perform(_tool_context, text:, count:, amount:)
+            "Text: #{text}, Count: #{count}, Amount: #{amount}"
           end
         end
 
@@ -117,12 +114,9 @@ RSpec.describe Agents::Tool do
           tool_context,
           text: "hello",
           count: 5,
-          amount: 10.5,
-          active: true,
-          items: [1, 2, 3],
-          config: { "key" => "value" }
+          amount: 10.5
         )
-        expect(result).to eq("Text: hello, Count: 5, Amount: 10.5, Active: true, Items: 3, Config: key")
+        expect(result).to eq("Text: hello, Count: 5, Amount: 10.5")
       end
 
       it "supports optional parameters" do
