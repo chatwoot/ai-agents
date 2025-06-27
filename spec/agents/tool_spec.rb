@@ -80,4 +80,65 @@ RSpec.describe Agents::Tool do
       expect(test_tool).to respond_to(:description)
     end
   end
+
+  describe "RubyLLM tool interface" do
+    context "parameter definition" do
+      it "works with RubyLLM param syntax" do
+        tool_class = Class.new(described_class) do
+          param :name, type: "string", desc: "User's name"
+
+          def perform(_tool_context, name:)
+            "Hello #{name}"
+          end
+        end
+
+        tool = tool_class.new
+        expect(tool).to respond_to(:perform)
+        result = tool.perform(tool_context, name: "John")
+        expect(result).to eq("Hello John")
+      end
+
+      it "supports different parameter types" do
+        tool_class = Class.new(described_class) do
+          param :text, type: "string", desc: "Text input"
+          param :count, type: "integer", desc: "Count value"
+          param :amount, type: "number", desc: "Amount value"
+          param :active, type: "boolean", desc: "Active flag"
+          param :items, type: "array", desc: "List of items"
+          param :config, type: "object", desc: "Configuration object"
+
+          def perform(_tool_context, text:, count:, amount:, active:, items:, config:)
+            "Text: #{text}, Count: #{count}, Amount: #{amount}, Active: #{active}, Items: #{items.size}, Config: #{config.keys.first}"
+          end
+        end
+
+        tool = tool_class.new
+        result = tool.perform(
+          tool_context,
+          text: "hello",
+          count: 5,
+          amount: 10.5,
+          active: true,
+          items: [1, 2, 3],
+          config: { "key" => "value" }
+        )
+        expect(result).to eq("Text: hello, Count: 5, Amount: 10.5, Active: true, Items: 3, Config: key")
+      end
+
+      it "supports optional parameters" do
+        tool_class = Class.new(described_class) do
+          param :required_param, type: "string", desc: "Required parameter"
+          param :optional_param, type: "string", desc: "Optional parameter", required: false
+
+          def perform(_tool_context, required_param:, optional_param: "default")
+            "Required: #{required_param}, Optional: #{optional_param}"
+          end
+        end
+
+        tool = tool_class.new
+        result = tool.perform(tool_context, required_param: "test")
+        expect(result).to eq("Required: test, Optional: default")
+      end
+    end
+  end
 end
