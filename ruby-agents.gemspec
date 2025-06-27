@@ -3,7 +3,7 @@
 require_relative "lib/agents/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "ruby-agents"
+  spec.name = "ai-agents"
   spec.version = Agents::VERSION
   spec.authors = ["Shivam Mishra"]
   spec.email = ["scm.mymail@gmail.com"]
