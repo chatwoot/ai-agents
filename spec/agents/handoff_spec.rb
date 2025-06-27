@@ -5,7 +5,7 @@ require_relative "../../lib/agents"
 RSpec.describe Agents::HandoffTool do
   let(:target_agent) { instance_double(Agents::Agent, name: "Support Agent") }
   let(:handoff_tool) { described_class.new(target_agent) }
-  let(:context) { double("Context") }
+  let(:context) { {} }
 
   describe "#initialize" do
     it "creates handoff tool with target agent" do

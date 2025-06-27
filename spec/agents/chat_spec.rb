@@ -55,7 +55,7 @@ RSpec.describe Agents::Chat do
     it "executes handoff tool and returns result hash" do
       allow(handoff_tool).to receive_messages(name: "handoff_to_support_agent", target_agent: target_agent,
                                               execute: "Transfer message")
-      allow(Agents::ToolContext).to receive(:new).and_return(double("ToolContext"))
+      allow(Agents::ToolContext).to receive(:new).and_return(instance_double(Agents::ToolContext))
 
       result = chat.send(:execute_handoff_tool, tool_call)
 

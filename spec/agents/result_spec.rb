@@ -44,7 +44,7 @@ RSpec.describe Agents::RunResult do
 
   describe "initialization" do
     it "creates result with all fields" do
-      usage = double("usage")
+      usage = {}
       messages = [{ role: :user, content: "Hello" }]
       context = { user_id: 123 }
       error = StandardError.new("test")

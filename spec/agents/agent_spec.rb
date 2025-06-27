@@ -5,7 +5,7 @@ require_relative "../../lib/agents"
 RSpec.describe Agents::Agent do
   let(:test_tool) { instance_double(Agents::Tool, "TestTool") }
   let(:other_agent) { instance_double(described_class, name: "Other Agent") }
-  let(:context) { double("Context") }
+  let(:context) { {} }
 
   describe "#initialize" do
     it "creates agent with required name parameter" do
@@ -61,26 +61,26 @@ RSpec.describe Agents::Agent do
 
   describe "#register_handoffs" do
     let(:agent) { described_class.new(name: "Test Agent") }
-    let(:agent1) { instance_double(described_class, "Agent1") }
-    let(:agent2) { instance_double(described_class, "Agent2") }
+    let(:handoff_agent) { instance_double(described_class, "Agent1") }
+    let(:extra_handoff_agent) { instance_double(described_class, "Agent2") }
 
     it "registers single handoff agent" do
-      result = agent.register_handoffs(agent1)
+      result = agent.register_handoffs(handoff_agent)
 
-      expect(agent.handoff_agents).to include(agent1)
+      expect(agent.handoff_agents).to include(handoff_agent)
       expect(result).to eq(agent)
     end
 
     it "registers multiple handoff agents" do
-      agent.register_handoffs(agent1, agent2)
+      agent.register_handoffs(handoff_agent, extra_handoff_agent)
 
-      expect(agent.handoff_agents).to include(agent1, agent2)
+      expect(agent.handoff_agents).to include(handoff_agent, extra_handoff_agent)
     end
 
     it "prevents duplicate handoff agents" do
-      agent.register_handoffs(agent1, agent1)
+      agent.register_handoffs(handoff_agent, handoff_agent)
 
-      expect(agent.handoff_agents.count(agent1)).to eq(1)
+      expect(agent.handoff_agents.count(handoff_agent)).to eq(1)
     end
 
     it "is thread-safe with concurrent registrations" do
@@ -95,7 +95,7 @@ RSpec.describe Agents::Agent do
     end
 
     it "returns self for method chaining" do
-      result = agent.register_handoffs(agent1)
+      result = agent.register_handoffs(handoff_agent)
 
       expect(result).to be(agent)
     end

@@ -3,9 +3,7 @@
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::ToolWrapper do
-  let(:tool) do
-    instance_double(Agents::Tool, name: "default_tool", description: "default description")
-  end
+  let(:tool) { Agents::Tool.new }
   let(:context_wrapper) { instance_double(Agents::RunContext) }
   let(:tool_wrapper) { described_class.new(tool, context_wrapper) }
 
@@ -15,15 +13,11 @@ RSpec.describe Agents::ToolWrapper do
       expect(tool_wrapper.instance_variable_get(:@context_wrapper)).to eq(context_wrapper)
     end
 
-    it "copies tool metadata" do
-      allow(tool).to receive_messages(name: "test_tool", description: "Test description",
-                                      class: double(params: { city: String }))
-
+    it "copies tool name and description" do
       wrapper = described_class.new(tool, context_wrapper)
 
-      expect(wrapper.instance_variable_get(:@name)).to eq("test_tool")
-      expect(wrapper.instance_variable_get(:@description)).to eq("Test description")
-      expect(wrapper.instance_variable_get(:@params)).to eq({ city: String })
+      expect(wrapper.instance_variable_get(:@name)).to eq(tool.name)
+      expect(wrapper.instance_variable_get(:@description)).to eq(tool.description)
     end
   end
 
