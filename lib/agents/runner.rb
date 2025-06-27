@@ -91,9 +91,6 @@ module Agents
                  end
         response = result
 
-        # Update usage
-        context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
-
         # Check for handoff response from our extended chat
         if response.is_a?(Agents::Chat::HandoffResponse)
           next_agent = response.target_agent
@@ -115,8 +112,10 @@ module Agents
           next
         end
 
-        # If no tools were called, we have our final response
+        # If tools were called, continue the loop to let them execute
         next if response.tool_call?
+
+        # If no tools were called, we have our final response
 
         # Save final state before returning
         save_conversation_state(chat, context_wrapper, current_agent)
