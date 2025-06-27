@@ -1,0 +1,330 @@
+# frozen_string_literal: true
+
+require "webmock/rspec"
+require_relative "../../lib/agents"
+
+RSpec.describe Agents::Runner do
+  before do
+    # Configure RubyLLM for testing
+    RubyLLM.configure do |config|
+      config.openai_api_key = "test"
+    end
+
+    WebMock.disable_net_connect!
+  end
+
+  after do
+    WebMock.allow_net_connect!
+  end
+
+  let(:agent) do
+    instance_double(Agents::Agent,
+                    name: "TestAgent",
+                    model: "gpt-4o",
+                    tools: [],
+                    handoff_agents: [],
+                    get_system_prompt: "You are a helpful assistant")
+  end
+
+  let(:handoff_agent) do
+    instance_double(Agents::Agent,
+                    name: "HandoffAgent",
+                    model: "gpt-4o",
+                    tools: [],
+                    handoff_agents: [],
+                    get_system_prompt: "You are a specialist")
+  end
+
+  let(:test_tool) do
+    instance_double(Agents::Tool,
+                    name: "test_tool",
+                    description: "A test tool",
+                    parameters: {},
+                    call: "tool result")
+  end
+
+  describe ".run" do
+    it "delegates to instance method with correct parameters" do
+      runner_instance = instance_double(described_class)
+      allow(described_class).to receive(:new).and_return(runner_instance)
+
+      expect(runner_instance).to receive(:run).with(
+        agent,
+        "test input",
+        context: { key: "value" },
+        max_turns: 5
+      ).and_return(instance_double(Agents::RunResult))
+
+      described_class.run(agent, "test input", context: { key: "value" }, max_turns: 5)
+    end
+  end
+
+  describe "#run" do
+    let(:runner) { described_class.new }
+
+    context "basic execution flow" do
+      context "simple conversation without tools" do
+        before do
+          stub_request(:post, "https://api.openai.com/v1/chat/completions")
+            .to_return(
+              status: 200,
+              body: {
+                id: "chatcmpl-123",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-4o",
+                choices: [{
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "Hello! How can I help you?"
+                  },
+                  finish_reason: "stop"
+                }],
+                usage: {
+                  prompt_tokens: 10,
+                  completion_tokens: 8,
+                  total_tokens: 18
+                }
+              }.to_json,
+              headers: { "Content-Type" => "application/json" }
+            )
+        end
+
+        it "completes simple conversation in single turn" do
+          result = runner.run(agent, "Hello")
+
+          expect(result).to be_a(Agents::RunResult)
+          expect(result.output).to eq("Hello! How can I help you?")
+          expect(result.success?).to be true
+          expect(result.messages).to include(
+            hash_including(role: :user, content: "Hello"),
+            hash_including(role: :assistant, content: "Hello! How can I help you?")
+          )
+        end
+
+        it "includes context in result" do
+          result = runner.run(agent, "Hello", context: { user_id: 123 })
+
+          expect(result.context).to include(user_id: 123)
+          expect(result.context).to include(:conversation_history)
+          expect(result.context).to include(turn_count: 1)
+          expect(result.context).to include(:last_updated)
+        end
+      end
+
+      context "with conversation history" do
+        let(:context_with_history) do
+          {
+            conversation_history: [
+              { role: :user, content: "What's 2+2?" },
+              { role: :assistant, content: "2+2 equals 4." }
+            ]
+          }
+        end
+
+        before do
+          stub_request(:post, "https://api.openai.com/v1/chat/completions")
+            .to_return(
+              status: 200,
+              body: {
+                id: "chatcmpl-456",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-4o",
+                choices: [{
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "Yes, that's correct! Is there anything else?"
+                  },
+                  finish_reason: "stop"
+                }],
+                usage: { prompt_tokens: 25, completion_tokens: 12, total_tokens: 37 }
+              }.to_json,
+              headers: { "Content-Type" => "application/json" }
+            )
+        end
+
+        it "restores conversation history" do
+          result = runner.run(agent, "Thanks for confirming", context: context_with_history)
+
+          expect(result.success?).to be true
+          expect(result.output).to eq("Yes, that's correct! Is there anything else?")
+          expect(result.messages.length).to eq(4) # 2 from history + 2 new
+        end
+      end
+
+      context "using current_agent from context" do
+        let(:context_with_agent) { { current_agent: handoff_agent } }
+
+        before do
+          stub_request(:post, "https://api.openai.com/v1/chat/completions")
+            .to_return(
+              status: 200,
+              body: {
+                id: "chatcmpl-789",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-4o",
+                choices: [{
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "I'm the specialist agent"
+                  },
+                  finish_reason: "stop"
+                }],
+                usage: { prompt_tokens: 15, completion_tokens: 6, total_tokens: 21 }
+              }.to_json,
+              headers: { "Content-Type" => "application/json" }
+            )
+        end
+
+        it "uses current_agent from context instead of starting_agent" do
+          expect(handoff_agent).to receive(:get_system_prompt)
+
+          result = runner.run(agent, "Hello", context: context_with_agent)
+
+          expect(result.success?).to be true
+          expect(result.context[:current_agent]).to eq(handoff_agent)
+        end
+      end
+    end
+
+    context "agent handoffs" do
+      let(:agent_with_handoffs) do
+        instance_double(Agents::Agent,
+                        name: "TriageAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [handoff_agent],
+                        get_system_prompt: "You route users to specialists")
+      end
+
+      let(:handoff_tool_instance) do
+        instance_double(Agents::HandoffTool,
+                        name: "handoff_to_handoffagent",
+                        description: "Transfer to HandoffAgent",
+                        parameters: {},
+                        target_agent: handoff_agent,
+                        execute: "Transferring to HandoffAgent")
+      end
+
+      before do
+        allow(Agents::HandoffTool).to receive(:new).with(handoff_agent)
+                                                   .and_return(handoff_tool_instance)
+      end
+
+      context "when handoff occurs" do
+        before do
+          # First request - triage agent decides to handoff
+          stub_request(:post, "https://api.openai.com/v1/chat/completions")
+            .to_return(
+              {
+                status: 200,
+                body: {
+                  id: "chatcmpl-handoff1",
+                  object: "chat.completion",
+                  created: 1_677_652_288,
+                  model: "gpt-4o",
+                  choices: [{
+                    index: 0,
+                    message: {
+                      role: "assistant",
+                      content: nil,
+                      tool_calls: [{
+                        id: "call_handoff",
+                        type: "function",
+                        function: {
+                          name: "handoff_to_handoffagent",
+                          arguments: "{}"
+                        }
+                      }]
+                    },
+                    finish_reason: "tool_calls"
+                  }],
+                  usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
+                }.to_json,
+                headers: { "Content-Type" => "application/json" }
+              },
+              # Second request - handoff agent responds
+              {
+                status: 200,
+                body: {
+                  id: "chatcmpl-handoff2",
+                  object: "chat.completion",
+                  created: 1_677_652_300,
+                  model: "gpt-4o",
+                  choices: [{
+                    index: 0,
+                    message: {
+                      role: "assistant",
+                      content: "Hello, I'm the specialist. How can I help?"
+                    },
+                    finish_reason: "stop"
+                  }],
+                  usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 }
+                }.to_json,
+                headers: { "Content-Type" => "application/json" }
+              }
+            )
+        end
+
+        it "switches to handoff agent and continues conversation" do
+          result = runner.run(agent_with_handoffs, "I need specialist help")
+
+          expect(result.success?).to be true
+          expect(result.output).to eq("Hello, I'm the specialist. How can I help?")
+          expect(result.context[:current_agent]).to eq(handoff_agent)
+        end
+      end
+    end
+
+    context "turn management" do
+      context "when max_turns is exceeded" do
+        it "raises MaxTurnsExceeded and returns error result" do
+          # Create a runner that will hit the max turns limit
+          allow(runner).to receive(:run).and_call_original
+          allow(runner).to receive(:create_chat).and_return(
+            instance_double(Agents::Chat,
+                            ask: instance_double(RubyLLM::Message, tool_call?: true),
+                            complete: instance_double(RubyLLM::Message, tool_call?: true))
+          )
+
+          result = runner.run(agent, "Start infinite loop", max_turns: 1)
+
+          expect(result.failed?).to be true
+          expect(result.error).to be_a(Agents::Runner::MaxTurnsExceeded)
+          expect(result.output).to include("Exceeded maximum turns: 1")
+        end
+      end
+
+      it "respects custom max_turns limit" do
+        # This will pass because we're not hitting the limit
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-quick",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: { role: "assistant", content: "Done" },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+
+        result = runner.run(agent, "Quick response", max_turns: 1)
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Done")
+      end
+    end
+  end
+end
