@@ -23,8 +23,8 @@ RSpec.describe Agents::Chat do
       allow(handoff_tool).to receive(:name).and_return("handoff_to_support_agent")
 
       tool_calls = {
-        "1" => instance_double(ToolCall, name: "regular_tool"),
-        "2" => instance_double(ToolCall, name: "handoff_to_support_agent")
+        "1" => instance_double(RubyLLM::ToolCall, name: "regular_tool"),
+        "2" => instance_double(RubyLLM::ToolCall, name: "handoff_to_support_agent")
       }
 
       handoff_calls, regular_calls = chat.send(:classify_tool_calls, tool_calls)
@@ -50,7 +50,7 @@ RSpec.describe Agents::Chat do
 
   describe "#execute_handoff_tool" do
     let(:chat) { described_class.new(handoff_tools: [handoff_tool], context_wrapper: context) }
-    let(:tool_call) { instance_double(ToolCall, name: "handoff_to_support_agent") }
+    let(:tool_call) { instance_double(RubyLLM::ToolCall, name: "handoff_to_support_agent") }
 
     it "executes handoff tool and returns result hash" do
       allow(handoff_tool).to receive_messages(name: "handoff_to_support_agent", target_agent: target_agent,

@@ -3,7 +3,7 @@
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::Tool do
-  let(:tool_context) { instance_double(ToolContext, "ToolContext") }
+  let(:tool_context) { instance_double(Agents::ToolContext, "ToolContext") }
 
   # Create test tool class for testing
   let(:test_tool_class) do
