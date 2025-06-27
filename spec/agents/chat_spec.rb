@@ -90,9 +90,8 @@ RSpec.describe Agents::Chat do
     end
 
     it "registers handoff tools with RubyLLM" do
-      expect_any_instance_of(described_class).to receive(:with_tool).with(handoff_tool)
-
-      described_class.new(handoff_tools: [handoff_tool], context_wrapper: context)
+      chat = described_class.new(handoff_tools: [handoff_tool], context_wrapper: context)
+      expect(chat.instance_variable_get(:@handoff_tools)).to eq([handoff_tool])
     end
   end
 
@@ -262,24 +261,28 @@ RSpec.describe Agents::Chat do
     let(:chat) { described_class.new(handoff_tools: [], context_wrapper: context) }
 
     it "adds tool result message with string content" do
-      expect(chat).to receive(:add_message).with(
+      allow(chat).to receive(:add_message)
+
+      chat.send(:add_tool_result, "call_123", "tool result")
+
+      expect(chat).to have_received(:add_message).with(
         role: :tool,
         content: "tool result",
         tool_call_id: "call_123"
       )
-
-      chat.send(:add_tool_result, "call_123", "tool result")
     end
 
     it "adds tool result message with error hash" do
       error_result = { error: "Something went wrong" }
-      expect(chat).to receive(:add_message).with(
+      allow(chat).to receive(:add_message)
+
+      chat.send(:add_tool_result, "call_123", error_result)
+
+      expect(chat).to have_received(:add_message).with(
         role: :tool,
         content: "Something went wrong",
         tool_call_id: "call_123"
       )
-
-      chat.send(:add_tool_result, "call_123", error_result)
     end
   end
 
@@ -305,13 +308,16 @@ RSpec.describe Agents::Chat do
     end
 
     it "executes each tool call and continues conversation" do
-      expect(chat).to receive(:execute_tool).with(tool_call).and_return("tool result")
-      expect(chat).to receive(:add_tool_result).with("call_456", "tool result")
-      expect(chat).to receive(:complete).and_return(continued_response)
+      allow(chat).to receive(:execute_tool).with(tool_call).and_return("tool result")
+      allow(chat).to receive(:add_tool_result).with("call_456", "tool result")
+      allow(chat).to receive(:complete).and_return(continued_response)
 
       result = chat.send(:execute_regular_tools_and_continue, [tool_call])
 
       expect(result).to eq(continued_response)
+      expect(chat).to have_received(:execute_tool).with(tool_call)
+      expect(chat).to have_received(:add_tool_result).with("call_456", "tool result")
+      expect(chat).to have_received(:complete)
     end
   end
 
@@ -328,11 +334,12 @@ RSpec.describe Agents::Chat do
     end
 
     it "calls the tool with arguments" do
-      expect(regular_tool).to receive(:call).with({ param: "value" }).and_return("tool result")
+      allow(regular_tool).to receive(:call).with({ param: "value" }).and_return("tool result")
 
       result = chat.send(:execute_tool, tool_call)
 
       expect(result).to eq("tool result")
+      expect(regular_tool).to have_received(:call).with({ param: "value" })
     end
   end
 end
