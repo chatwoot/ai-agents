@@ -43,20 +43,15 @@ RSpec.describe Agents::Runner do
                     call: "tool result")
   end
 
-  describe ".run" do
-    it "delegates to instance method with correct parameters" do
-      runner_instance = instance_spy(described_class)
-      allow(described_class).to receive(:new).and_return(runner_instance)
-      allow(runner_instance).to receive(:run).and_return(instance_double(Agents::RunResult))
+  describe ".with_agents" do
+    it "returns an AgentRunner instance" do
+      result = described_class.with_agents(agent, handoff_agent)
+      expect(result).to be_a(Agents::AgentRunner)
+    end
 
-      described_class.run(agent, "test input", context: { key: "value" }, max_turns: 5)
-
-      expect(runner_instance).to have_received(:run).with(
-        agent,
-        "test input",
-        context: { key: "value" },
-        max_turns: 5
-      )
+    it "passes all agents to AgentRunner constructor" do
+      expect(Agents::AgentRunner).to receive(:new).with([agent, handoff_agent])
+      described_class.with_agents(agent, handoff_agent)
     end
   end
 
@@ -156,7 +151,7 @@ RSpec.describe Agents::Runner do
     end
 
     context "when using current_agent from context" do
-      let(:context_with_agent) { { current_agent: handoff_agent } }
+      let(:context_with_agent) { { current_agent: "HandoffAgent" } }
 
       before do
         stub_request(:post, "https://api.openai.com/v1/chat/completions")
@@ -181,14 +176,14 @@ RSpec.describe Agents::Runner do
           )
       end
 
-      it "uses current_agent from context instead of starting_agent" do
+      it "stores current agent name in context" do
+        registry = { "TestAgent" => agent, "HandoffAgent" => handoff_agent }
         allow(handoff_agent).to receive(:get_system_prompt)
 
-        result = runner.run(agent, "Hello", context: context_with_agent)
+        result = runner.run(agent, "Hello", context: context_with_agent, registry: registry)
 
         expect(result.success?).to be true
-        expect(result.context[:current_agent]).to eq(handoff_agent)
-        expect(handoff_agent).to have_received(:get_system_prompt)
+        expect(result.context[:current_agent]).to eq("TestAgent")
       end
     end
 
@@ -269,11 +264,12 @@ RSpec.describe Agents::Runner do
       end
 
       it "switches to handoff agent and continues conversation" do
-        result = runner.run(agent_with_handoffs, "I need specialist help")
+        registry = { "TriageAgent" => agent_with_handoffs, "HandoffAgent" => handoff_agent }
+        result = runner.run(agent_with_handoffs, "I need specialist help", registry: registry)
 
         expect(result.success?).to be true
         expect(result.output).to eq("Hello, I'm the specialist. How can I help?")
-        expect(result.context[:current_agent]).to eq(handoff_agent)
+        expect(result.context[:current_agent]).to eq("HandoffAgent")
       end
     end
 
