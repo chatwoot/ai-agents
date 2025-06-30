@@ -27,7 +27,7 @@ A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspire
 Add to your Gemfile:
 
 ```ruby
-gem 'ruby-agents'
+gem 'ai-agents'
 ```
 
 ### Basic Usage
