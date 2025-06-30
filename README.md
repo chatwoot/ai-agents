@@ -134,11 +134,11 @@ end
 ```ruby
 class EmailTool < Agents::Tool
   description "Send emails to customers"
-  param :to, String, "Email address"
-  param :subject, String, "Email subject"
-  param :body, String, "Email body"
+  param :to, type: "string", desc: "Email address"
+  param :subject, type: "string", desc: "Email subject"
+  param :body, type: "string", desc: "Email body"
 
-  def perform(to:, subject:, body:, context:)
+  def perform(tool_context, to:, subject:, body:)
     # Send email logic here
     "Email sent to #{to}"
   end

@@ -36,52 +36,8 @@
 #     end
 #   end
 #
-# @example Using the functional tool definition
-#   # Define a calculator tool
-#   calculator = Agents::Tool.tool(
-#     "calculate",
-#     description: "Perform mathematical calculations"
-#   ) do |tool_context, expression:|
-#     begin
-#       result = eval(expression)
-#       result.to_s
-#     rescue => e
-#       "Calculation error: #{e.message}"
-#     end
-#   end
-#
-#   # Use the tool in an agent
-#   agent = Agents::Agent.new(
-#     name: "Math Assistant",
-#     instructions: "You are a helpful math assistant",
-#     tools: [calculator]
-#   )
-#
-#   # During execution, the runner would call it like this:
-#   run_context = Agents::RunContext.new({ user_id: 123 })
-#   tool_context = Agents::ToolContext.new(run_context: run_context)
-#
-#   result = calculator.execute(tool_context, expression: "2 + 2 * 3")
-#   # => "8"
 module Agents
   class Tool < RubyLLM::Tool
-    class << self
-      def param(name, type = String, desc = nil, required: true, **options)
-        # Convert Ruby types to JSON schema types
-        json_type = case type
-                    when String, "string" then "string"
-                    when Integer, "integer" then "integer"
-                    when Float, "number" then "number"
-                    when TrueClass, FalseClass, "boolean" then "boolean"
-                    when Array, "array" then "array"
-                    when Hash, "object" then "object"
-                    else "string"
-                    end
-
-        # Call parent param method
-        super(name, type: json_type, desc: desc, required: required, **options)
-      end
-    end
     # Execute the tool with context injection.
     # This method is called by the runner and handles the thread-safe
     # execution pattern by passing all state through parameters.
@@ -111,43 +67,6 @@ module Agents
     #   end
     def perform(tool_context, **params)
       raise NotImplementedError, "Tools must implement #perform(tool_context, **params)"
-    end
-
-    # Create a tool instance using a functional style definition.
-    # This is an alternative to creating a full class for simple tools.
-    # The block becomes the tool's perform method.
-    #
-    # @param name [String] The tool's name (used in function calling)
-    # @param description [String] Brief description of what the tool does
-    # @yield [tool_context, **params] The block that implements the tool's logic
-    # @return [Agents::Tool] A new tool instance
-    # @example Creating a simple tool functionally
-    #   math_tool = Agents::Tool.tool(
-    #     "add_numbers",
-    #     description: "Add two numbers together"
-    #   ) do |tool_context, a:, b:|
-    #     (a + b).to_s
-    #   end
-    #
-    # @example Tool accessing context with error handling
-    #   greeting_tool = Agents::Tool.tool("greet", description: "Greet a user") do |tool_context, name:|
-    #     language = tool_context.context[:language] || "en"
-    #     case language
-    #     when "es" then "¡Hola, #{name}!"
-    #     when "fr" then "Bonjour, #{name}!"
-    #     else "Hello, #{name}!"
-    #     end
-    #   rescue => e
-    #     "Sorry, I couldn't greet you: #{e.message}"
-    #   end
-    def self.tool(name, description: "", &block)
-      # Create anonymous class that extends Tool
-      Class.new(Tool) do
-        self.name = name
-        self.description = description
-
-        define_method :perform, &block
-      end.new
     end
   end
 end

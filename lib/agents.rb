@@ -11,6 +11,18 @@ require_relative "agents/version"
 module Agents
   class Error < StandardError; end
 
+  # OpenAI's recommended system prompt prefix for multi-agent workflows
+  # This helps agents understand they're part of a coordinated system
+  RECOMMENDED_HANDOFF_PROMPT_PREFIX =
+    "# System context\n" \
+    "You are part of a multi-agent system called the Ruby Agents SDK, designed to make agent " \
+    "coordination and execution easy. Agents uses two primary abstraction: **Agents** and " \
+    "**Handoffs**. An agent encompasses instructions and tools and can hand off a " \
+    "conversation to another agent when appropriate. " \
+    "Handoffs are achieved by calling a handoff function, generally named " \
+    "`handoff_to_<agent_name>`. Transfers between agents are handled seamlessly in the background; " \
+    "do not mention or draw attention to these transfers in your conversation with the user.\n"
+
   class << self
     # Logger for debugging (can be set by users)
     attr_accessor :logger
@@ -66,5 +78,6 @@ require_relative "agents/handoff"
 require_relative "agents/agent"
 
 # Execution components
+require_relative "agents/chat"
 require_relative "agents/tool_wrapper"
 require_relative "agents/runner"

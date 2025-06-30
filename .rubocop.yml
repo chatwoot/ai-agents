@@ -24,3 +24,6 @@ RSpec/SpecFilePathFormat:
 
 Metrics/MethodLength:
   Max: 20
+
+RSpec/MultipleDescribes:
+  Enabled: false

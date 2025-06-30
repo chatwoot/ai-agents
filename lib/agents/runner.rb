@@ -83,20 +83,17 @@ module Agents
         current_turn += 1
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Get response from LLM (RubyLLM handles tool execution)
-        response = if current_turn == 1
-                     chat.ask(input)
-                   else
-                     chat.complete
-                   end
+        # Get response from LLM (Extended Chat handles tool execution with handoff detection)
+        result = if current_turn == 1
+                   chat.ask(input)
+                 else
+                   chat.complete
+                 end
+        response = result
 
-        # Update usage
-        context_wrapper.usage.add(response.usage) if response.respond_to?(:usage) && response.usage
-
-        # Check for handoff via context (set by HandoffTool)
-        if context_wrapper.context[:pending_handoff]
-          next_agent = context_wrapper.context[:pending_handoff]
-          puts "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
+        # Check for handoff response from our extended chat
+        if response.is_a?(Agents::Chat::HandoffResponse)
+          next_agent = response.target_agent
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
@@ -104,16 +101,21 @@ module Agents
           # Switch to new agent
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent
-          context_wrapper.context.delete(:pending_handoff)
 
           # Create new chat for new agent with restored history
           chat = create_chat(current_agent, context_wrapper)
           restore_conversation_history(chat, context_wrapper)
+
+          # Force the new agent to respond to the conversation context
+          # This ensures the user gets a response from the new agent
+          input = nil
           next
         end
 
-        # If no tools were called, we have our final response
+        # If tools were called, continue the loop to let them execute
         next if response.tool_call?
+
+        # If no tools were called, we have our final response
 
         # Save final state before returning
         save_conversation_state(chat, context_wrapper, current_agent)
@@ -203,15 +205,22 @@ module Agents
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Wrap tools with context for thread-safe execution
-      wrapped_tools = agent.all_tools.map do |tool|
-        ToolWrapper.new(tool, context_wrapper)
-      end
+      # Separate handoff tools from regular tools
+      handoff_tools = agent.handoff_agents.map { |target_agent| HandoffTool.new(target_agent) }
+      regular_tools = agent.tools
 
-      # Create chat with proper RubyLLM API
-      chat = RubyLLM.chat(model: agent.model)
+      # Only wrap regular tools - handoff tools will be handled directly by Chat
+      wrapped_regular_tools = regular_tools.map { |tool| ToolWrapper.new(tool, context_wrapper) }
+
+      # Create extended chat with handoff awareness and context
+      chat = Agents::Chat.new(
+        model: agent.model,
+        handoff_tools: handoff_tools,        # Direct tools, no wrapper
+        context_wrapper: context_wrapper     # Pass context directly
+      )
+
       chat.with_instructions(system_prompt) if system_prompt
-      chat.with_tools(*wrapped_tools) if wrapped_tools.any?
+      chat.with_tools(*wrapped_regular_tools) if wrapped_regular_tools.any?
       chat
     end
 

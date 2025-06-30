@@ -4,7 +4,7 @@ module ISPSupport
   # Tool for searching the knowledge base documentation.
   class SearchDocsTool < Agents::Tool
     description "Search knowledge base for troubleshooting steps and solutions"
-    param :query, String, "Search terms or description of the issue"
+    param :query, type: "string", desc: "Search terms or description of the issue"
 
     def perform(_tool_context, query:)
       case query.downcase
