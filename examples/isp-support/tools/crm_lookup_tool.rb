@@ -24,11 +24,13 @@ module ISPSupport
         tool_context.state[:customer_email] = customer["email"]
         tool_context.state[:customer_phone] = customer["phone"]
         tool_context.state[:customer_address] = customer["address"]
-        tool_context.state[:current_plan] = customer["current_plan"]
-        tool_context.state[:account_status] = customer["status"]
-        tool_context.state[:monthly_usage] = customer["monthly_usage_gb"]
+        tool_context.state[:current_plan] = customer["plan"]["name"]
+        tool_context.state[:account_status] = customer["account_status"]
+        tool_context.state[:plan_price] = customer["plan"]["price"]
+        tool_context.state[:next_bill_date] = customer["billing"]["next_bill_date"]
+        tool_context.state[:account_balance] = customer["billing"]["balance"]
 
-        # Return clean message for the agent
+        # Return the entire customer data as JSON for the agent to process
         customer.to_json
       rescue StandardError
         "Error looking up customer"

@@ -135,16 +135,21 @@ module ISPSupport
         if state[:customer_name] && state[:customer_id]
           base_instructions += <<~CONTEXT
 
-            **Customer Context:**
+            **Customer Context Available:**
             - Customer Name: #{state[:customer_name]}
             - Customer ID: #{state[:customer_id]}
-            - Current Plan: #{state[:current_plan]}
             - Email: #{state[:customer_email]}
             - Phone: #{state[:customer_phone]}
             - Address: #{state[:customer_address]}
-            - Account Status: #{state[:account_status]}
+            #{state[:current_plan] ? "- Current Plan: #{state[:current_plan]}" : ""}
+            #{state[:account_status] ? "- Account Status: #{state[:account_status]}" : ""}
+            #{state[:monthly_usage] ? "- Monthly Usage: #{state[:monthly_usage]}GB" : ""}
 
-            Use this information to provide personalized recommendations. You don't need to ask for account details again.
+            **IMPORTANT:**#{" "}
+            - Use this existing customer information when creating leads or providing service
+            - Do NOT ask for name, email, phone, or address - you already have these details
+            - For new connections, use the existing customer details and only ask for the desired plan
+            - Provide personalized recommendations based on their current information
           CONTEXT
         end
 
