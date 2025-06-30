@@ -14,8 +14,15 @@ class ISPSupportDemo
     end
 
     # Create agents
-    @agents = ISPSupport::AgentsFactory.create_agents
-    @triage_agent = @agents[:triage]
+    agents = ISPSupport::AgentsFactory.create_agents
+
+    # Create thread-safe runner with all agents (triage first = default entry point)
+    @runner = Agents::Runner.with_agents(
+      agents[:triage],
+      agents[:sales],
+      agents[:support]
+    )
+
     @context = {}
 
     puts "🏢 Welcome to ISP Customer Support!"
@@ -32,10 +39,8 @@ class ISPSupportDemo
       break if command_result == :exit
       next if command_result == :handled || user_input.empty?
 
-      # Determine which agent to use - either from context or triage agent
-      current_agent = @context[:current_agent] || @triage_agent
-
-      result = Agents::Runner.run(current_agent, user_input, context: @context)
+      # Use the runner - it automatically determines the right agent from context
+      result = @runner.run(user_input, context: @context)
 
       # Update our context with the returned context from Runner
       @context = result.context if result.respond_to?(:context) && result.context
