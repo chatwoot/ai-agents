@@ -54,53 +54,33 @@ module Agents
 
     class MaxTurnsExceeded < StandardError; end
 
-    # Convenience class method for running agents
-    def self.run(agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
-      # we build the registry only once, since the handoff graphs are stable
-      # all the handoffs are supposed to be registerd before the runner is called
-      # TODO: A lazy registry discovery can be implemented by using a memoization pattern
-      # that can solve for the dynamic handoff registration, but we recommend that anyway
-      # TODO: build a Agents::AgentRegistry class if we need to add more utils
-      registry = build_agents_registry(agent)
-
-      new.run(agent, input, context: context, max_turns: max_turns, registry: registry)
-    end
-
-    private_class_method def self.build_agents_registry(agent)
-      # this is the registry that will hold all the agents and their names
-      registry = {}
-
-      # to ensure we don't end up in a recur
-      visited = Set.new
-      traverse_agent_handoffs(agent, registry, visited)
-
-      registry
-    end
-
-    private_class_method def self.traverse_agent_handoffs(agent, registry, visited)
-      return if visited.include?(agent)
-
-      puts "Visiting agent #{agent.inspect}"
-      visited.add(agent)
-      # once the agent is visited, add it to the registry
-      registry[agent.name] = agent
-
-      agent.handoff_agents.each do |handoff_agent|
-        traverse_agent_handoffs(handoff_agent, registry, visited)
-      end
-    end
-
-    # Execute an agent with the given input and context
+    # Create a thread-safe agent runner for multi-agent conversations.
+    # The first agent becomes the default entry point for new conversations.
+    # All agents must be explicitly provided - no automatic discovery.
     #
-    # @param starting_agent [Agents::Agent] The initial agent to run
+    # @param agents [Array<Agents::Agent>] All agents that should be available for handoffs
+    # @return [AgentRunner] Thread-safe runner that can be reused across multiple conversations
+    #
+    # @example
+    #   runner = Agents::Runner.with_agents(triage_agent, billing_agent, support_agent)
+    #   result = runner.run("I need help")  # Uses triage_agent for new conversation
+    #   result = runner.run("More help", context: stored_context)  # Continues with appropriate agent
+    def self.with_agents(*agents)
+      AgentRunner.new(agents)
+    end
+
+    # Execute an agent with the given input and context.
+    # This is now called internally by AgentRunner and should not be used directly.
+    #
+    # @param starting_agent [Agents::Agent] The agent to run
     # @param input [String] The user's input message
     # @param context [Hash] Shared context data accessible to all tools
+    # @param registry [Hash] Registry of agents for handoff resolution
     # @param max_turns [Integer] Maximum conversation turns before stopping
-    # @param registry [Hash] Registry of agents for handoff detection
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, registry:, context: {}, max_turns: DEFAULT_MAX_TURNS)
-      # Determine current agent from context or use starting agent
-      current_agent = resolve_current_agent(registry, context[:current_agent]) || starting_agent
+    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS)
+      # The starting_agent is already determined by AgentRunner based on conversation history
+      current_agent = starting_agent
 
       # Create context wrapper with deep copy for thread safety
       context_copy = deep_copy_context(context)
@@ -127,10 +107,19 @@ module Agents
         if response.is_a?(Agents::Chat::HandoffResponse)
           next_agent = response.target_agent
 
+          # Validate that the target agent is in our registry
+          # This prevents handoffs to agents that weren't explicitly provided
+          unless registry[next_agent.name]
+            puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
+            next if response.tool_call?
+
+            next
+          end
+
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
 
-          # Switch to new agent
+          # Switch to new agent - store agent name for persistence
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
@@ -154,7 +143,7 @@ module Agents
 
         return RunResult.new(
           output: response.content,
-          messages: extract_messages(chat),
+          messages: extract_messages(chat, current_agent),
           usage: context_wrapper.usage,
           context: context_wrapper.context
         )
@@ -165,7 +154,7 @@ module Agents
 
       RunResult.new(
         output: "Conversation ended: #{e.message}",
-        messages: chat ? extract_messages(chat) : [],
+        messages: chat ? extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -176,7 +165,7 @@ module Agents
 
       RunResult.new(
         output: nil,
-        messages: chat ? extract_messages(chat) : [],
+        messages: chat ? extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -184,13 +173,6 @@ module Agents
     end
 
     private
-
-    def resolve_current_agent(registry, current_agent_name)
-      current_agent = registry[current_agent_name]
-      return current_agent if current_agent.is_a?(Agents::Agent)
-
-      nil
-    end
 
     def deep_copy_context(context)
       # Handle deep copying for thread safety
@@ -226,7 +208,7 @@ module Agents
 
     def save_conversation_state(chat, context_wrapper, current_agent)
       # Extract messages from chat
-      messages = extract_messages(chat)
+      messages = extract_messages(chat, current_agent)
 
       # Update context with latest state
       context_wrapper.context[:conversation_history] = messages
@@ -263,7 +245,7 @@ module Agents
       chat
     end
 
-    def extract_messages(chat)
+    def extract_messages(chat, current_agent)
       return [] unless chat.respond_to?(:messages)
 
       chat.messages.filter_map do |msg|
@@ -276,7 +258,9 @@ module Agents
           content: msg.content
         }
 
-        message[:agent_name] = @current_agent_name if msg.role == :assistant && @current_agent_name
+        # Add agent attribution for assistant messages to enable conversation continuity
+        # This allows AgentRunner to determine which agent should continue the conversation
+        message[:agent_name] = current_agent.name if msg.role == :assistant && current_agent
 
         message
       end
