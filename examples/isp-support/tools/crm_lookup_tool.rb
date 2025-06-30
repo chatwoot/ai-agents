@@ -21,13 +21,15 @@ module ISPSupport
         # Store customer information in shared state for other tools/agents
         tool_context.state[:customer_id] = account_id.upcase
         tool_context.state[:customer_name] = customer["name"]
+        tool_context.state[:customer_email] = customer["email"]
+        tool_context.state[:customer_phone] = customer["phone"]
+        tool_context.state[:customer_address] = customer["address"]
         tool_context.state[:current_plan] = customer["current_plan"]
         tool_context.state[:account_status] = customer["status"]
         tool_context.state[:monthly_usage] = customer["monthly_usage_gb"]
 
         # Return clean message for the agent
-        "Found customer #{customer['name']} (#{account_id.upcase}). " \
-        "Current plan: #{customer['current_plan']}, Status: #{customer['status']}"
+        customer.to_json
       rescue StandardError
         "Error looking up customer"
       end

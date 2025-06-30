@@ -136,10 +136,13 @@ module ISPSupport
           base_instructions += <<~CONTEXT
 
             **Customer Context:**
-            - Customer: #{state[:customer_name]} (#{state[:customer_id]})
+            - Customer Name: #{state[:customer_name]}
+            - Customer ID: #{state[:customer_id]}
             - Current Plan: #{state[:current_plan]}
+            - Email: #{state[:customer_email]}
+            - Phone: #{state[:customer_phone]}
+            - Address: #{state[:customer_address]}
             - Account Status: #{state[:account_status]}
-            #{state[:monthly_usage] ? "- Monthly Usage: #{state[:monthly_usage]}GB" : ""}
 
             Use this information to provide personalized recommendations. You don't need to ask for account details again.
           CONTEXT
