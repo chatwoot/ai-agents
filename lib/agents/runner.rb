@@ -56,7 +56,38 @@ module Agents
 
     # Convenience class method for running agents
     def self.run(agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
-      new.run(agent, input, context: context, max_turns: max_turns)
+      # we build the registry only once, since the handoff graphs are stable
+      # all the handoffs are supposed to be registerd before the runner is called
+      # TODO: A lazy registry discovery can be implemented by using a memoization pattern
+      # that can solve for the dynamic handoff registration, but we recommend that anyway
+      # TODO: build a Agents::AgentRegistry class if we need to add more utils
+      registry = build_agents_registry(agent)
+
+      new.run(agent, input, context: context, max_turns: max_turns, registry: registry)
+    end
+
+    private_class_method def self.build_agents_registry(agent)
+      # this is the registry that will hold all the agents and their names
+      registry = {}
+
+      # to ensure we don't end up in a recur
+      visited = Set.new
+      traverse_agent_handoffs(agent, registry, visited)
+
+      registry
+    end
+
+    private_class_method def self.traverse_agent_handoffs(agent, registry, visited)
+      return if visited.include?(agent)
+
+      puts "Visiting agent #{agent.inspect}"
+      visited.add(agent)
+      # once the agent is visited, add it to the registry
+      registry[agent.name] = agent
+
+      agent.handoff_agents.each do |handoff_agent|
+        traverse_agent_handoffs(handoff_agent, registry, visited)
+      end
     end
 
     # Execute an agent with the given input and context
@@ -65,10 +96,11 @@ module Agents
     # @param input [String] The user's input message
     # @param context [Hash] Shared context data accessible to all tools
     # @param max_turns [Integer] Maximum conversation turns before stopping
+    # @param registry [Hash] Registry of agents for handoff detection
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, context: {}, max_turns: DEFAULT_MAX_TURNS)
+    def run(starting_agent, input, registry:, context: {}, max_turns: DEFAULT_MAX_TURNS)
       # Determine current agent from context or use starting agent
-      current_agent = context[:current_agent] || starting_agent
+      current_agent = resolve_current_agent(registry, context[:current_agent]) || starting_agent
 
       # Create context wrapper with deep copy for thread safety
       context_copy = deep_copy_context(context)
@@ -100,7 +132,7 @@ module Agents
 
           # Switch to new agent
           current_agent = next_agent
-          context_wrapper.context[:current_agent] = next_agent
+          context_wrapper.context[:current_agent] = next_agent.name
 
           # Create new chat for new agent with restored history
           chat = create_chat(current_agent, context_wrapper)
@@ -153,6 +185,13 @@ module Agents
 
     private
 
+    def resolve_current_agent(registry, current_agent_name)
+      current_agent = registry[current_agent_name]
+      return current_agent if current_agent.is_a?(Agents::Agent)
+
+      nil
+    end
+
     def deep_copy_context(context)
       # Handle deep copying for thread safety
       context.dup.tap do |copied|
@@ -191,7 +230,7 @@ module Agents
 
       # Update context with latest state
       context_wrapper.context[:conversation_history] = messages
-      context_wrapper.context[:current_agent] = current_agent
+      context_wrapper.context[:current_agent] = current_agent.name
       context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
       context_wrapper.context[:last_updated] = Time.now
 
@@ -232,10 +271,14 @@ module Agents
         next unless %i[user assistant].include?(msg.role)
         next unless msg.content && !msg.content.strip.empty?
 
-        {
+        message = {
           role: msg.role,
           content: msg.content
         }
+
+        message[:agent_name] = @current_agent_name if msg.role == :assistant && @current_agent_name
+
+        message
       end
     end
   end
