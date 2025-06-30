@@ -2,187 +2,196 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository Overview
+## Project Purpose
 
-This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilities, similar to OpenAI's Agents SDK but built for Ruby. The SDK enables the creation of sophisticated AI workflows with specialized agents, tool execution, and conversation handoffs.
+This project is a Ruby SDK for building multi-agent AI workflows. It allows developers to create specialized AI agents that can collaborate to solve complex tasks. The key features include:
 
-**IMPORTANT**: This is a generic agent library. When implementing library code, ensure that:
-- No domain-specific logic from examples (airline booking, FAQ, seat management, etc.) leaks into the core library
-- The library remains agnostic to specific use cases
-- All domain-specific implementations belong in the examples directory only
+-   **Multi-Agent Orchestration**: Defining and managing multiple AI agents with distinct roles.
+-   **Seamless Handoffs**: Transferring conversations between agents without the user's knowledge.
+-   **Tool Integration**: Allowing agents to use custom tools to interact with external systems.
+-   **Shared Context**: Maintaining state and conversation history across agent interactions with full persistence support.
+-   **Thread-Safe Architecture**: Reusable agent runners that work safely across multiple threads.
+-   **Provider Agnostic**: Supporting various LLM providers like OpenAI, Anthropic, and Gemini.
+
+## Key Technologies
+
+-   **Ruby**: The primary programming language.
+-   **RubyLLM**: The underlying library for interacting with Large Language Models.
+-   **RSpec**: The testing framework.
+-   **RuboCop**: The code style linter.
+-   **GitHub Actions**: For continuous integration (testing and linting).
+
+## Project Structure
+
+-   `lib/`: The core source code of the `ai-agents` gem.
+    -   `lib/agents.rb`: The main entry point, handling configuration and loading other components.
+    -   `lib/agents/agent.rb`: Defines the `Agent` class, which represents an individual AI agent.
+    -   `lib/agents/tool.rb`: Defines the `Tool` class, the base for creating custom tools for agents.
+    -   `lib/agents/agent_runner.rb`: Thread-safe agent execution manager for multi-agent conversations.
+    -   `lib/agents/runner.rb`: Internal orchestrator that handles individual conversation turns.
+-   `spec/`: Contains the RSpec tests for the project.
+-   `examples/`: Includes example implementations of multi-agent systems, such as an ISP customer support demo.
+-   `Gemfile`: Manages the project's Ruby dependencies.
+-   `.rubocop.yml`: Configures the code style rules for RuboCop.
+-   `.github/workflows/main.yml`: Defines the CI pipeline for running tests and linting on push and pull requests.
+
+## Development Workflow
+
+1.  **Dependencies**: Managed by Bundler (`bundle install`).
+2.  **Testing**: Run tests with `bundle exec rspec`.
+3.  **Linting**: Check code style with `bundle exec rubocop`.
+4.  **CI/CD**: GitHub Actions automatically runs tests and linting for all pushes and pull requests to the `main` branch.
+
+## How to Run the Example
+
+The project includes an interactive example of an ISP customer support system. To run it:
+
+```bash
+ruby examples/isp-support/interactive.rb
+```
+
+This will start a command-line interface where you can interact with the multi-agent system. The example demonstrates:
+- Thread-safe agent runner creation
+- Automatic agent selection based on conversation history
+- Context persistence that works across process boundaries
+- Seamless handoffs between triage, sales, and support agents
+
+## Key Concepts
+
+-   **Agent**: An AI assistant with a specific role, instructions, and tools.
+-   **Tool**: A custom function that an agent can use to perform actions (e.g., look up customer data, send an email).
+-   **Handoff**: The process of transferring a conversation from one agent to another. This is a core feature of the SDK.
+-   **AgentRunner**: The thread-safe execution manager that coordinates multi-agent conversations and provides the main API.
+-   **Runner**: Internal component that manages individual conversation turns (used by AgentRunner).
+-   **Context**: A shared state object that stores conversation history and agent information, fully serializable for persistence.
 
 ## Development Commands
 
-### Building and Testing
+### Testing
+```bash
+# Run all tests with RSpec
+bundle exec rspec
+
+# Run tests with coverage report (uses SimpleCov)
+bundle exec rake spec
+
+# Run specific test file
+bundle exec rspec spec/agents/agent_spec.rb
+
+# Run specific test with line number
+bundle exec rspec spec/agents/agent_spec.rb:25
+```
+
+### Code Quality
+```bash
+# Run RuboCop linter
+bundle exec rubocop
+
+# Run RuboCop with auto-correction
+bundle exec rubocop -a
+
+# Run both tests and linting (default rake task)
+bundle exec rake
+```
+
+### Development
 ```bash
 # Install dependencies
 bundle install
 
-# Run tests with RSpec
-rake spec
-# OR
-bundle exec rspec
+# Interactive Ruby console with gem loaded
+bundle exec irb -r ./lib/agents
 
-# Run specific spec file
-bundle exec rspec spec/agents/agent_spec.rb
-
-# Run tests with coverage report
-bundle exec rspec  # SimpleCov will generate coverage/index.html
-
-# Lint code (includes RSpec cops)
-rake rubocop
-# OR
-bundle exec rubocop
-
-# Auto-fix linting issues
-bundle exec rubocop -a
-
-# Run all checks (spec + lint)
-rake
+# Run ISP support example interactively
+ruby examples/isp-support/interactive.rb
 ```
 
-### Interactive Development
-```bash
-# Start interactive console
-bin/console
+## Architecture
 
-# Run the airline booking demo
-ruby examples/booking/interactive.rb
+### Core Components
 
-# Run automatic booking demo
-ruby examples/booking/automatic.rb
+- **Agents::Agent**: Individual AI agents with specific roles, instructions, and tools
+- **Agents::Runner**: Orchestrates multi-agent conversations with automatic handoffs
+- **Agents::Tool**: Base class for custom tools that agents can execute
+- **Agents::Context**: Shared state management across agent interactions
+- **Agents::Handoff**: Manages seamless transfers between agents
+
+### Key Design Principles
+
+1. **Thread Safety**: All components are designed to be thread-safe. Tools receive context as parameters, not instance variables.
+
+2. **Immutable Agents**: Agents are configured once and can be cloned with modifications. No execution state is stored in agent instances.
+
+3. **Provider Agnostic**: Built on RubyLLM, supports OpenAI, Anthropic, and Gemini through configuration.
+
+
+### File Structure
+
+```
+lib/agents/
+├── agent.rb          # Core agent definition and configuration
+├── agent_runner.rb   # Thread-safe execution manager (main API)
+├── runner.rb         # Internal execution engine for conversation turns
+├── tool.rb           # Base class for custom tools
+├── handoff.rb        # Agent handoff management
+├── chat.rb           # Chat message handling
+├── result.rb         # Result object for agent responses
+├── run_context.rb    # Execution context management
+├── tool_context.rb   # Tool execution context
+├── tool_wrapper.rb   # Thread-safe tool wrapping
+└── version.rb        # Gem version
 ```
 
-## Architecture and Code Structure
+### Configuration
 
-### Core Components (Generic Library)
+The SDK requires at least one LLM provider API key:
 
-**lib/agents.rb** - Main module and configuration entry point. Configures both the Agents SDK and underlying RubyLLM library. Contains the `RECOMMENDED_HANDOFF_PROMPT_PREFIX` for multi-agent workflows.
-
-**lib/agents/agent.rb** - The core `Agent` class with Ruby-like DSL for defining AI agents. Key features:
-- Class-level configuration: `name`, `instructions`, `provider`, `model`, `uses`, `handoffs`
-- Instance execution via `call` method with conversation history management
-- Tool and handoff tool registration at runtime
-- Context-aware execution with proper conversation history restoration using `chat.add_message`
-- **No domain-specific logic** - remains completely generic
-
-**lib/agents/tool.rb** - Base class for tools that agents can use. Inherits from `RubyLLM::Tool` and adds:
-- Ruby-style parameter definitions with automatic JSON schema conversion
-- Context injection through `perform` method (called by `execute`)
-- Enhanced parameter definition supporting Ruby types (String, Integer, etc.)
-- **Domain-agnostic** - specific tool implementations belong in user code
-
-**lib/agents/handoff.rb** - Contains the handoff system classes:
-- `HandoffResult` - Represents a handoff decision
-- `AgentResponse` - Wraps agent responses with optional handoff results
-- `HandoffTool` - Generic tool for transferring between agents using context-based signaling
-- **Generic handoff mechanism** - no assumptions about specific agent types
-
-**lib/agents/context.rb** - Base context class for sharing state between agents and tools across handoffs. Must be subclassed for domain-specific context. The base class provides only generic state management capabilities.
-
-**lib/agents/runner.rb** - Execution engine for orchestrating multi-agent workflows (future implementation).
-
-### Key Design Patterns
-
-#### Agent Definition Pattern (Generic)
 ```ruby
-class MyAgent < Agents::Agent
-  name "Agent Name"
-  instructions "Behavior description" # Can be dynamic via Proc
-  provider :openai  # Optional, defaults to configured provider
-  model "gpt-4o"    # Optional, defaults to configured model
-
-  uses SomeTool     # Register tools by class
-  handoffs OtherAgent, AnotherAgent  # Define possible handoff targets
+Agents.configure do |config|
+  config.openai_api_key = ENV['OPENAI_API_KEY']
+  config.anthropic_api_key = ENV['ANTHROPIC_API_KEY']
+  config.gemini_api_key = ENV['GEMINI_API_KEY']
+  config.default_model = 'gpt-4o-mini'
+  config.debug = true
 end
 ```
 
-#### Tool Definition Pattern (Generic)
+### Basic Usage Pattern
+
 ```ruby
-class MyTool < Agents::Tool
-  description "What this tool does"
-  param :input_param, String, "Parameter description"
-  param :optional_param, Integer, "Optional param", required: false
+# Create agents with handoff relationships
+triage = Agent.new(name: "Triage", instructions: "Route users...")
+billing = Agent.new(name: "Billing", instructions: "Handle billing...")
+support = Agent.new(name: "Support", instructions: "Technical support...")
 
-  def perform(input_param:, optional_param: nil, context:)
-    # context is always available for state management
-    # Must implement perform, not execute
-    # Tool logic should be domain-specific in user implementations
-    "Tool result"
-  end
-end
+triage.register_handoffs(billing, support)
+
+# Create thread-safe runner (first agent is default entry point)
+runner = Agents::Runner.with_agents(triage, billing, support)
+
+# Use for conversations - automatically handles agent selection and persistence
+result = runner.run("I have a billing question")
+result = runner.run("What about technical support?", context: result.context)
 ```
 
-#### Context-Based Handoff System
-The handoff system uses context signaling rather than text parsing:
-1. `HandoffTool` instances are created automatically from `handoffs` declarations
-2. When called, `HandoffTool.perform` sets `context[:pending_handoff]`
-3. `Agent.detect_handoff_from_context` checks for pending handoffs after LLM responses
-4. Interactive systems handle handoffs by switching to the target agent class
+### Tool Development
 
-#### Conversation History Management
-Critical for multi-turn conversations:
-- Agents maintain `@conversation_history` as array of `{user:, assistant:, timestamp:}` hashes
-- `restore_conversation_history(chat)` uses `chat.add_message(role:, content:)` to restore RubyLLM chat state
-- This prevents agents from "forgetting" previous conversation turns
+When creating custom tools:
+- Extend `Agents::Tool`
+- Use `tool_context` parameter for all state
+- Never store execution state in instance variables
+- Follow the thread-safe design pattern shown in examples
 
-### Configuration Rules
+### Testing Strategy
 
-#### Class Naming
-- Use flat naming like `class Agents::Tool` instead of nested declarations
-- Follow Ruby naming conventions for agent and tool classes
+- SimpleCov tracks coverage with 50% minimum overall, 40% per file
+- WebMock is used for HTTP mocking in tests
+- RSpec is the testing framework with standard configuration
+- Tests are organized by component in `spec/agents/`
 
-#### Documentation
-- Always write doc strings when writing functions
-- Use YARD format for documentation
-- Always write RDoc for new methods
-- When creating a new file, start the file with a description comment on what the file has and where does it fit in the project
+### Examples
 
-#### Model Defaults
-- Default model for OpenAI provider is `gpt-4.1-mini` (configured in lib/agents.rb)
-- Can be overridden in agent classes or runtime configuration
-
-### Examples Structure
-
-**examples/booking/** - Complete airline booking demo showcasing multi-agent workflows. This is just one example of how the SDK can be used. The example demonstrates:
-- Multi-agent workflow patterns
-- Context sharing between agents
-- Tool usage patterns
-- Interactive CLI and automatic execution modes
-- Proper handoff handling
-
-Note: The airline booking scenario is purely demonstrative. The SDK is not limited to or designed specifically for airline systems.
-
-### Dependencies and Integration
-
-**RubyLLM Integration** - Built on top of RubyLLM library for LLM communication:
-- Agents SDK configures RubyLLM automatically via `Agents.configure`
-- Tools inherit from `RubyLLM::Tool` but use enhanced `perform` method
-- Conversation history restored using `chat.add_message`
-- Debug mode available via `ENV["RUBYLLM_DEBUG"] = "true"`
-
-**Provider Support** - Currently supports OpenAI through RubyLLM, extensible to other providers
-
-### Important Implementation Details
-
-1. **Conversation History**: Must call `restore_conversation_history(chat)` before each agent execution to maintain conversation state across turns.
-
-2. **Tool Context Flow**: `RubyLLM.execute()` → `Agents::Tool.execute()` → `Tool.perform(context:, **args)` - the context injection happens in the base `Tool.execute` method.
-
-3. **Handoff Detection**: Uses context-based detection (`@context[:pending_handoff]`) rather than parsing LLM responses for tool calls.
-
-4. **Model Configuration**: Default model is `gpt-4.1-mini` but examples use `gpt-4o` for better performance.
-
-5. **Thread Safety**: Agents are designed to be stateless with context passed through execution rather than stored in instance variables.
-
-6. **Library vs Example Code**: The core library (lib/agents/*) must remain completely generic and free of domain-specific logic. All domain-specific implementations (airline booking, FAQ systems, etc.) belong exclusively in the examples directory.
-
-### Testing Guidelines
-
-When writing tests, follow the rules: 
-1. Avoid stubbing using allow_any_instance_of`
-2. Each example block `it ... end` should have less than 20 lines
-3. Example group should not have more than 10 memoized helpers, not more than 10 except statements
-4. Never use `receive_message_chain`
-5. When writing tests, always use verifying doubles and never normal doubles
-```
+The `examples/` directory contains complete working examples:
+- `isp-support/`: Multi-agent ISP customer support system
+- Shows hub-and-spoke architecture patterns
+- Demonstrates tool integration and handoff workflows

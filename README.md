@@ -40,15 +40,18 @@ Agents.configure do |config|
   config.openai_api_key = ENV['OPENAI_API_KEY']
 end
 
-# Create a simple agent
-agent = Agents::Agent.new(
+# Create agents
+weather_agent = Agents::Agent.new(
   name: "Weather Assistant",
   instructions: "Help users get weather information",
   tools: [WeatherTool.new]
 )
 
-# Use the agent with the Runner
-result = Agents::Runner.run(agent, "What's the weather like today?")
+# Create a thread-safe runner (reusable across conversations)
+runner = Agents::Runner.with_agents(weather_agent)
+
+# Use the runner for conversations
+result = runner.run("What's the weather like today?")
 puts result.output
 ```
 
@@ -64,14 +67,14 @@ triage = Agents::Agent.new(
 )
 
 faq = Agents::Agent.new(
-  name: "FAQ Agent",
+  name: "FAQ Agent", 
   instructions: "Answer frequently asked questions",
   tools: [FaqLookupTool.new]
 )
 
 support = Agents::Agent.new(
   name: "Support Agent",
-  instructions: "Handle technical issues",
+  instructions: "Handle technical issues", 
   tools: [TicketTool.new]
 )
 
@@ -80,9 +83,16 @@ triage.register_handoffs(faq, support)
 faq.register_handoffs(triage)     # Can route back to triage
 support.register_handoffs(triage)  # Hub-and-spoke pattern
 
-# Run a conversation with automatic handoffs
-result = Agents::Runner.run(triage, "How many seats are on the plane?")
+# Create runner with all agents (triage is default entry point)
+runner = Agents::Runner.with_agents(triage, faq, support)
+
+# Run conversations with automatic handoffs and persistence
+result = runner.run("How many seats are on the plane?")
 # User gets direct answer from FAQ agent without knowing about the handoff!
+
+# Continue the conversation seamlessly
+result = runner.run("What about technical support?", context: result.context)
+# Context automatically tracks conversation history and current agent
 ```
 
 ## 🏗️ Architecture
@@ -90,8 +100,9 @@ result = Agents::Runner.run(triage, "How many seats are on the plane?")
 ### Core Components
 
 - **Agent**: Individual AI agents with specific roles and capabilities
-- **Runner**: Orchestrates multi-agent conversations with automatic handoffs
-- **Context**: Shared state management across agents
+- **AgentRunner**: Thread-safe execution manager for multi-agent conversations
+- **Runner**: Internal orchestrator that handles conversation turns (used by AgentRunner)
+- **Context**: Shared state management with automatic persistence across agents
 - **Tools**: Custom functions that agents can use
 - **Handoffs**: Seamless transfers between specialized agents
 
@@ -175,16 +186,27 @@ sales.register_handoffs(customer_info)
 customer_info.register_handoffs(sales)
 ```
 
-### Context Management
+### Context Management & Persistence
 
 ```ruby
-# Context is automatically managed by the Runner
-context = {}
-result = Agents::Runner.run(agent, "Hello", context: context)
+# Context is automatically managed and serializable
+runner = Agents::Runner.with_agents(triage, billing, support)
 
-# Access conversation history and agent state
+# Start a conversation
+result = runner.run("I need billing help")
+
+# Context is automatically updated with conversation history and current agent
+context = result.context
 puts context[:conversation_history]
-puts context[:current_agent].name
+puts context[:current_agent]  # Agent name (string), not object!
+
+# Serialize context for persistence (Rails, databases, etc.)
+json_context = JSON.dump(context)  # ✅ Works! No object references
+
+# Later: restore and continue conversation
+restored_context = JSON.parse(json_context, symbolize_names: true)
+result = runner.run("Actually, I need technical support too", context: restored_context)
+# System automatically determines correct agent from conversation history
 ```
 
 ## 📋 Examples

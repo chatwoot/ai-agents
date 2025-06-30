@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "json"
 require_relative "../../lib/agents"
 require_relative "agents_factory"
 
@@ -13,8 +14,15 @@ class ISPSupportDemo
     end
 
     # Create agents
-    @agents = ISPSupport::AgentsFactory.create_agents
-    @triage_agent = @agents[:triage]
+    agents = ISPSupport::AgentsFactory.create_agents
+
+    # Create thread-safe runner with all agents (triage first = default entry point)
+    @runner = Agents::Runner.with_agents(
+      agents[:triage],
+      agents[:sales],
+      agents[:support]
+    )
+
     @context = {}
 
     puts "🏢 Welcome to ISP Customer Support!"
@@ -31,10 +39,8 @@ class ISPSupportDemo
       break if command_result == :exit
       next if command_result == :handled || user_input.empty?
 
-      # Determine which agent to use - either from context or triage agent
-      current_agent = @context[:current_agent] || @triage_agent
-
-      result = Agents::Runner.run(current_agent, user_input, context: @context)
+      # Use the runner - it automatically determines the right agent from context
+      result = @runner.run(user_input, context: @context)
 
       # Update our context with the returned context from Runner
       @context = result.context if result.respond_to?(:context) && result.context
@@ -50,6 +56,7 @@ class ISPSupportDemo
   def handle_command(input)
     case input.downcase
     when "exit", "quit"
+      dump_context_and_quit
       puts "👋 Goodbye!"
       :exit
     when "/help"
@@ -71,6 +78,21 @@ class ISPSupportDemo
     else
       :not_command # Not a command, continue with normal processing
     end
+  end
+
+  def dump_context_and_quit
+    project_root = File.expand_path("../..", __dir__)
+    tmp_directory = File.join(project_root, "tmp")
+
+    # Ensure tmp directory exists
+    Dir.mkdir(tmp_directory) unless Dir.exist?(tmp_directory)
+
+    timestamp = Time.now.to_i
+    context_filename = File.join(tmp_directory, "context-#{timestamp}.json")
+
+    File.write(context_filename, JSON.pretty_generate(@context))
+
+    puts "💾 Context saved to tmp/context-#{timestamp}.json"
   end
 
   def show_help
