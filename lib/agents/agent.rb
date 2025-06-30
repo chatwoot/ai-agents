@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 # The core agent definition that represents an AI assistant with specific capabilities.
 # Agents are immutable, thread-safe objects that can be cloned with modifications.
 # They encapsulate the configuration needed to interact with an LLM including
@@ -37,14 +39,16 @@ module Agents
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [])
+    # @param mcp_clients [Array<Agents::MCP::Client>, Agents::MCP::Client, nil] MCP clients to attach
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], mcp_clients: nil)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
+      @mcp_clients = []
 
-      # Mutex for thread-safe handoff registration
+      # Mutex for thread-safe handoff registration and MCP client management
       # While agents are typically configured at startup, we want to ensure
       # that concurrent handoff registrations don't result in lost data.
       # For example, in a web server with multiple threads initializing
@@ -56,6 +60,9 @@ module Agents
 
       # Register initial handoff agents if provided
       register_handoffs(*handoff_agents) unless handoff_agents.empty?
+      
+      # Add MCP clients if provided
+      add_mcp_clients(mcp_clients) if mcp_clients
     end
 
     # Get all tools available to this agent, including any auto-generated handoff tools
@@ -93,6 +100,92 @@ module Agents
       self
     end
 
+    # Add MCP clients to this agent, connecting and loading their tools
+    #
+    # @param clients [Agents::MCP::Client, Array<Agents::MCP::Client>] Client(s) to add
+    # @return [self] Returns self for method chaining
+    # @example Adding MCP clients
+    #   filesystem_client = Agents::MCP::Client.new(name: "fs", command: "npx", args: ["fs-server"])
+    #   agent.add_mcp_clients(filesystem_client)
+    #   
+    #   # Or add multiple clients
+    #   agent.add_mcp_clients([filesystem_client, api_client])
+    def add_mcp_clients(clients)
+      clients_array = Array(clients)
+      
+      clients_array.each do |client|
+        add_mcp_client(client)
+      end
+      
+      self
+    end
+
+    # Add a single MCP client to this agent
+    #
+    # @param client [Agents::MCP::Client] The MCP client to add
+    # @return [self] Returns self for method chaining
+    def add_mcp_client(client)
+      @mutex.synchronize do
+        # Store the client reference
+        @mcp_clients << client unless @mcp_clients.include?(client)
+        
+        # Connect and load tools
+        begin
+          client.connect unless client.connected?
+          mcp_tools = client.list_tools
+          
+          # Check for tool name collisions and warn
+          existing_tool_names = @tools.map { |t| t.class.name }.to_set
+          mcp_tools.each do |tool|
+            tool_name = tool.class.name
+            if existing_tool_names.include?(tool_name)
+              warn "Tool name collision: '#{tool_name}' from MCP client '#{client.name}' conflicts with existing tool"
+            else
+              @tools << tool
+              existing_tool_names << tool_name
+            end
+          end
+          
+        rescue => e
+          warn "Failed to load tools from MCP client '#{client.name}': #{e.message}"
+          # Continue without this client's tools rather than failing entirely
+        end
+      end
+      
+      self
+    end
+
+    # Refresh MCP tools by reconnecting to all clients and reloading their tools
+    # This can be used if MCP servers have updated their available tools
+    #
+    # @return [self] Returns self for method chaining
+    def refresh_mcp_tools
+      @mutex.synchronize do
+        # Remove existing MCP tools
+        @tools.reject! { |tool| tool.is_a?(MCP::Tool) }
+        
+        # Reload tools from all MCP clients
+        @mcp_clients.each do |client|
+          begin
+            client.invalidate_tools_cache
+            mcp_tools = client.list_tools(refresh: true)
+            @tools.concat(mcp_tools)
+          rescue => e
+            warn "Failed to refresh tools from MCP client '#{client.name}': #{e.message}"
+          end
+        end
+      end
+      
+      self
+    end
+
+    # Get all MCP clients attached to this agent
+    #
+    # @return [Array<Agents::MCP::Client>] Array of MCP clients
+    def mcp_clients
+      @mutex.synchronize { @mcp_clients.dup }
+    end
+
     # Creates a new agent instance with modified attributes while preserving immutability.
     # The clone method is used when you need to create variations of agents without mutating the original.
     # This can be used for runtime agent modifications, say in a multi-tenant environment we can do something like the following:
@@ -126,14 +219,23 @@ module Agents
     # @option changes [String] :model New model identifier
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
+    # @option changes [Array<Agents::MCP::Client>] :mcp_clients New MCP clients
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
+      # Filter out MCP tools from current tools if we're providing new MCP clients
+      base_tools = if changes.key?(:mcp_clients)
+                     @tools.reject { |tool| tool.is_a?(MCP::Tool) }
+                   else
+                     @tools.dup
+                   end
+
       self.class.new(
         name: changes.fetch(:name, @name),
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
-        tools: changes.fetch(:tools, @tools.dup),
-        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents)
+        tools: changes.fetch(:tools, base_tools),
+        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
+        mcp_clients: changes.fetch(:mcp_clients, changes.key?(:mcp_clients) ? nil : @mcp_clients)
       )
     end
 
