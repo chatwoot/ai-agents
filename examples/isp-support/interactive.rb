@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "json"
 require_relative "../../lib/agents"
 require_relative "agents_factory"
 
@@ -50,6 +51,7 @@ class ISPSupportDemo
   def handle_command(input)
     case input.downcase
     when "exit", "quit"
+      dump_context_and_quit
       puts "👋 Goodbye!"
       :exit
     when "/help"
@@ -71,6 +73,21 @@ class ISPSupportDemo
     else
       :not_command # Not a command, continue with normal processing
     end
+  end
+
+  def dump_context_and_quit
+    project_root = File.expand_path("../..", __dir__)
+    tmp_directory = File.join(project_root, "tmp")
+
+    # Ensure tmp directory exists
+    Dir.mkdir(tmp_directory) unless Dir.exist?(tmp_directory)
+
+    timestamp = Time.now.to_i
+    context_filename = File.join(tmp_directory, "context-#{timestamp}.json")
+
+    File.write(context_filename, JSON.pretty_generate(@context))
+
+    puts "💾 Context saved to tmp/context-#{timestamp}.json"
   end
 
   def show_help
