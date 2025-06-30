@@ -13,11 +13,16 @@
 #     tools: [calculator_tool, weather_tool]
 #   )
 #
-# @example Creating an agent with dynamic instructions
+# @example Creating an agent with dynamic state-aware instructions
 #   agent = Agents::Agent.new(
 #     name: "Support Agent",
 #     instructions: ->(context) {
-#       "You are supporting user #{context.context[:user_name]}"
+#       state = context.context[:state] || {}
+#       base = "You are a support agent."
+#       if state[:customer_name]
+#         base += " Customer: #{state[:customer_name]} (#{state[:customer_id]})"
+#       end
+#       base
 #     }
 #   )
 #
@@ -147,18 +152,25 @@ module Agents
     #     instructions: "You are a helpful support agent"
     #   )
     #
-    # @example Dynamic instructions based on context
+    # @example Dynamic instructions with state awareness
     #   agent = Agent.new(
-    #     name: "Support",
+    #     name: "Sales Agent",
     #     instructions: ->(context) {
-    #       user = context.context[:user]
-    #       "You are helping #{user.name}. They are a #{user.tier} customer with account #{user.id}"
+    #       state = context.context[:state] || {}
+    #       base = "You are a sales agent."
+    #       if state[:customer_name] && state[:current_plan]
+    #         base += " Customer: #{state[:customer_name]} on #{state[:current_plan]} plan."
+    #       end
+    #       base
     #     }
     #   )
     #
     # @param context [Agents::RunContext] The current execution context containing runtime data
     # @return [String, nil] The system prompt string or nil if no instructions are set
     def get_system_prompt(context)
+      # TODO: Add string interpolation support for instructions
+      # Allow instructions like "You are helping %{customer_name}" that automatically
+      # get state values injected from context[:state] using Ruby's % formatting
       case instructions
       when String
         instructions
