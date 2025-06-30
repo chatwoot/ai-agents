@@ -8,7 +8,7 @@ module ISPSupport
     description "Look up customer account information by account ID"
     param :account_id, type: "string", desc: "Customer account ID (e.g., CUST001)"
 
-    def perform(_tool_context, account_id:)
+    def perform(tool_context, account_id:)
       data_file = File.join(__dir__, "../data/customers.json")
       return "Customer database unavailable" unless File.exist?(data_file)
 
@@ -18,8 +18,16 @@ module ISPSupport
 
         return "Customer not found" unless customer
 
-        # Return the entire customer data as JSON for the agent to process
-        customer.to_json
+        # Store customer information in shared state for other tools/agents
+        tool_context.state[:customer_id] = account_id.upcase
+        tool_context.state[:customer_name] = customer["name"]
+        tool_context.state[:current_plan] = customer["current_plan"]
+        tool_context.state[:account_status] = customer["status"]
+        tool_context.state[:monthly_usage] = customer["monthly_usage_gb"]
+
+        # Return clean message for the agent
+        "Found customer #{customer['name']} (#{account_id.upcase}). " \
+        "Current plan: #{customer['current_plan']}, Status: #{customer['status']}"
       rescue StandardError
         "Error looking up customer"
       end
