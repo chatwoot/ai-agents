@@ -9,7 +9,8 @@ This project is a Ruby SDK for building multi-agent AI workflows. It allows deve
 -   **Multi-Agent Orchestration**: Defining and managing multiple AI agents with distinct roles.
 -   **Seamless Handoffs**: Transferring conversations between agents without the user's knowledge.
 -   **Tool Integration**: Allowing agents to use custom tools to interact with external systems.
--   **Shared Context**: Maintaining state and conversation history across agent interactions.
+-   **Shared Context**: Maintaining state and conversation history across agent interactions with full persistence support.
+-   **Thread-Safe Architecture**: Reusable agent runners that work safely across multiple threads.
 -   **Provider Agnostic**: Supporting various LLM providers like OpenAI, Anthropic, and Gemini.
 
 ## Key Technologies
@@ -26,7 +27,8 @@ This project is a Ruby SDK for building multi-agent AI workflows. It allows deve
     -   `lib/agents.rb`: The main entry point, handling configuration and loading other components.
     -   `lib/agents/agent.rb`: Defines the `Agent` class, which represents an individual AI agent.
     -   `lib/agents/tool.rb`: Defines the `Tool` class, the base for creating custom tools for agents.
-    -   `lib/agents/runner.rb`: Orchestrates the multi-agent conversations and handoffs.
+    -   `lib/agents/agent_runner.rb`: Thread-safe agent execution manager for multi-agent conversations.
+    -   `lib/agents/runner.rb`: Internal orchestrator that handles individual conversation turns.
 -   `spec/`: Contains the RSpec tests for the project.
 -   `examples/`: Includes example implementations of multi-agent systems, such as an ISP customer support demo.
 -   `Gemfile`: Manages the project's Ruby dependencies.
@@ -48,15 +50,20 @@ The project includes an interactive example of an ISP customer support system. T
 ruby examples/isp-support/interactive.rb
 ```
 
-This will start a command-line interface where you can interact with the multi-agent system.
+This will start a command-line interface where you can interact with the multi-agent system. The example demonstrates:
+- Thread-safe agent runner creation
+- Automatic agent selection based on conversation history
+- Context persistence that works across process boundaries
+- Seamless handoffs between triage, sales, and support agents
 
 ## Key Concepts
 
 -   **Agent**: An AI assistant with a specific role, instructions, and tools.
 -   **Tool**: A custom function that an agent can use to perform actions (e.g., look up customer data, send an email).
 -   **Handoff**: The process of transferring a conversation from one agent to another. This is a core feature of the SDK.
--   **Runner**: The component that manages the conversation flow, including executing agent logic and handling handoffs.
--   **Context**: A shared state object that stores information throughout the conversation, such as conversation history and user data.
+-   **AgentRunner**: The thread-safe execution manager that coordinates multi-agent conversations and provides the main API.
+-   **Runner**: Internal component that manages individual conversation turns (used by AgentRunner).
+-   **Context**: A shared state object that stores conversation history and agent information, fully serializable for persistence.
 
 ## Development Commands
 
@@ -123,7 +130,8 @@ ruby examples/isp-support/interactive.rb
 ```
 lib/agents/
 ├── agent.rb          # Core agent definition and configuration
-├── runner.rb         # Execution engine for multi-agent workflows
+├── agent_runner.rb   # Thread-safe execution manager (main API)
+├── runner.rb         # Internal execution engine for conversation turns
 ├── tool.rb           # Base class for custom tools
 ├── handoff.rb        # Agent handoff management
 ├── chat.rb           # Chat message handling
@@ -146,6 +154,24 @@ Agents.configure do |config|
   config.default_model = 'gpt-4o-mini'
   config.debug = true
 end
+```
+
+### Basic Usage Pattern
+
+```ruby
+# Create agents with handoff relationships
+triage = Agent.new(name: "Triage", instructions: "Route users...")
+billing = Agent.new(name: "Billing", instructions: "Handle billing...")
+support = Agent.new(name: "Support", instructions: "Technical support...")
+
+triage.register_handoffs(billing, support)
+
+# Create thread-safe runner (first agent is default entry point)
+runner = Agents::Runner.with_agents(triage, billing, support)
+
+# Use for conversations - automatically handles agent selection and persistence
+result = runner.run("I have a billing question")
+result = runner.run("What about technical support?", context: result.context)
 ```
 
 ### Tool Development
