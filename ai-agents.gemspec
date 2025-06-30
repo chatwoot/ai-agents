@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary = "A Ruby SDK for building sophisticated multi-agent AI workflows"
   spec.description = "Ruby AI Agents SDK enables creating complex AI workflows with multi-agent orchestration, tool execution, safety guardrails, and provider-agnostic LLM integration."
   spec.homepage = "https://chatwoot.com/ai-agents"
-  spec.required_ruby_version = ">= 3.1.0"
+  spec.required_ruby_version = ">= 3.2.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/chatwoot/ai-agents"
