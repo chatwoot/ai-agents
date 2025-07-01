@@ -12,6 +12,36 @@ module Agents
   # 4. The tool signals the handoff through context
   # 5. The Runner detects this and switches to the new agent
   #
+  # ## First-Call-Wins Implementation
+  # This implementation uses "first-call-wins" semantics to prevent infinite handoff loops.
+  #
+  # ### The Problem We Solved
+  # During development, we discovered that LLMs could call the same handoff tool multiple times
+  # in a single response, leading to infinite loops:
+  #
+  # 1. User: "My internet isn't working but my account shows active"
+  # 2. Triage Agent hands off to Support Agent
+  # 3. Support Agent sees account info is needed, hands back to Triage Agent
+  # 4. Triage Agent sees technical issue, hands off to Support Agent again
+  # 5. This creates an infinite ping-pong loop
+  #
+  # ### Root Cause Analysis
+  # Unlike OpenAI's SDK which processes tool calls before execution, RubyLLM automatically
+  # executes all tool calls in a response. This meant:
+  # - LLM calls handoff tool 10+ times in one response
+  # - Each call sets context[:pending_handoff], overwriting previous values
+  # - Runner processes handoffs after tool execution, seeing only the last one
+  # - Multiple handoff signals created conflicting state
+  #
+  # TODO: Overall, this problem can be tackled better if we replace the RubyLLM chat
+  # program with our own implementation.
+  #
+  # ### The Solution
+  # We implemented first-call-wins semantics inspired by OpenAI's approach:
+  # - First handoff call in a response sets the pending handoff
+  # - Subsequent calls are ignored with a "transfer in progress" message
+  # - This prevents loops and mirrors OpenAI SDK behavior
+  #
   # ## Why Tools Instead of Instructions
   # Using tools for handoffs has several advantages:
   # - LLMs reliably use tools when appropriate
@@ -35,6 +65,13 @@ module Agents
   #   # LLM thinks: "This is a payment issue, I should transfer to billing"
   #   # LLM calls: handoff_to_billing()
   #   # Runner switches to billing_agent for the next turn
+  #
+  # @example First-call-wins in action
+  #   # Single LLM response with multiple handoff calls:
+  #   # Call 1: handoff_to_support() -> Sets pending_handoff, returns "Transferring to Support"
+  #   # Call 2: handoff_to_support() -> Ignored, returns "Transfer already in progress"
+  #   # Call 3: handoff_to_billing() -> Ignored, returns "Transfer already in progress"
+  #   # Result: Only transfers to Support Agent (first call wins)
   class HandoffTool < Tool
     attr_reader :target_agent
 
@@ -60,6 +97,10 @@ module Agents
 
     # Handoff tools don't need parameters - just the intent to transfer
     def perform(tool_context, **params)
+      if tool_context.context[:pending_handoff]
+        return "Transfer request noted (already processing a handoff). Please wait for the current handoff to complete."
+      end
+
       # Extract message parameter
       message = params[:message] || "Handoff initiated"
 
