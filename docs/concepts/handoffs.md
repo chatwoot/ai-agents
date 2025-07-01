@@ -2,7 +2,7 @@
 layout: default
 title: Handoffs
 parent: Concepts
-nav_order: 3
+nav_order: 4
 ---
 
 # Handoffs
@@ -23,15 +23,9 @@ Here's how the handoff process works:
 4.  **The Runner switches agents:** The `Runner` detects the `pending_handoff` flag and switches the `current_agent` to the new agent.
 5.  **The conversation continues:** The conversation continues with the new agent, which now has access to the full conversation history.
 
-### First-Call-Wins Behavior
+### Loop Prevention
 
-To prevent infinite handoff loops, the Ruby Agents library implements a **first-call-wins** policy for handoffs within a single LLM response. This means:
-
-- **First handoff call:** Sets the pending handoff and returns a transfer message
-- **Subsequent handoff calls:** Are ignored and return a "transfer already in progress" message
-- **Multiple handoffs:** Only the first handoff in a response is processed
-
-This approach mirrors the behavior of OpenAI's Agents SDK and prevents scenarios where an LLM might call the same handoff tool multiple times in a single response, which could create infinite loops or conflicting handoff states.
+To prevent infinite handoff loops, the library automatically processes only the first handoff tool call in any LLM response. If multiple handoff tools are called in a single response, only the first one is executed and subsequent calls are ignored. This prevents conflicting handoff states and ensures clean agent transitions.
 
 ## Why Use Tools for Handoffs?
 
@@ -81,30 +75,7 @@ In this example, the `triage_agent` will automatically hand off the conversation
 3. **Add specific scenarios:** Include examples in instructions of when to handle vs. hand off
 4. **Enable debug logging:** Use `ENV["RUBYLLM_DEBUG"] = "true"` to see handoff decisions
 
-**Example of problematic instructions:**
-```ruby
-# BAD: Conflicting instructions
-support_agent = Agent.new(
-  instructions: "Handle technical issues. If you need account info, hand off to triage."
-)
-triage_agent = Agent.new(
-  instructions: "Route users. For technical issues, hand off to support."
-)
-```
-
-**Example of good instructions:**
-```ruby
-# GOOD: Clear boundaries
-support_agent = Agent.new(
-  instructions: "Handle technical troubleshooting. You can ask users for account info directly."
-)
-triage_agent = Agent.new(
-  instructions: "Route users to specialists. Only hand off, don't solve problems yourself."
-)
-```
 
 ### Multiple Handoffs in One Response
 
 The library automatically handles cases where an LLM tries to call multiple handoff tools in a single response. Only the first handoff will be processed, and subsequent calls will be ignored. This is normal behavior and prevents conflicting handoff states.
-
-If you see debug messages like `"Handoff already pending, ignoring duplicate call"`, this indicates the first-call-wins system is working correctly.

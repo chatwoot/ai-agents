@@ -2,7 +2,7 @@
 layout: default
 title: Context
 parent: Concepts
-nav_order: 2
+nav_order: 3
 ---
 
 # Context
@@ -14,31 +14,29 @@ nav_order: 2
 Context flows through multiple abstraction layers:
 
 ### User Context (Serializable)
-The top-level hash that persists across sessions:
+The main context hash that persists across sessions:
 ```ruby
 context = {
   user_id: 123,
   conversation_history: [...],
   current_agent_name: "Billing",
-  state: { customer_tier: "premium" }
+  state: { customer_tier: "premium" }  # Tools use this nested hash for persistent data
 }
 ```
 
 ### RunContext (Execution Wrapper)
 Wraps user context with execution-specific features:
 - **Context Hash**: Shared data accessible to all tools and agents
-- **Usage Tracking**: Token consumption monitoring for billing
 - **Thread Safety**: Deep copying ensures execution isolation
 
 ### ToolContext (Tool-Specific View)
 Provides tools with controlled access to execution state:
 - **Context Access**: Read/write access to shared context hash
 - **State Management**: Dedicated space for persistent tool state
-- **Retry Tracking**: Metadata for tool execution attempts
 
 ## The `ToolContext`
 
-The `ToolContext` is a wrapper around the `RunContext` that is passed to each tool when it is executed. It provides the tool with controlled access to the execution state, including the shared context hash and the usage tracking object.
+The `ToolContext` is a wrapper around the `RunContext` that is passed to each tool when it is executed. It provides the tool with controlled access to the execution state, including the shared context hash.
 
 By passing the context through the `ToolContext`, we ensure that tools can remain stateless and thread-safe, as they do not need to store any execution-specific state in their instance variables.
 
