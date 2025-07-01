@@ -2,8 +2,10 @@
 <br>
 <br>
 <p>
-  <img src="./.github/ruby-agent.png" width="200px"/>
-  <h1>Ruby Agents</h1>
+  <h1>
+    <img src="./.github/ruby-agent.png" width="200px"/>
+    Ruby Agents
+  </h1>
 </p>
 <br>
 <br>
@@ -67,14 +69,14 @@ triage = Agents::Agent.new(
 )
 
 faq = Agents::Agent.new(
-  name: "FAQ Agent", 
+  name: "FAQ Agent",
   instructions: "Answer frequently asked questions",
   tools: [FaqLookupTool.new]
 )
 
 support = Agents::Agent.new(
   name: "Support Agent",
-  instructions: "Handle technical issues", 
+  instructions: "Handle technical issues",
   tools: [TicketTool.new]
 )
 
