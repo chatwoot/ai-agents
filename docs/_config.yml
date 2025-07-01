@@ -38,11 +38,6 @@ plugins:
 # Markdown
 markdown: kramdown
 highlighter: rouge
-kramdown:
-  syntax_highlighter_opts:
-    default_lang: ruby
-    block:
-      line_numbers: true
 
 # Exclude from processing
 exclude:
