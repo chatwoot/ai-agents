@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilities, similar to OpenAI's Agents SDK but built for Ruby. The SDK enables the creation of sophisticated AI workflows with specialized agents, tool execution, and conversation handoffs.
+This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilities, similar to OpenAI's Agents SDK but built for Ruby. The SDK enables the creation of sophisticated AI workflows with specialized agents, tool execution, conversation handoffs, MCP (Model Context Protocol) integration, and comprehensive tracing/observability.
 
 **IMPORTANT**: This is a generic agent library. When implementing library code, ensure that:
-- No domain-specific logic from examples (airline booking, FAQ, seat management, etc.) leaks into the core library
+- No domain-specific logic from examples (airline booking, FAQ, ISP support, etc.) leaks into the core library
 - The library remains agnostic to specific use cases
 - All domain-specific implementations belong in the examples directory only
 
@@ -46,85 +46,168 @@ rake
 # Start interactive console
 bin/console
 
-# Run the airline booking demo
-ruby examples/booking/interactive.rb
+# Run ISP customer support demo (current main example)
+ruby examples/isp-support/interactive.rb
 
-# Run automatic booking demo
-ruby examples/booking/automatic.rb
+# Run MCP integration examples
+ruby examples/mcp/filesystem_example.rb
+ruby examples/mcp/http_client_example.rb
+ruby examples/mcp/linear_example.rb
+ruby examples/mcp/multi_agent_workflow.rb
+
+# Run tracing examples with OpenTelemetry
+ruby examples/tracing/basic_example.rb
+ruby examples/tracing/mintlify_workflow_tracing_example.rb
 ```
 
 ## Architecture and Code Structure
 
 ### Core Components (Generic Library)
 
-**lib/agents.rb** - Main module and configuration entry point. Configures both the Agents SDK and underlying RubyLLM library. Contains the `RECOMMENDED_HANDOFF_PROMPT_PREFIX` for multi-agent workflows.
+**lib/agents.rb** - Main module and configuration entry point. Configures both the Agents SDK and underlying RubyLLM library. Key features:
+- Global configuration for API keys, models, timeouts, debug settings
+- Tracing configuration with OpenTelemetry support and environment variable overrides
+- Automatic RubyLLM configuration delegation
+- Default model is `gpt-4o-mini`
 
-**lib/agents/agent.rb** - The core `Agent` class with Ruby-like DSL for defining AI agents. Key features:
-- Class-level configuration: `name`, `instructions`, `provider`, `model`, `uses`, `handoffs`
-- Instance execution via `call` method with conversation history management
-- Tool and handoff tool registration at runtime
-- Context-aware execution with proper conversation history restoration using `chat.add_message`
+**lib/agents/agent.rb** - The core `Agent` class for defining AI agents with thread-safe, immutable design:
+- Instance-based configuration: `name`, `instructions`, `model`, `tools`, `handoff_agents`
+- Instructions can be static strings or dynamic Procs for context-based customization
+- Thread-safe handoff registration and MCP client management using mutexes
+- Immutable cloning with `clone(**changes)` for runtime specialization
+- MCP client integration with automatic tool loading and collision detection
 - **No domain-specific logic** - remains completely generic
 
-**lib/agents/tool.rb** - Base class for tools that agents can use. Inherits from `RubyLLM::Tool` and adds:
-- Ruby-style parameter definitions with automatic JSON schema conversion
-- Context injection through `perform` method (called by `execute`)
-- Enhanced parameter definition supporting Ruby types (String, Integer, etc.)
+**lib/agents/runner.rb** - Execution engine that orchestrates multi-agent conversations:
+- Turn-based execution model with comprehensive tracing
+- Automatic handoff detection via context signaling
+- Thread-safe conversation history management
+- Comprehensive OpenTelemetry instrumentation for observability
+- Error handling with graceful degradation
+- Maximum turn limits to prevent infinite loops
+
+**lib/agents/tool.rb** - Thread-safe base class for agent tools. Inherits from `RubyLLM::Tool` and adds:
+- Enhanced parameter definitions with Ruby type conversion to JSON schema
+- Thread-safe execution through `ToolContext` parameter injection
+- Comprehensive tracing with execution timing and error tracking
+- Functional tool creation via `Tool.tool()` class method
 - **Domain-agnostic** - specific tool implementations belong in user code
 
 **lib/agents/handoff.rb** - Contains the handoff system classes:
-- `HandoffResult` - Represents a handoff decision
-- `AgentResponse` - Wraps agent responses with optional handoff results
-- `HandoffTool` - Generic tool for transferring between agents using context-based signaling
+- `HandoffResult` - Represents a handoff decision with target agent and reason
+- `HandoffTool` - Dynamically generated tools for agent-to-agent transfers
+- Context-based signaling mechanism (no text parsing required)
 - **Generic handoff mechanism** - no assumptions about specific agent types
 
-**lib/agents/context.rb** - Base context class for sharing state between agents and tools across handoffs. Must be subclassed for domain-specific context. The base class provides only generic state management capabilities.
+**lib/agents/run_context.rb** & **lib/agents/tool_context.rb** - Context management system:
+- `RunContext` - Wraps shared state and usage tracking for conversations
+- `ToolContext` - Provides tools access to context and execution metadata
+- Thread-safe state sharing between agents and tools
 
-**lib/agents/runner.rb** - Execution engine for orchestrating multi-agent workflows (future implementation).
+**lib/agents/tracing.rb** - Comprehensive observability system:
+- OpenTelemetry-compatible tracing with configurable exporters
+- Support for Jaeger, file export, and console output
+- Detailed instrumentation of conversations, tool calls, and handoffs
+- Configurable sensitive data inclusion/exclusion
+- Cost estimation and performance tracking
+
+**lib/agents/mcp/** - Model Context Protocol integration:
+- `Client` - Connects to MCP servers via stdio or HTTP transport
+- `Tool` - Wraps MCP tools as Agents SDK tools
+- Transport abstraction supporting stdio and HTTP protocols
+- Automatic tool discovery and registration
 
 ### Key Design Patterns
 
-#### Agent Definition Pattern (Generic)
+#### Agent Definition Pattern (Instance-Based)
 ```ruby
-class MyAgent < Agents::Agent
-  name "Agent Name"
-  instructions "Behavior description" # Can be dynamic via Proc
-  provider :openai  # Optional, defaults to configured provider
-  model "gpt-4o"    # Optional, defaults to configured model
+# Create agents as instances (recommended approach)
+agent = Agents::Agent.new(
+  name: "Customer Service Agent",
+  instructions: "You are a helpful customer service agent",
+  model: "gpt-4o",  # Optional, defaults to gpt-4o-mini
+  tools: [email_tool, ticket_tool],
+  handoff_agents: [billing_agent, support_agent]
+)
 
-  uses SomeTool     # Register tools by class
-  handoffs OtherAgent, AnotherAgent  # Define possible handoff targets
-end
+# Dynamic instructions based on context
+context_aware_agent = Agents::Agent.new(
+  name: "Personal Assistant",
+  instructions: ->(context) {
+    user = context.context[:user]
+    "You are helping #{user[:name]}, a #{user[:tier]} customer"
+  },
+  tools: [calendar_tool, email_tool]
+)
+
+# Register handoffs after creation (clean separation)
+triage.register_handoffs(billing, support, sales)
+billing.register_handoffs(triage)  # Hub-and-spoke pattern
 ```
 
-#### Tool Definition Pattern (Generic)
+#### Tool Definition Pattern (Thread-Safe)
 ```ruby
+# Class-based tool definition
 class MyTool < Agents::Tool
+  name "my_tool"
   description "What this tool does"
   param :input_param, String, "Parameter description"
   param :optional_param, Integer, "Optional param", required: false
 
-  def perform(input_param:, optional_param: nil, context:)
-    # context is always available for state management
-    # Must implement perform, not execute
-    # Tool logic should be domain-specific in user implementations
-    "Tool result"
+  def perform(tool_context, input_param:, optional_param: nil)
+    # Access shared state through tool_context - NEVER use instance variables!
+    api_key = tool_context.context[:api_key]
+    user_id = tool_context.context[:user_id]
+    
+    # All state comes from parameters - ensures thread safety
+    "Tool result: #{input_param}"
+  end
+end
+
+# Functional tool definition (for simple tools)
+calculator = Agents::Tool.tool("calculate", description: "Perform math") do |tool_context, expression:|
+  begin
+    result = eval(expression)  # Don't actually use eval in production!
+    result.to_s
+  rescue => e
+    "Error: #{e.message}"
   end
 end
 ```
 
 #### Context-Based Handoff System
 The handoff system uses context signaling rather than text parsing:
-1. `HandoffTool` instances are created automatically from `handoffs` declarations
-2. When called, `HandoffTool.perform` sets `context[:pending_handoff]`
-3. `Agent.detect_handoff_from_context` checks for pending handoffs after LLM responses
-4. Interactive systems handle handoffs by switching to the target agent class
+1. `HandoffTool` instances are created dynamically from `handoff_agents` declarations
+2. When called, `HandoffTool.perform` sets `context[:pending_handoff]` 
+3. `Runner` detects pending handoffs after each LLM response
+4. Automatic agent switching with conversation history preservation
 
-#### Conversation History Management
-Critical for multi-turn conversations:
-- Agents maintain `@conversation_history` as array of `{user:, assistant:, timestamp:}` hashes
-- `restore_conversation_history(chat)` uses `chat.add_message(role:, content:)` to restore RubyLLM chat state
-- This prevents agents from "forgetting" previous conversation turns
+#### Execution Flow with Runner
+```ruby
+# Simple execution
+result = Agents::Runner.run(agent, "Hello, help me with billing")
+puts result.output
+
+# With context and handoffs
+context = { user_id: 123, subscription_tier: "premium" }
+result = Agents::Runner.run(triage_agent, "I can't pay my bill", context: context)
+# Triage agent automatically hands off to billing agent
+# User gets response from billing agent without knowing about handoff
+```
+
+#### MCP Integration
+```ruby
+# Connect to MCP servers
+filesystem_client = Agents::MCP::Client.new(
+  name: "filesystem",
+  command: "npx",
+  args: ["@modelcontextprotocol/server-filesystem", "/tmp"]
+)
+
+# Add MCP tools to an agent
+agent.add_mcp_clients(filesystem_client)
+# Agent now has access to filesystem operations through MCP tools
+```
 
 ### Configuration Rules
 
@@ -139,19 +222,46 @@ Critical for multi-turn conversations:
 - When creating a new file, start the file with a description comment on what the file has and where does it fit in the project
 
 #### Model Defaults
-- Default model for OpenAI provider is `gpt-4.1-mini` (configured in lib/agents.rb)
-- Can be overridden in agent classes or runtime configuration
+- Default model is `gpt-4o-mini` (configured in lib/agents.rb)
+- Can be overridden per agent or via global configuration
+- Examples typically use `gpt-4o` for better performance
+
+#### Environment Variables
+```bash
+# Tracing configuration
+AGENTS_ENABLE_TRACING=true           # Enable tracing globally
+AGENTS_EXPORT_PATH=./traces          # Trace export directory
+AGENTS_INCLUDE_SENSITIVE_DATA=false  # Include sensitive data in traces
+AGENTS_SERVICE_NAME=my-agents        # Service name for tracing
+AGENTS_CONSOLE_OUTPUT=true           # Enable console trace output
+JAEGER_ENDPOINT=http://localhost:14268/api/traces  # Jaeger endpoint
+
+# Debug mode for RubyLLM
+RUBYLLM_DEBUG=true                   # Enable detailed LLM debugging
+```
 
 ### Examples Structure
 
-**examples/booking/** - Complete airline booking demo showcasing multi-agent workflows. This is just one example of how the SDK can be used. The example demonstrates:
-- Multi-agent workflow patterns
-- Context sharing between agents
-- Tool usage patterns
-- Interactive CLI and automatic execution modes
-- Proper handoff handling
+**examples/isp-support/** - Complete ISP customer support demo showcasing:
+- Hub-and-spoke handoff pattern with triage agent
+- Specialized agents (customer info, sales, support)
+- Context sharing for customer data
+- Real-world tool implementations (CRM lookup, lead creation, etc.)
 
-Note: The airline booking scenario is purely demonstrative. The SDK is not limited to or designed specifically for airline systems.
+**examples/mcp/** - Model Context Protocol integration examples:
+- Filesystem server integration
+- HTTP client/server examples  
+- Linear API integration
+- Multi-agent workflows with MCP tools
+- Tool filtering and customization
+
+**examples/tracing/** - Observability and tracing examples:
+- Basic tracing setup with OpenTelemetry
+- Jaeger integration for distributed tracing
+- Performance monitoring and cost tracking
+- Docker Compose setup for local tracing infrastructure
+
+Note: All examples are purely demonstrative. The SDK is not limited to or designed specifically for any particular domain.
 
 ### Dependencies and Integration
 
@@ -165,24 +275,55 @@ Note: The airline booking scenario is purely demonstrative. The SDK is not limit
 
 ### Important Implementation Details
 
-1. **Conversation History**: Must call `restore_conversation_history(chat)` before each agent execution to maintain conversation state across turns.
+1. **Thread Safety**: Agents are immutable instances that can be safely shared across threads. All execution state is passed through parameters, never stored in instance variables.
 
-2. **Tool Context Flow**: `RubyLLM.execute()` → `Agents::Tool.execute()` → `Tool.perform(context:, **args)` - the context injection happens in the base `Tool.execute` method.
+2. **Tool Context Flow**: `Runner.run()` → `RubyLLM.chat()` → `ToolWrapper.execute()` → `Tool.execute(tool_context, **params)` → `Tool.perform(tool_context, **params)` - context injection ensures thread safety.
 
-3. **Handoff Detection**: Uses context-based detection (`@context[:pending_handoff]`) rather than parsing LLM responses for tool calls.
+3. **Handoff Detection**: Uses context-based signaling (`context[:pending_handoff]`) rather than parsing LLM responses. The Runner checks for pending handoffs after each turn.
 
-4. **Model Configuration**: Default model is `gpt-4.1-mini` but examples use `gpt-4o` for better performance.
+4. **Conversation Management**: The Runner automatically manages conversation history in the context, preserving state across handoffs using `chat.add_message()`.
 
-5. **Thread Safety**: Agents are designed to be stateless with context passed through execution rather than stored in instance variables.
+5. **Model Configuration**: Default model is `gpt-4o-mini` but examples use `gpt-4o` for better performance. Configurable per agent and globally.
 
-6. **Library vs Example Code**: The core library (lib/agents/*) must remain completely generic and free of domain-specific logic. All domain-specific implementations (airline booking, FAQ systems, etc.) belong exclusively in the examples directory.
+6. **Tracing Integration**: Comprehensive OpenTelemetry instrumentation throughout the execution flow provides detailed observability of conversations, tool calls, handoffs, and performance metrics.
+
+7. **MCP Integration**: Agents can dynamically load tools from MCP servers, enabling integration with external systems and services through standardized protocols.
+
+8. **Library vs Example Code**: The core library (lib/agents/*) must remain completely generic and free of domain-specific logic. All domain-specific implementations belong exclusively in the examples directory.
 
 ### Testing Guidelines
 
-When writing tests, follow the rules: 
-1. Avoid stubbing using allow_any_instance_of`
+When writing tests, follow these rules: 
+1. Avoid stubbing using `allow_any_instance_of` - use dependency injection instead
 2. Each example block `it ... end` should have less than 20 lines
-3. Example group should not have more than 10 memoized helpers, not more than 10 except statements
-4. Never use `receive_message_chain`
-5. When writing tests, always use verifying doubles and never normal doubles
+3. Example groups should not have more than 10 memoized helpers or expect statements
+4. Never use `receive_message_chain` - prefer explicit method stubs
+5. Always use verifying doubles instead of normal doubles for external dependencies
+6. Test thread safety by running specs with multiple threads when testing concurrent behavior
+7. Use `Agents::Runner.run` in integration tests rather than testing internal methods directly
+
+### Configuration Examples
+
+```ruby
+# Basic configuration
+Agents.configure do |config|
+  config.openai_api_key = ENV['OPENAI_API_KEY']
+  config.default_model = 'gpt-4o'
+  config.debug = true
+  
+  # Enable tracing
+  config.enable_tracing!
+  config.tracing.service_name = 'my-agents-app'
+  config.tracing.include_sensitive_data = false
+  config.tracing.jaeger_endpoint = 'http://localhost:14268/api/traces'
+end
+
+# Multi-provider configuration
+Agents.configure do |config|
+  config.openai_api_key = ENV['OPENAI_API_KEY']
+  config.anthropic_api_key = ENV['ANTHROPIC_API_KEY'] 
+  config.gemini_api_key = ENV['GEMINI_API_KEY']
+  config.default_model = 'gpt-4o-mini'
+  config.request_timeout = 300
+end
 ```

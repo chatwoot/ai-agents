@@ -45,7 +45,7 @@ module Agents
       @tool_name = "handoff_to_#{target_agent.name.downcase.gsub(/\s+/, "_")}"
       @tool_description = "Transfer conversation to #{target_agent.name}"
 
-      super()
+      # Don't call super() - let RubyLLM handle the initialization
     end
 
     # Override the auto-generated name to use our specific name
@@ -59,15 +59,25 @@ module Agents
     end
 
     # Handoff tools don't need parameters - just the intent to transfer
-    def perform(tool_context)
-      # Signal the handoff through context
-      tool_context.context[:pending_handoff] = @target_agent
+    def perform(tool_context, **params)
+      # Extract message parameter
+      message = params[:message] || "Handoff initiated"
 
-      # Return a message that will be shown to the user
-      "I'll transfer you to #{@target_agent.name} who can better assist you with this."
+      # Store handoff information in context for Runner to process
+      tool_context.context[:pending_handoff] = {
+        agent: @target_agent,
+        message: message
+      }
+
+      handoff_response = "I'm transferring you to #{@target_agent.name}. #{message}"
+      Agents.logger.debug "Handoff signaled, returning message: #{handoff_response}"
+
+      handoff_response
     end
 
-    # NOTE: RubyLLM will handle schema generation internally when needed
-    # Handoff tools have no parameters, which RubyLLM will detect automatically
+    # Return empty parameters hash since handoff tools don't take any parameters
+    def parameters
+      {}
+    end
   end
 end

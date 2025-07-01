@@ -39,14 +39,14 @@ module Agents
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    # @param mcp_clients [Array<Agents::MCP::Client>, Agents::MCP::Client, nil] MCP clients to attach
+    # @param mcp_clients [Array<Hash>, Hash, nil] MCP client configurations to add
     def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], mcp_clients: nil)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
-      @mcp_clients = []
+      @mcp_manager = nil
 
       # Mutex for thread-safe handoff registration and MCP client management
       # While agents are typically configured at startup, we want to ensure
@@ -60,7 +60,7 @@ module Agents
 
       # Register initial handoff agents if provided
       register_handoffs(*handoff_agents) unless handoff_agents.empty?
-      
+
       # Add MCP clients if provided
       add_mcp_clients(mcp_clients) if mcp_clients
     end
@@ -72,7 +72,11 @@ module Agents
       @mutex.synchronize do
         # Compute handoff tools dynamically
         handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
-        @tools + handoff_tools
+
+        # Cache MCP tools to avoid repeated fetching which causes subprocess spawning
+        @cached_mcp_tools ||= @mcp_manager ? @mcp_manager.get_agent_tools : []
+
+        @tools + handoff_tools + @cached_mcp_tools
       end
     end
 
@@ -100,58 +104,60 @@ module Agents
       self
     end
 
-    # Add MCP clients to this agent, connecting and loading their tools
+    # Add MCP clients to this agent using configurations
     #
-    # @param clients [Agents::MCP::Client, Array<Agents::MCP::Client>] Client(s) to add
+    # @param client_configs [Hash, Array<Hash>] Client configuration(s) to add
     # @return [self] Returns self for method chaining
     # @example Adding MCP clients
-    #   filesystem_client = Agents::MCP::Client.new(name: "fs", command: "npx", args: ["fs-server"])
-    #   agent.add_mcp_clients(filesystem_client)
-    #   
+    #   agent.add_mcp_clients({
+    #     name: "filesystem",
+    #     command: "npx",
+    #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    #   })
+    #
     #   # Or add multiple clients
-    #   agent.add_mcp_clients([filesystem_client, api_client])
-    def add_mcp_clients(clients)
-      clients_array = Array(clients)
-      
-      clients_array.each do |client|
-        add_mcp_client(client)
+    #   agent.add_mcp_clients([
+    #     { name: "filesystem", command: "npx", args: ["fs-server"] },
+    #     { name: "api", url: "http://localhost:8000" }
+    #   ])
+    def add_mcp_clients(client_configs)
+      configs_array = Array(client_configs)
+
+      @mutex.synchronize do
+        # Initialize MCP manager if not exists
+        @mcp_manager ||= MCP::Manager.new(
+          enable_fallback_mode: true,
+          handle_collisions: :prefix
+        )
+
+        # Add each client configuration
+        configs_array.each do |config|
+          add_mcp_client(config)
+        end
       end
-      
+
       self
     end
 
     # Add a single MCP client to this agent
     #
-    # @param client [Agents::MCP::Client] The MCP client to add
+    # @param config [Hash] The MCP client configuration
     # @return [self] Returns self for method chaining
-    def add_mcp_client(client)
-      @mutex.synchronize do
-        # Store the client reference
-        @mcp_clients << client unless @mcp_clients.include?(client)
-        
-        # Connect and load tools
-        begin
-          client.connect unless client.connected?
-          mcp_tools = client.list_tools
-          
-          # Check for tool name collisions and warn
-          existing_tool_names = @tools.map { |t| t.class.name }.to_set
-          mcp_tools.each do |tool|
-            tool_name = tool.class.name
-            if existing_tool_names.include?(tool_name)
-              warn "Tool name collision: '#{tool_name}' from MCP client '#{client.name}' conflicts with existing tool"
-            else
-              @tools << tool
-              existing_tool_names << tool_name
-            end
-          end
-          
-        rescue => e
-          warn "Failed to load tools from MCP client '#{client.name}': #{e.message}"
-          # Continue without this client's tools rather than failing entirely
-        end
+    def add_mcp_client(config)
+      # Initialize MCP manager if not exists
+      @mcp_manager ||= MCP::Manager.new(
+        enable_fallback_mode: true,
+        handle_collisions: :prefix
+      )
+
+      # Add client to manager
+      begin
+        @mcp_manager.add_client(**config)
+      rescue StandardError => e
+        warn "Failed to add MCP client '#{config[:name]}': #{e.message}"
+        # Continue without this client rather than failing entirely
       end
-      
+
       self
     end
 
@@ -161,29 +167,30 @@ module Agents
     # @return [self] Returns self for method chaining
     def refresh_mcp_tools
       @mutex.synchronize do
-        # Remove existing MCP tools
-        @tools.reject! { |tool| tool.is_a?(MCP::Tool) }
-        
-        # Reload tools from all MCP clients
-        @mcp_clients.each do |client|
-          begin
-            client.invalidate_tools_cache
-            mcp_tools = client.list_tools(refresh: true)
-            @tools.concat(mcp_tools)
-          rescue => e
-            warn "Failed to refresh tools from MCP client '#{client.name}': #{e.message}"
-          end
+        if @mcp_manager
+          @mcp_manager.refresh_all_clients
+          # Clear cached tools so they'll be re-fetched on next all_tools call
+          @cached_mcp_tools = nil
         end
       end
-      
+
       self
     end
 
-    # Get all MCP clients attached to this agent
+    # Get MCP manager for this agent
     #
-    # @return [Array<Agents::MCP::Client>] Array of MCP clients
-    def mcp_clients
-      @mutex.synchronize { @mcp_clients.dup }
+    # @return [Agents::MCP::Manager, nil] MCP manager or nil if no MCP clients
+    def mcp_manager
+      @mutex.synchronize { @mcp_manager }
+    end
+
+    # Get health status of all MCP clients
+    #
+    # @return [Hash] Health status by client name, or empty hash if no MCP manager
+    def mcp_client_health
+      @mutex.synchronize do
+        @mcp_manager ? @mcp_manager.client_health_status : {}
+      end
     end
 
     # Creates a new agent instance with modified attributes while preserving immutability.

@@ -44,9 +44,51 @@ module Agents
     end
 
     # RubyLLM calls this method (follows RubyLLM::Tool pattern)
-    def call(args)
+    def execute(**args)
+      Agents.logger.debug "ToolWrapper execute called on #{@tool.class.name} with args: #{args.inspect}"
+
+      # Create tool context with current run context
       tool_context = ToolContext.new(run_context: @context_wrapper)
-      @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+
+      Agents.logger.debug "Created tool_context: #{tool_context.class}, calling @tool.perform"
+
+      begin
+        # Call the wrapped tool with context and arguments
+        result = @tool.perform(tool_context, **args)
+
+        Agents.logger.debug "Tool perform returned: #{result.class} - #{result.to_s[0..50]}..."
+
+        result
+      rescue StandardError => e
+        error_msg = "Error executing tool #{@tool.class.name}: #{e.message}"
+        Agents.logger.error error_msg
+        Agents.logger.debug "Backtrace: #{e.backtrace.first(5).join("\n  ")}"
+        error_msg
+      end
+    end
+
+    # Fallback call method for compatibility with tools that expect it
+    # This handles cases where MCP tools are accidentally wrapped
+    def call(*args, **kwargs)
+      # If the wrapped tool has a call method (like MCP tools), use it directly
+      if @tool.respond_to?(:call)
+        # For Agents::Tool instances, set the context in thread-local variable
+        if @tool.is_a?(Agents::Tool)
+          tool_context = ToolContext.new(run_context: @context_wrapper)
+          Thread.current[:tool_context] = tool_context
+          begin
+            result = @tool.call(*args, **kwargs)
+          ensure
+            Thread.current[:tool_context] = nil
+          end
+          result
+        else
+          @tool.call(*args, **kwargs)
+        end
+      else
+        # Otherwise, fall back to execute method
+        execute(**kwargs)
+      end
     end
 
     # Delegate metadata methods to the tool
@@ -66,6 +108,19 @@ module Agents
     # Make this work with RubyLLM's tool calling
     def to_s
       name
+    end
+
+    # Delegate any missing methods to the wrapped tool to ensure compatibility
+    def method_missing(method_name, *args, **kwargs, &block)
+      if @tool.respond_to?(method_name)
+        @tool.send(method_name, *args, **kwargs, &block)
+      else
+        super
+      end
+    end
+
+    def respond_to_missing?(method_name, include_private = false)
+      @tool.respond_to?(method_name, include_private) || super
     end
   end
 end

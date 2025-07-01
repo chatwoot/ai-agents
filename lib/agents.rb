@@ -6,15 +6,13 @@
 # It serves as the central configuration hub that other components depend on.
 
 require "ruby_llm"
+require "logger"
 require_relative "agents/version"
 
 module Agents
   class Error < StandardError; end
 
   class << self
-    # Logger for debugging (can be set by users)
-    attr_accessor :logger
-
     # Configure both Agents and RubyLLM in one block
     def configure
       yield(configuration) if block_given?
@@ -26,7 +24,28 @@ module Agents
       @configuration ||= Configuration.new
     end
 
+    # Reset configuration (useful for tests)
+    def reset_configuration!
+      @configuration = nil
+      @logger = nil
+    end
+
+    # Get the configured logger instance
+    # @return [Logger] The logger instance
+    def logger
+      @logger ||= create_logger
+    end
+
     private
+
+    def create_logger
+      logger = Logger.new($stdout)
+      logger.level = configuration.debug ? Logger::DEBUG : Logger::WARN
+      logger.formatter = proc do |severity, _datetime, _progname, msg|
+        "[#{severity}] #{msg}\n"
+      end
+      logger
+    end
 
     def configure_ruby_llm!
       RubyLLM.configure do |config|
@@ -46,7 +65,7 @@ module Agents
     def initialize
       @default_model = "gpt-4o-mini"
       @request_timeout = 120
-      @debug = false
+      @debug = ENV["AGENTS_DEBUG"] == "true"
     end
 
     # Check if at least one provider is configured

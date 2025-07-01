@@ -25,10 +25,16 @@ module Agents
 
       # Initialize a new ToolResult
       #
-      # @param content [Array<Hash>] Array of content parts from MCP response
+      # @param content [String, Array<Hash>] Content from MCP response or simple string
       # @param is_error [Boolean] Whether this result represents an error
-      def initialize(content:, is_error: false)
-        @content = Array(content)
+      def initialize(content, is_error: false)
+        @content = if content.is_a?(String)
+                     # Simple string content - wrap in structured format
+                     [{ "type" => "text", "text" => content }]
+                   else
+                     # Structured content array
+                     Array(content)
+                   end
         @is_error = is_error
       end
 
@@ -44,6 +50,39 @@ module Agents
       # @return [Boolean] True if this is a successful result
       def success?
         !@is_error
+      end
+
+      # Create a ToolResult from an MCP server response
+      #
+      # @param response [Hash] The MCP server response
+      # @return [ToolResult] A new ToolResult instance
+      def self.from_mcp_response(response)
+        return new("No response from MCP server") unless response
+
+        if response.is_a?(Hash) && response["result"]
+          # MCP server success response format
+          result = response["result"]
+          content = result["content"] || []
+          is_error = result["isError"] || false
+
+          new(content, is_error: is_error)
+        elsif response.is_a?(Hash) && response["error"]
+          # MCP server error response format
+          error_msg = response["error"]["message"] || "Unknown error"
+          error_content = [{ "type" => "text", "text" => error_msg }]
+
+          new(error_content, is_error: true)
+        elsif response.is_a?(Hash) && response["content"]
+          # Direct content response (when transport strips the "result" wrapper)
+          content = response["content"]
+
+          new(content, is_error: false)
+        else
+          # Handle direct response or unexpected format
+          content = response.is_a?(Array) ? response : [{ "type" => "text", "text" => response.to_s }]
+
+          new(content, is_error: false)
+        end
       end
 
       # Convert the result to a string representation
@@ -107,16 +146,22 @@ module Agents
         @content.any? { |part| part["type"] == "image" }
       end
 
-      # Create a ToolResult from a raw MCP server response
+      # Extract content from MCP response content array
       #
-      # @param response [Hash] Raw response from MCP server
-      # @return [ToolResult] New ToolResult instance
-      def self.from_mcp_response(response)
-        result = response["result"] || {}
-        content = result["content"] || []
-        is_error = result["isError"] || false
-
-        new(content: content, is_error: is_error)
+      # @param content [Array, String] Content from MCP response
+      # @return [String] Extracted text content
+      def self.extract_content(content)
+        if content.is_a?(Array)
+          content.map do |item|
+            if item.is_a?(Hash) && item["text"]
+              item["text"]
+            else
+              item.to_s
+            end
+          end.join("\n")
+        else
+          content.to_s
+        end
       end
     end
   end

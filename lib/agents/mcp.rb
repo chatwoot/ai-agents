@@ -5,16 +5,13 @@
 # dynamically within agent workflows, enabling agents to access external resources
 # and capabilities through the standardized MCP protocol.
 #
-# Includes compatibility fixes for RubyLLM parameter type handling to ensure
-# proper JSON schema generation across all LLM providers.
-#
 # @example Connecting to a filesystem MCP server
 #   client = Agents::MCP::Client.new(
 #     name: "filesystem",
 #     command: "npx",
 #     args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
 #   )
-#   
+#
 #   agent = Agents::Agent.new(
 #     name: "File Assistant",
 #     instructions: "Help users with file operations",
@@ -25,7 +22,7 @@
 #   client = Agents::MCP::Client.new(
 #     name: "api_server",
 #     url: "http://localhost:8000",
-#     headers: { "Authorization" => "Bearer token" }
+    #     headers: { "X-Custom-Header" => "value" }
 #   )
 module Agents
   module MCP
@@ -47,6 +44,7 @@ end
 require_relative "mcp/client"
 require_relative "mcp/stdio_transport"
 require_relative "mcp/http_transport"
+require_relative "mcp/sse_transport"
 require_relative "mcp/tool"
 require_relative "mcp/tool_result"
-require_relative "mcp/rubyllm_fix"
+require_relative "mcp/manager"

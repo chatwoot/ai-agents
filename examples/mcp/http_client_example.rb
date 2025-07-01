@@ -5,78 +5,100 @@ $LOAD_PATH.unshift(File.expand_path("../../lib", __dir__))
 
 require "agents"
 
-# Example demonstrating MCP integration with an HTTP server
-# This example shows how to:
-# 1. Create an MCP client for an HTTP server
-# 2. Attach it to an agent
-# 3. Use the agent to perform API operations
+# Production MCP HTTP client integration
+# Demonstrates how to create an agent with HTTP MCP capabilities
+class MCPHTTPClient
+  def self.create_agent
+    # Configure the agents system
+    Agents.configure do |config|
+      config.openai_api_key = ENV["OPENAI_API_KEY"]
+      config.default_model = "gpt-4o-mini"
+      config.debug = ENV["AGENTS_DEBUG"] == "true"
+    end
 
-# Configure the agents system
-Agents.configure do |config|
-  config.openai_api_key = ENV["OPENAI_API_KEY"]
-  config.default_model = "gpt-4o-mini"
-  config.debug = false
-end
+    raise "OPENAI_API_KEY environment variable is required" unless Agents.configuration.configured?
 
-unless Agents.configuration.configured?
-  puts "Please set OPENAI_API_KEY environment variable"
-  exit 1
-end
+    # Test HTTP server connectivity
+    test_server_connectivity
 
-# Create MCP client for HTTP server
-http_client = Agents::MCP::Client.new(
-  name: "api_server", 
-  url: "http://localhost:4568",
-  headers: {
-    "Content-Type" => "application/json",
-    "User-Agent" => "Ruby-Agents-MCP/1.0"
-  }
-)
+    # Create agent with HTTP MCP client configuration
+    mcp_config = {
+      name: "api_server",
+      url: "http://localhost:4568",
+      headers: {
+        "Content-Type" => "application/json",
+        "User-Agent" => "Ruby-Agents-MCP/1.0"
+      }
+    }
 
-# Test direct client connection
-begin
-  http_client.connect
-  tools = http_client.list_tools
-  puts "Connected! Found #{tools.length} tools: #{tools.map { |t| t.class.name }.join(', ')}"
-rescue => e
-  puts "Failed to connect to HTTP MCP server: #{e.message}"
-  puts "Make sure the HTTP server is running: ruby examples/mcp/http_server_example.rb"
-  exit 1
-end
+    Agents::Agent.new(
+      name: "API Assistant",
+      instructions: <<~INSTRUCTIONS,
+        You are a helpful API assistant that can interact with a user database.
+        You have access to tools that can get users, get specific users by ID, and create new users.
 
-# Create agent with MCP client
-agent = Agents::Agent.new(
-  name: "API Assistant",
-  instructions: <<~INSTRUCTIONS,
-    You are a helpful API assistant that can interact with a user database.
-    You have access to tools that can get users, get specific users by ID, and create new users.
-    
-    Always be helpful and explain what data you're retrieving or creating.
-    When showing user data, format it nicely for the user.
-  INSTRUCTIONS
-  mcp_clients: [http_client]
-)
-
-begin
-  # Test scenarios for HTTP MCP integration
-  test_scenarios = [
-    "Use the get_users tool to get all users from the database and show them in a nice format",
-    "Use the get_user tool to get the user with ID 2 and tell me about them", 
-    "Use the create_user tool to create a new user named 'Diana' with email 'diana@example.com'",
-    "Use the get_user tool to try to get the user with ID 999"
-  ]
-
-  test_scenarios.each_with_index do |scenario, i|
-    puts "Test #{i + 1}: #{scenario}"
-    result = Agents::Runner.run(agent, scenario)
-    puts "Response: #{result.output}"
-    puts "-" * 50
+        Always be helpful and explain what data you're retrieving or creating.
+        When showing user data, format it nicely for the user.
+      INSTRUCTIONS
+      mcp_clients: [mcp_config]
+    )
   end
 
-rescue => e
-  puts "Error during HTTP MCP integration test: #{e.message}"
-  puts "Make sure the HTTP MCP server is running: ruby examples/mcp/http_server_example.rb"
-  exit 1
-ensure
-  http_client&.disconnect
+  def self.test_server_connectivity
+    require "net/http"
+    require "json"
+
+    uri = URI("http://localhost:4568/health")
+    response = Net::HTTP.get_response(uri)
+
+    raise "HTTP server not available (status: #{response.code})" unless response.code.to_i == 200
+  rescue StandardError => e
+    raise "Cannot connect to HTTP server: #{e.message}. Make sure to start the server first."
+  end
+
+  def self.run_scenarios(agent)
+    scenarios = [
+      "Use the get_users tool to get all users from the database and show them in a nice format",
+      "Use the get_user tool to get the user with ID 2 and tell me about them"
+    ]
+
+    results = []
+
+    scenarios.each do |scenario|
+      result = Agents::Runner.run(agent, scenario)
+      results << {
+        scenario: scenario,
+        output: result.output,
+        error: result.error
+      }
+    end
+
+    results
+  end
+
+  def self.run_example
+    agent = create_agent
+
+    # Ensure tools are loaded
+    agent.all_tools
+
+    # Run test scenarios
+    run_scenarios(agent)
+  end
+end
+
+# Run the example if this file is executed directly
+if __FILE__ == $0
+  begin
+    results = MCPHTTPClient.run_example
+
+    results.each_with_index do |result, i|
+      puts "\nScenario #{i + 1}: #{result[:scenario]}"
+      puts "Response: #{result[:output]}" if result[:output]
+      puts "Error: #{result[:error].message}" if result[:error]
+    end
+  rescue StandardError => e
+    puts "Error: #{e.message}"
+    exit 1
+  end
 end

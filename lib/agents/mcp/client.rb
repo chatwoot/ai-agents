@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "set"
+require "rbconfig"
 
 module Agents
   module MCP
@@ -26,7 +27,7 @@ module Agents
     #   client = Client.new(
     #     name: "api_server",
     #     url: "http://localhost:8000",
-    #     headers: { "Authorization" => "Bearer token" }
+          #     headers: { "X-Custom-Header" => "value" }
     #   )
     #   client.connect
     #   result = client.call_tool("get_users", {})
@@ -36,7 +37,7 @@ module Agents
       # Initialize a new MCP client
       #
       # @param name [String] Identifier for this client (for logging/debugging)
-      # @param include_tools [String, Array<String>, Regexp, Array<Regexp>, nil] 
+      # @param include_tools [String, Array<String>, Regexp, Array<Regexp>, nil]
       #   Whitelist patterns for tool names. If nil, all tools are included.
       # @param exclude_tools [String, Array<String>, Regexp, Array<Regexp>, nil]
       #   Blacklist patterns for tool names. If nil, no tools are excluded.
@@ -47,7 +48,13 @@ module Agents
       # @option options [String] :url Base URL for HTTP transport
       # @option options [Hash<String,String>] :headers HTTP headers
       # @option options [Boolean] :use_sse Whether to use Server-Sent Events for HTTP
-      def initialize(name:, include_tools: nil, exclude_tools: nil, **options)
+      # @option options [String] :transport_type Transport type: 'stdio', 'http', 'sse' (default: auto-detect)
+      # @option options [Boolean] :verify_ssl Whether to verify SSL certificates (default: true)
+      # @option options [Array<String>] :allowed_origins Allowed origins for DNS rebinding protection
+
+      def initialize(name: nil, include_tools: nil, exclude_tools: nil, **options)
+        raise ArgumentError, "name is required" if name.nil? || name.empty?
+
         @name = name
         @include_tools = normalize_filter(include_tools)
         @exclude_tools = normalize_filter(exclude_tools)
@@ -63,16 +70,21 @@ module Agents
       # @raise [ConnectionError] If connection fails
       def connect
         return if connected?
-        
-        @transport.connect
-        @connected = true
+
+        begin
+          # Actually connect the transport
+          @transport.connect
+          @connected = true
+        rescue StandardError => e
+          raise ConnectionError, "Failed to connect to MCP server '#{@name}': #{e.message}"
+        end
       end
 
       # Check if client is connected to the MCP server
       #
       # @return [Boolean] True if connected
       def connected?
-        @connected && @transport.connected?
+        @connected
       end
 
       # List available tools from the MCP server with filtering applied
@@ -88,28 +100,23 @@ module Agents
           return @tools_cache.dup if @tools_cache && !refresh
 
           begin
-            # Send tools/list request
-            response = @transport.send_request({
-              "jsonrpc" => "2.0",
-              "method" => "tools/list",
-              "params" => {}
-            })
-
+            # Get tools from MCP server
+            response = @transport.call("tools/list", {})
 
             # Extract tools from response
             tools_data = extract_tools_from_response(response)
-            
+
             # Apply filtering
             filtered_tools = filter_tools(tools_data)
-            
+
             # Create tool instances
             tool_instances = create_tool_instances(filtered_tools)
-            
+
             # Cache the results
             @tools_cache = tool_instances
-            
+
             tool_instances.dup
-          rescue => e
+          rescue StandardError => e
             # Log error but don't raise - allow agent to continue without MCP tools
             warn "Failed to list tools from MCP client '#{@name}': #{e.message}"
             @tools_cache = []
@@ -129,29 +136,19 @@ module Agents
         connect unless connected?
 
         begin
-          response = @transport.send_request({
-            "jsonrpc" => "2.0",
-            "method" => "tools/call",
-            "params" => {
-              "name" => tool_name,
-              "arguments" => arguments
-            }
-          })
+          response = @transport.call("tools/call", {
+                                       "name" => tool_name,
+                                       "arguments" => arguments
+                                     })
 
           # Convert response to ToolResult
-          if response["result"]
-            ToolResult.from_mcp_response(response)
-          elsif response["error"]
-            error_msg = response["error"]["message"] || "Unknown error"
-            raise ServerError, "Tool call failed: #{error_msg}"
-          else
-            # Fallback for unexpected response format
-            ToolResult.new(
-              content: [{"type" => "text", "text" => response.to_json}],
-              is_error: false
-            )
-          end
-        rescue => e
+          result = ToolResult.from_mcp_response(response)
+
+          # Check if the result represents an error
+          raise ServerError, result.to_s if result.error?
+
+          result
+        rescue StandardError => e
           raise ServerError, "Failed to call tool #{tool_name}: #{e.message}"
         end
       end
@@ -159,12 +156,17 @@ module Agents
       # Disconnect from the MCP server
       def disconnect
         return unless connected?
-        
-        @transport.disconnect
-        @connected = false
-        
-        @mutex.synchronize do
-          @tools_cache = nil
+
+        begin
+          @transport.close if @transport.respond_to?(:close)
+        rescue StandardError => e
+          warn "Error closing MCP transport for '#{@name}': #{e.message}"
+        ensure
+          @connected = false
+
+          @mutex.synchronize do
+            @tools_cache = nil
+          end
         end
       end
 
@@ -175,13 +177,25 @@ module Agents
         end
       end
 
+
+
+
+
+
+
+
+
+
+
       private
+
+
 
       # Determine which transport to use based on options
       #
       # @param options [Hash] Initialization options
-      # @return [StdioTransport, HttpTransport] Appropriate transport instance
-      # @raise [ArgumentError] If neither STDIO nor HTTP options provided
+      # @return [StdioTransport, HttpTransport, SseTransport] Appropriate transport instance
+      # @raise [ArgumentError] If neither STDIO nor HTTP/SSE options provided
       def determine_transport(options)
         if options[:command] || options[:args]
           StdioTransport.new(
@@ -190,13 +204,34 @@ module Agents
             env: options[:env] || {}
           )
         elsif options[:url]
-          HttpTransport.new(
+          # Build headers 
+          headers = options[:headers] || {}
+
+          # Determine transport type: explicit, use_sse flag, or auto-detect
+          transport_type = options[:transport_type]
+          if transport_type.nil?
+            transport_type = options[:use_sse] ? "sse" : "http"
+          end
+
+          # Common security options
+          common_options = {
             url: options[:url],
-            headers: options[:headers] || {},
-            use_sse: options[:use_sse] || false
-          )
+            headers: headers,
+            verify_ssl: options.fetch(:verify_ssl, true),
+            allowed_origins: options[:allowed_origins] || []
+          }
+
+          case transport_type.to_s.downcase
+          when "sse"
+            SseTransport.new(**common_options)
+          when "http"
+            HttpTransport.new(**common_options)
+          else
+            # Default to HTTP transport
+            HttpTransport.new(**common_options)
+          end
         else
-          raise ArgumentError, "Must provide either :command/:args for STDIO or :url for HTTP"
+          raise ArgumentError, "Must provide either command or url"
         end
       end
 
@@ -206,14 +241,14 @@ module Agents
       # @return [Array<String, Regexp>] Normalized filter array
       def normalize_filter(filter)
         return [] if filter.nil?
-        
+
         filters = Array(filter)
         filters.map do |f|
           case f
           when String
             # Convert wildcard patterns to regex
-            if f.include?('*')
-              pattern = f.gsub('*', '.*')
+            if f.include?("*")
+              pattern = f.gsub("*", ".*")
               /^#{pattern}$/
             else
               f
@@ -233,7 +268,7 @@ module Agents
       # @return [Boolean] True if tool name matches any filter, or if no filters provided
       def matches_any_filter?(tool_name, filters)
         return true if filters.empty?
-        
+
         filters.any? do |filter|
           case filter
           when String
@@ -257,10 +292,10 @@ module Agents
 
           # Include if matches include filter (or no include filter)
           included = @include_tools.empty? || matches_any_filter?(tool_name, @include_tools)
-          
+
           # Exclude if matches exclude filter (only exclude if there are exclude filters)
           excluded = !@exclude_tools.empty? && matches_any_filter?(tool_name, @exclude_tools)
-          
+
           included && !excluded
         end
       end
@@ -271,12 +306,15 @@ module Agents
       # @return [Array<Hash>] Array of tool definitions
       # @raise [ProtocolError] If response format is invalid
       def extract_tools_from_response(response)
-        if response["result"] && response["result"]["tools"]
-          response["result"]["tools"]
-        elsif response["tools"] # Some servers might return tools directly
+        if response.nil?
+          []
+        elsif response.is_a?(Hash) && response["tools"]
           response["tools"]
+        elsif response.is_a?(Array)
+          response # Direct array of tools
         else
-          raise ProtocolError, "Invalid tools list response format"
+          warn "Invalid tools list response format: #{response.class} - #{response.inspect}"
+          []
         end
       end
 
@@ -285,13 +323,14 @@ module Agents
       # @param tools_data [Array<Hash>] Filtered tool definitions
       # @return [Array<Agents::MCP::Tool>] Tool instances
       def create_tool_instances(tools_data)
-        tools_data.map do |tool_data|
-          begin
-            Tool.create_from_mcp_data(tool_data, client: self)
-          rescue => e
-            warn "Failed to create MCP tool '#{tool_data['name']}': #{e.message}"
-            nil
-          end
+        # Remove duplicates by name (last one wins)
+        unique_tools = tools_data.reverse.uniq { |tool| tool["name"] }.reverse
+
+        unique_tools.map do |tool_data|
+          Tool.create_from_mcp_data(tool_data, client: self)
+        rescue StandardError => e
+          warn "Failed to create MCP tool '#{tool_data["name"]}': #{e.message}"
+          nil
         end.compact
       end
     end

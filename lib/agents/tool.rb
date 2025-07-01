@@ -82,6 +82,34 @@ module Agents
         super(name, type: json_type, desc: desc, required: required, **options)
       end
     end
+    
+    # RubyLLM compatibility method - handles both positional and keyword arguments
+    # This method provides backward compatibility and flexibility for different calling patterns.
+    #
+    # @param args [Array] Positional arguments (typically empty, but handled for compatibility)
+    # @param params [Hash] Keyword arguments passed to the tool
+    # @return [String] The tool's result
+    def call(*args, **params)
+      # Combine positional args (if they're hashes) with keyword params
+      combined_params = if args.any? && args.all? { |arg| arg.is_a?(Hash) }
+                          args.inject({}) { |acc, arg| acc.merge(arg) }.merge(params)
+                        else
+                          params
+                        end
+
+      # If we don't have a context (direct RubyLLM call), create a minimal one
+      # This should not normally happen in our system, but provides a fallback
+      if Thread.current[:tool_context]
+        tool_context = Thread.current[:tool_context]
+      else
+        # Fallback context for direct calls - this is not ideal but prevents crashes
+        run_context = Agents::RunContext.new({})
+        tool_context = Agents::ToolContext.new(run_context: run_context)
+      end
+
+      perform(tool_context, **combined_params)
+    end
+
     # Execute the tool with context injection.
     # This method is called by the runner and handles the thread-safe
     # execution pattern by passing all state through parameters.
@@ -142,12 +170,15 @@ module Agents
     #   end
     def self.tool(name, description: "", &block)
       # Create anonymous class that extends Tool
-      Class.new(Tool) do
-        self.name = name
-        self.description = description
-
+      tool_class = Class.new(Tool) do
         define_method :perform, &block
-      end.new
+      end
+
+      # Set class-level metadata using define_singleton_method instead of self.name=
+      tool_class.define_singleton_method(:name) { name }
+      tool_class.define_singleton_method(:description) { description }
+
+      tool_class.new
     end
   end
 end

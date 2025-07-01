@@ -95,50 +95,64 @@ module Agents
 
         # Check for handoff via context (set by HandoffTool)
         if context_wrapper.context[:pending_handoff]
-          next_agent = context_wrapper.context[:pending_handoff]
-          puts "[Agents] Handoff from #{current_agent.name} to #{next_agent.name}"
+          next_agent = context_wrapper.context[:pending_handoff][:agent]
+          handoff_message = context_wrapper.context[:pending_handoff][:message]
+
+          Agents.logger.info "Handoff from #{current_agent.name} to #{next_agent.name}"
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
 
-          # Switch to new agent
-          current_agent = next_agent
-          context_wrapper.context[:current_agent] = next_agent
-          context_wrapper.context.delete(:pending_handoff)
+          # Create new context wrapper for next agent
+          next_context = context_wrapper.context.dup
+          next_context.delete(:pending_handoff)
+          next_context[:current_agent] = next_agent
+          next_context[:handoff_message] = handoff_message
 
-          # Create new chat for new agent with restored history
-          chat = create_chat(current_agent, context_wrapper)
-          restore_conversation_history(chat, context_wrapper)
-          next
+          # Continue with the next agent using the handoff message as input
+          return run(
+            next_agent,
+            handoff_message,
+            context: next_context,
+            max_turns: max_turns
+          )
         end
 
-        # If no tools were called, we have our final response
+        # Check completion conditions after potential handoff
         next if response.tool_call?
 
-        # Save final state before returning
+        final_content = response.content || ""
+
         save_conversation_state(chat, context_wrapper, current_agent)
 
         return RunResult.new(
-          output: response.content,
+          output: final_content,
           messages: extract_messages(chat),
           usage: context_wrapper.usage,
+          error: nil,
           context: context_wrapper.context
         )
+
+        # Continue loop for tool execution (handled by RubyLLM)
       end
-    rescue MaxTurnsExceeded => e
-      # Save state even on error
-      save_conversation_state(chat, context_wrapper, current_agent) if chat
+
+      # If we exit the loop, we've exceeded max turns
+      save_conversation_state(chat, context_wrapper, current_agent)
 
       RunResult.new(
-        output: "Conversation ended: #{e.message}",
-        messages: chat ? extract_messages(chat) : [],
+        output: "Maximum conversation turns (#{max_turns}) exceeded. The conversation was automatically terminated.",
+        messages: extract_messages(chat),
         usage: context_wrapper.usage,
-        error: e,
+        error: MaxTurnsExceeded.new("Exceeded maximum turns: #{max_turns}"),
         context: context_wrapper.context
       )
     rescue StandardError => e
       # Save state even on error
       save_conversation_state(chat, context_wrapper, current_agent) if chat
+
+      Agents.logger.error "FATAL ERROR: #{e.message}"
+      Agents.logger.error "Error class: #{e.class}"
+      Agents.logger.debug "Backtrace: #{e.backtrace.first(10).join("\n  ")}"
 
       RunResult.new(
         output: nil,
@@ -175,11 +189,11 @@ module Agents
         )
       rescue StandardError => e
         # Continue with partial history on error
-        puts "[Agents] Failed to restore message: #{e.message}"
+        Agents.logger.warn "Failed to restore message: #{e.message}"
       end
     rescue StandardError => e
       # If history restoration completely fails, continue with empty history
-      puts "[Agents] Failed to restore conversation history: #{e.message}"
+      Agents.logger.warn "Failed to restore conversation history: #{e.message}"
       context_wrapper.context[:conversation_history] = []
     end
 
@@ -187,8 +201,13 @@ module Agents
       # Extract messages from chat
       messages = extract_messages(chat)
 
+      # Validate messages before saving
+      valid_messages = messages.select do |msg|
+        msg.is_a?(Hash) && msg[:role] && (msg[:content] || msg[:tool_calls])
+      end
+
       # Update context with latest state
-      context_wrapper.context[:conversation_history] = messages
+      context_wrapper.context[:conversation_history] = valid_messages
       context_wrapper.context[:current_agent] = current_agent
       context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
       context_wrapper.context[:last_updated] = Time.now
@@ -196,16 +215,40 @@ module Agents
       # Clean up temporary handoff state
       context_wrapper.context.delete(:pending_handoff)
     rescue StandardError => e
-      puts "[Agents] Failed to save conversation state: #{e.message}"
+      Agents.logger.warn "Failed to save conversation state: #{e.message}"
+      Agents.logger.debug "Error details: #{e.class} - #{e.backtrace&.first(3)&.join("\n  ")}"
+      
+      # Set a minimal valid state to prevent cascading errors
+      context_wrapper.context[:conversation_history] = []
     end
 
     def create_chat(agent, context_wrapper)
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Wrap tools with context for thread-safe execution
+      # Handle tool wrapping with dual interface:
+      # - MCP tools work directly with RubyLLM (they have a 'call' method)
+      # - Regular Agents::Tool instances need ToolWrapper for context injection
       wrapped_tools = agent.all_tools.map do |tool|
-        ToolWrapper.new(tool, context_wrapper)
+        tool_name = tool.respond_to?(:name) ? tool.name : tool.class.name
+        is_mcp = tool.respond_to?(:mcp_tool?) && tool.mcp_tool?
+
+        if is_mcp
+          # MCP tools work directly with RubyLLM - they inherit from Agents::Tool
+          # but also have the 'call' method that RubyLLM expects
+          tool
+        else
+          # Regular Agents::Tool instances need wrapping for context injection
+          ToolWrapper.new(tool, context_wrapper)
+        end
+      end
+
+      if Agents.logger.debug?
+        Agents.logger.debug "Total tools for chat: #{wrapped_tools.length}"
+        wrapped_tools.each_with_index do |tool, i|
+          tool_name = tool.respond_to?(:name) ? tool.name : tool.class.name
+          Agents.logger.debug "  #{i + 1}. #{tool_name} (#{tool.class})"
+        end
       end
 
       # Create chat with proper RubyLLM API
@@ -219,14 +262,90 @@ module Agents
       return [] unless chat.respond_to?(:messages)
 
       chat.messages.filter_map do |msg|
-        # Only include user and assistant messages with content
-        next unless %i[user assistant].include?(msg.role)
-        next unless msg.content && !msg.content.strip.empty?
+        begin
+          case msg.role
+          when :user
+            extract_user_message(msg)
+          when :assistant
+            extract_assistant_message(msg)
+          when :tool
+            extract_tool_message(msg)
+          end
+        rescue StandardError => e
+          Agents.logger.debug "Failed to extract message (role: #{msg.role}): #{e.message}"
+          nil
+        end
+      end
+    end
 
+    private
+
+    def extract_user_message(msg)
+      return nil unless msg.content&.strip&.length&.positive?
+      
+      { role: msg.role, content: msg.content }
+    end
+
+    def extract_assistant_message(msg)
+      message_data = { role: msg.role }
+      
+      # Add content if present and non-empty
+      message_data[:content] = msg.content if msg.content&.strip&.length&.positive?
+      
+      # Add tool calls if present
+      if msg.respond_to?(:tool_calls) && msg.tool_calls&.any?
+        begin
+          normalized_calls = msg.tool_calls.filter_map do |tc|
+            normalize_tool_call(tc)
+          rescue StandardError => e
+            Agents.logger.debug "Failed to normalize tool call: #{e.message}"
+            nil
+          end
+          message_data[:tool_calls] = normalized_calls if normalized_calls.any?
+        rescue StandardError => e
+          Agents.logger.debug "Failed to process tool calls: #{e.message}"
+        end
+      end
+      
+      # Only return if message has content or tool calls
+      message_data if message_data[:content] || message_data[:tool_calls]
+    end
+
+    def extract_tool_message(msg)
+      {
+        role: msg.role,
+        content: msg.content,
+        tool_call_id: msg.respond_to?(:tool_call_id) ? msg.tool_call_id : nil
+      }.compact
+    end
+
+    def normalize_tool_call(tool_call)
+      # Handle object format (standard)
+      if tool_call.respond_to?(:id) && tool_call.respond_to?(:function)
+        # Ensure arguments is properly formatted as a JSON string
+        arguments = tool_call.function.arguments
+        arguments = arguments.to_json if arguments.is_a?(Hash)
+        arguments = arguments.to_s unless arguments.is_a?(String)
+        
         {
-          role: msg.role,
-          content: msg.content
+          id: tool_call.id,
+          type: tool_call.respond_to?(:type) ? tool_call.type : "function",
+          function: {
+            name: tool_call.function.name,
+            arguments: arguments
+          }
         }
+      else
+        # Handle hash format (fallback)
+        normalized = tool_call.is_a?(Hash) ? tool_call : tool_call.to_h
+        
+        # Ensure arguments is a string in hash format too
+        if normalized.dig(:function, :arguments)
+          args = normalized[:function][:arguments]
+          normalized[:function][:arguments] = args.is_a?(Hash) ? args.to_json : args.to_s
+        end
+        
+        normalized
       end
     end
   end

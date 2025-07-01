@@ -1,8 +1,52 @@
+# Bundler
 /.bundle/
+/vendor/bundle/
+
+# Documentation
 /.yardoc
 /_yardoc/
-/coverage/
 /doc/
+
+# Test coverage
+/coverage/
+
+# Package builds
 /pkg/
+*.gem
+
+# Test reports
 /spec/reports/
+/test/reports/
+
+# Temporary files
 /tmp/
+*.tmp
+*.log
+
+# Local development
+local/
+.env
+.env.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ruby version managers
+.ruby-version
+.rbenv-version
+
+# RSpec status
+.rspec_status

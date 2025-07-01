@@ -2,7 +2,6 @@
 
 require "open3"
 require "json"
-require "thread"
 
 module Agents
   module MCP
@@ -48,7 +47,7 @@ module Agents
           @stdin, @stdout, @stderr, @wait_thr = Open3.popen3(@env, @command, *@args)
           start_reader_thread
           @connected = true
-        rescue => e
+        rescue StandardError => e
           raise ConnectionError, "Failed to start MCP server: #{e.message}"
         end
       end
@@ -58,6 +57,36 @@ module Agents
       # @return [Boolean] True if connected to subprocess
       def connected?
         @connected && @wait_thr&.alive?
+      end
+
+      # Call an MCP method and return the result
+      #
+      # @param method [String] The MCP method name (e.g., "tools/list", "tools/call")
+      # @param params [Hash] Parameters for the method call
+      # @return [Hash] The result from the MCP server
+      # @raise [ConnectionError] If not connected or communication fails
+      # @raise [ProtocolError] If response parsing fails
+      def call(method, params = {})
+        # Auto-connect if not already connected
+        connect unless connected?
+
+        request = {
+          "jsonrpc" => "2.0",
+          "method" => method,
+          "params" => params
+        }
+
+        response = send_request(request)
+
+        # Handle nil response
+        return nil if response.nil?
+
+        if response.is_a?(Hash) && response["error"]
+          error_msg = response["error"]["message"] || "Unknown server error"
+          raise ServerError, "MCP server error: #{error_msg}"
+        end
+
+        response.is_a?(Hash) ? response["result"] : response
       end
 
       # Send a JSON-RPC request and wait for response
@@ -79,13 +108,18 @@ module Agents
           @pending[request_id] = response_queue
         end
 
-        # Add ID to request and send
-        request_with_id = request.merge("id" => request_id)
-        
+        # Add ID to request in proper order and send
+        request_with_id = {
+          "jsonrpc" => request["jsonrpc"],
+          "id" => request_id,
+          "method" => request["method"],
+          "params" => request["params"]
+        }
+
         begin
           @stdin.puts(request_with_id.to_json)
           @stdin.flush
-        rescue => e
+        rescue StandardError => e
           @mutex.synchronize { @pending.delete(request_id) }
           raise ConnectionError, "Failed to send request: #{e.message}"
         end
@@ -93,9 +127,12 @@ module Agents
         # Wait for response with timeout
         begin
           response = response_queue.pop(timeout: 30)
-          
-          if response.is_a?(Exception)
-            raise response
+
+          raise response if response.is_a?(Exception)
+
+          # Handle timeout case where response is nil
+          if response.nil?
+            raise ConnectionError, "Request timeout - no response received"
           end
 
           response
@@ -114,20 +151,30 @@ module Agents
         begin
           @reader_thread&.kill
           @reader_thread&.join(1)
-          
+
           [@stdin, @stdout, @stderr].each do |io|
-            io&.close rescue nil
+            io&.close
+          rescue StandardError
+            nil
           end
 
           if @wait_thr&.alive?
-            Process.kill('TERM', @wait_thr.pid) rescue nil
+            begin
+              Process.kill("TERM", @wait_thr.pid)
+            rescue StandardError
+              nil
+            end
             @wait_thr.join(2)
-            
+
             if @wait_thr.alive?
-              Process.kill('KILL', @wait_thr.pid) rescue nil
+              begin
+                Process.kill("KILL", @wait_thr.pid)
+              rescue StandardError
+                nil
+              end
             end
           end
-        rescue => e
+        rescue StandardError => e
           # Log error but don't raise - we're trying to clean up
           warn "Error during MCP transport disconnect: #{e.message}"
         ensure
@@ -137,33 +184,34 @@ module Agents
         end
       end
 
+      # Alias for disconnect to match test expectations
+      alias close disconnect
+
       private
 
       # Start the background thread that reads responses from stdout
       def start_reader_thread
         @reader_thread = Thread.new do
-          begin
-            @stdout.each_line do |line|
-              line = line.strip
-              next if line.empty?
+          @stdout.each_line do |line|
+            line = line.strip
+            next if line.empty?
 
-              begin
-                response = JSON.parse(line)
-                handle_response(response)
-              rescue JSON::ParserError => e
-                warn "Failed to parse MCP response: #{line}"
-                # Continue reading other lines
-              end
+            begin
+              response = JSON.parse(line)
+              handle_response(response)
+            rescue JSON::ParserError
+              warn "Failed to parse MCP response: #{line}"
+              # Continue reading other lines
             end
-          rescue => e
-            # Notify all pending requests of the error
-            @mutex.synchronize do
-              @pending.each_value { |queue| queue.push(ConnectionError.new("Reader thread error: #{e.message}")) }
-              @pending.clear
-            end
-            
-            @connected = false
           end
+        rescue StandardError => e
+          # Notify all pending requests of the error
+          @mutex.synchronize do
+            @pending.each_value { |queue| queue.push(ConnectionError.new("Reader thread error: #{e.message}")) }
+            @pending.clear
+          end
+
+          @connected = false
         end
       end
 

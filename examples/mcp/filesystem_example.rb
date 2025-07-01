@@ -15,7 +15,7 @@ require "agents"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o-mini"
-  config.debug = false
+  config.debug = ENV["AGENTS_DEBUG"] == "true"
 end
 
 unless Agents.configuration.configured?
@@ -23,31 +23,41 @@ unless Agents.configuration.configured?
   exit 1
 end
 
-# Create MCP client for filesystem server
-# This uses the @modelcontextprotocol/server-filesystem package via npx
-filesystem_client = Agents::MCP::Client.new(
-  name: "filesystem",
-  command: "npx",
-  args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
-  include_tools: ["read_file", "write_file", "list_directory"], # Only allow safe operations
-  exclude_tools: ["move_file"] # Exclude potentially dangerous operations
-)
-
-# Create agent with MCP client
-agent = Agents::Agent.new(
-  name: "File Assistant",
-  instructions: <<~INSTRUCTIONS,
-    You are a helpful file assistant that can read, write, and list files.
-    You have access to filesystem tools through MCP integration.
-    
-    Always be helpful and explain what you're doing when working with files.
-    If a file doesn't exist, offer to create it. Be mindful of file safety.
-  INSTRUCTIONS
-  mcp_clients: [filesystem_client]
-)
+# Set the filesystem root directory - use current directory if not specified
+filesystem_root = ENV["FILESYSTEM_ROOT"] || Dir.pwd
+puts "Using filesystem root: #{filesystem_root}"
 
 begin
-  # Test the integration with various file operations
+  # Create an agent with MCP filesystem capabilities
+  agent = Agents::Agent.new(
+    name: "FileManager",
+    instructions: "You are a helpful file management assistant. You can read, write, and list files in the allowed directory. Always be helpful and explain what you're doing.",
+    mcp_clients: [{
+      name: "filesystem",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", filesystem_root],
+      include_tools: %w[read_file write_file list_files]
+    }]
+  )
+
+  # Test the integration by trying to get tools first
+  puts "Attempting to connect to filesystem MCP server..."
+  tools = agent.mcp_manager.get_agent_tools(refresh: true)
+  puts "Available tools: #{tools.map(&:name).join(", ")}"
+
+  # Check client health after connection attempt
+  health = agent.mcp_client_health
+  puts "MCP Health after connection: #{health}"
+
+  if health["filesystem"] && !health["filesystem"][:healthy]
+    puts "Filesystem MCP client is not healthy. Error: #{health["filesystem"][:error]}"
+    puts "Status: #{health["filesystem"][:status]}"
+    puts "Please ensure the @modelcontextprotocol/server-filesystem package is available:"
+    puts "  npm install -g @modelcontextprotocol/server-filesystem"
+    exit 1
+  end
+
+  # Test scenarios
   test_scenarios = [
     "Please list the files in the current directory",
     "Please read the contents of README.md file",
@@ -59,12 +69,10 @@ begin
     puts "Test #{i + 1}: #{scenario}"
     result = Agents::Runner.run(agent, scenario)
     puts "Response: #{result.output}"
-    puts "-" * 50
+    puts "MCP Health: #{agent.mcp_client_health}"
+    puts "--------------------------------------------------"
   end
-
-rescue => e
+rescue StandardError => e
   puts "Error during MCP integration test: #{e.message}"
-  exit 1
-ensure
-  filesystem_client&.disconnect
+  puts "Backtrace: #{e.backtrace.first(5).join("\n")}" if ENV["AGENTS_DEBUG"] == "true"
 end
