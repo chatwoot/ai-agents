@@ -2,6 +2,7 @@
 layout: default
 title: Architecture
 nav_order: 4
+published: false
 ---
 
 # Architecture
@@ -124,13 +125,13 @@ Each execution receives an isolated context copy:
 def run(input, context: {})
   # 1. Deep copy context for isolation
   context_copy = deep_copy_context(context)
-  
+
   # 2. Create execution wrapper
   run_context = RunContext.new(context_copy)
-  
+
   # 3. Execute with isolated state
   result = execute_with_context(run_context)
-  
+
   # 4. Return serializable result
   return result
 end
@@ -301,17 +302,17 @@ class CustomTool < Agents::Tool
   name "custom_action"
   description "Perform custom business logic"
   param :input, type: "string"
-  
+
   def perform(tool_context, input:)
     # Access context for state
     user_id = tool_context.context[:user_id]
-    
+
     # Perform custom logic
     result = BusinessLogic.process(input, user_id)
-    
+
     # Update shared state
     tool_context.state[:last_action] = result
-    
+
     result
   end
 end
@@ -334,29 +335,6 @@ agent = Agents::Agent.new(
   name: "Assistant",
   model: CustomProvider.new.model("custom-model")
 )
-```
-
-## Monitoring and Observability
-
-### Usage Tracking
-
-Built-in usage tracking for all LLM calls:
-
-```ruby
-result = runner.run("Hello")
-puts "Tokens used: #{result.usage.total_tokens}"
-puts "Input tokens: #{result.usage.input_tokens}"
-puts "Output tokens: #{result.usage.output_tokens}"
-```
-
-### Conversation Introspection
-
-Full conversation history is available:
-
-```ruby
-result.messages.each do |msg|
-  puts "#{msg[:role]} (#{msg[:agent_name]}): #{msg[:content]}"
-end
 ```
 
 ### Debug Hooks

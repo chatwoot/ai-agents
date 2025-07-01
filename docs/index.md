@@ -60,6 +60,8 @@ require 'agents'
 # Configure your API keys
 Agents.configure do |config|
   config.openai_api_key = ENV['OPENAI_API_KEY']
+  # config.anthropic_api_key = ENV['ANTHROPIC_API_KEY']
+  # config.gemini_api_key = ENV['GEMINI_API_KEY']
   config.default_model = 'gpt-4o-mini'
 end
 
@@ -81,7 +83,7 @@ triage.register_handoffs(support)
 runner = Agents::AgentRunner.with_agents(triage, support)
 result = runner.run("I need help with a technical issue")
 
-puts result.messages.last.content
+puts result.output
 ```
 
 ## Next Steps
