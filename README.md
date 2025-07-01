@@ -3,7 +3,7 @@
 <br>
 <p>
   <h1>
-    <img src="./.github/ruby-agent.png" width="200px"/>
+    <img src="./.github/ruby-agentspng" width="200px"/>
     Ruby Agents
   </h1>
 </p>
