@@ -11,6 +11,9 @@ An **Agent** is the fundamental building block of the library. It represents an 
 
 Agents are immutable and thread-safe by design. Once created, their configuration cannot be changed, ensuring safe sharing across multiple threads without race conditions. Agents can have dynamic instructions using Proc objects that receive runtime context.
 
+{: .note }
+This project is in early development. While thread safety is a core design goal and the architecture is built around it, complete thread safety is not yet guaranteed. We're actively working toward this goal.
+
 ### Key Attributes of an Agent
 
 *   **`name`**: A unique name for the agent, used for identification and in handoffs.
