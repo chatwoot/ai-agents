@@ -7,7 +7,7 @@ url: ""
 theme: just-the-docs
 
 # Color scheme
-color_scheme: light
+color_scheme: ruby
 
 # Search
 search_enabled: true
@@ -27,7 +27,7 @@ nav_external_links:
     url: https://github.com/chatwoot/ai-agents
 
 # Footer
-footer_content: "Copyright &copy; 2025. Built with Jekyll and Just the Docs."
+footer_content: "Copyright (c) 2025 Chatwoot Inc."
 
 # Plugins
 plugins:
