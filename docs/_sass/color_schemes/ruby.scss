@@ -6,8 +6,8 @@ $red-000: #fff5f5;
 $red-100: #fed7d7;
 $red-200: #feb2b2;
 $red-300: #fc8181;
-$red-400: #f56565;
-$red-500: #D30001; // Primary Ruby red
+$red-400: #e53e3e;
+$red-500: #d30001; // Primary Ruby red
 $red-600: #b30001;
 $red-700: #930001;
 $red-800: #730001;
@@ -34,7 +34,6 @@ $base-button-color: #f7f7f7;
 $nav-child-link-color: $grey-dk-100;
 $nav-list-item-color: $grey-dk-100;
 $nav-list-item-active-color: $red-500;
-$nav-list-item-hover-color: $red-400;
 
 // Sidebar background
 $sidebar-color: $grey-lt-100; // Subtle reddish tint for sidebar
@@ -56,6 +55,9 @@ $btn-outline-color: $red-500;
 
 // Focus states
 $focus-color: $red-400;
+
+// Feedback states
+$feedback-color: $grey-lt-300;
 
 // Headings
 $h1-color: $grey-dk-300;
