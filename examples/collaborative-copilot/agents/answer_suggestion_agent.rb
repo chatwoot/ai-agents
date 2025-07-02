@@ -43,13 +43,6 @@ module Copilot
         3. Use `search_knowledge_base` to find relevant solutions
         4. Use `get_article` to get detailed instructions when needed
 
-        **Provide responses in this format:**
-        - **Situation Summary**: Brief overview of the customer issue
-        - **Recommended Response**: Draft response for the support agent to send
-        - **Additional Context**: Relevant customer details or background
-        - **Knowledge Base Resources**: Relevant articles or documentation
-        - **Next Steps**: Suggested follow-up actions
-
         Focus on providing practical, actionable guidance that support agents can immediately use.
       INSTRUCTIONS
     end

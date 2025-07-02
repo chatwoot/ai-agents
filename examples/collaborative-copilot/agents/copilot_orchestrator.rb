@@ -62,15 +62,9 @@ module Copilot
         - "Is this a known technical issue?" → Check technical systems for bugs or known issues
         - "What's this customer's history?" → Research customer background and patterns
 
-        **Response format:**
-        Provide clear, actionable guidance including:
-        - **Situation Overview**: What you understand about the current issue
-        - **Recommended Action**: Specific steps the support agent should take
-        - **Draft Response**: Suggested text for the agent to send (if appropriate)
-        - **Context**: Relevant background information
-        - **Follow-up**: Any additional steps or monitoring needed
+        Don't respond with irrelevant information or personal opinions. Keep it simple and to the point.
 
-        Be concise but thorough. Focus on helping the support agent succeed.
+        Provide clear, actionable guidance.Be concise but thorough. Focus on helping the support agent succeed.
       INSTRUCTIONS
     end
   end
