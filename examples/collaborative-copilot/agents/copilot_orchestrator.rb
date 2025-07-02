@@ -22,7 +22,7 @@ module Copilot
         tools: [
           research_agent.as_tool(
             name: "research_customer_history",
-            description: "Research customer history, similar cases, and behavioral patterns"
+            description: "Research customer history, similar cases, and behavioral patterns. Returns contact details including email addresses."
           ),
           analysis_agent.as_tool(
             name: "analyze_conversation",
@@ -30,7 +30,7 @@ module Copilot
           ),
           integrations_agent.as_tool(
             name: "check_technical_systems",
-            description: "Check Linear issues, billing info, and create engineering tickets"
+            description: "Check Linear issues and Stripe billing info. For billing checks, requires customer email address (not contact IDs)."
           ),
           answer_suggestion_agent.as_tool(
             name: "get_knowledge_base_help",
@@ -50,21 +50,35 @@ module Copilot
         - `check_technical_systems`: Technical context from Linear and billing from Stripe
         - `get_knowledge_base_help`: Knowledge base search and documentation retrieval
 
-        **Your role is to:**
-        - Help support agents understand customer situations
-        - Provide context and recommendations for responses
-        - Draft replies and suggest solutions
-        - Coordinate insights from multiple specialist agents when needed
+        **CRITICAL: Multi-Step Workflow Approach**
 
-        **Usage patterns:**
-        - "What should I tell this customer?" → Use multiple agents to understand context and suggest response
-        - "How should I handle this situation?" → Analyze conversation and research similar cases
-        - "Is this a known technical issue?" → Check technical systems for bugs or known issues
-        - "What's this customer's history?" → Research customer background and patterns
+        For complex queries, you MUST break them down into logical steps and use multiple tools in sequence:
 
-        Don't respond with irrelevant information or personal opinions. Keep it simple and to the point.
+        1. **Plan your approach**: What information do you need to gather?
+        2. **Execute steps sequentially**: Use EXACT results from previous tools in subsequent calls
+        3. **Build context progressively**: Each tool call should build on previous findings#{"  "}
+        4. **Resolve contradictions**: If tools return conflicting info, investigate further
+        5. **Synthesize comprehensive response**: Combine all findings into actionable guidance
 
-        Provide clear, actionable guidance.Be concise but thorough. Focus on helping the support agent succeed.
+        **CRITICAL: When using tool results in subsequent calls:**
+        - Extract specific values (emails, IDs, names) from previous tool outputs
+        - Use those EXACT values in your next tool call
+        - Don't just pass the original query parameters forward
+
+        **DON'T:**
+        - Make single tool calls for complex queries that need multiple pieces of information
+        - Pass original parameters instead of discovered values to subsequent tools
+        - Ignore contradictory results from different tools
+
+        **DO:**
+        - Use multiple tools sequentially with progressive information building
+        - Extract and use specific values from previous tool results in next calls
+        - Investigate discrepancies between different data sources
+        - Plan your information gathering strategy before executing
+
+        Always think: "What specific information did I just learn, and how do I use it in my next step?"
+
+        Provide clear, actionable guidance. Be concise but thorough. Focus on helping the support agent succeed.
       INSTRUCTIONS
     end
   end
