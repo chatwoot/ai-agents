@@ -119,36 +119,6 @@ copilot = Agent.new(
 )
 ```
 
-### Research Pipeline
-
-```ruby
-# Sequential agent collaboration
-data_collector = Agent.new(
-  name: "DataCollector",
-  instructions: "Gather relevant data from sources"
-)
-
-data_analyzer = Agent.new(
-  name: "DataAnalyzer",
-  instructions: "Analyze collected data for insights"
-)
-
-report_writer = Agent.new(
-  name: "ReportWriter",
-  instructions: "Generate comprehensive reports"
-)
-
-# Pipeline orchestrator
-pipeline = Agent.new(
-  name: "ResearchPipeline",
-  tools: [
-    data_collector.as_tool(name: "collect_data"),
-    data_analyzer.as_tool(name: "analyze_data"),
-    report_writer.as_tool(name: "write_report")
-  ]
-)
-```
-
 ## Output Transformation
 
 AgentTool supports custom output extractors for transforming results:
@@ -168,14 +138,6 @@ summarizer_tool = summarizer.as_tool(
   }
 )
 ```
-
-## Thread Safety
-
-AgentTool is designed for thread-safe operation:
-
-- No execution state stored in instance variables
-- Context isolation prevents shared state mutations
-- Compatible with concurrent agent runners
 
 ## Best Practices
 
