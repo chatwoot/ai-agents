@@ -178,5 +178,39 @@ module Agents
         instructions.call(context)
       end
     end
+
+    # Transform this agent into a tool, callable by other agents.
+    # This enables agent-to-agent collaboration without conversation handoffs.
+    #
+    # Agent-as-tool is different from handoffs in two key ways:
+    # 1. The wrapped agent receives generated input, not conversation history
+    # 2. The wrapped agent returns a result to the calling agent, rather than taking over
+    #
+    # @param name [String, nil] Override the tool name (defaults to snake_case agent name)
+    # @param description [String, nil] Override the tool description
+    # @param output_extractor [Proc, nil] Custom proc to extract/transform the agent's output
+    # @param params [Hash] Additional parameter definitions for the tool
+    # @return [Agents::AgentTool] A tool that wraps this agent
+    #
+    # @example Basic agent-as-tool
+    #   research_agent = Agent.new(name: "Researcher", instructions: "Research topics")
+    #   research_tool = research_agent.as_tool(
+    #     name: "research_topic",
+    #     description: "Research a topic using company knowledge base"
+    #   )
+    #
+    # @example Custom output extraction
+    #   analyzer_tool = analyzer_agent.as_tool(
+    #     output_extractor: ->(result) { result.context[:extracted_data]&.to_json || result.output }
+    #   )
+    #
+    def as_tool(name: nil, description: nil, output_extractor: nil)
+      AgentTool.new(
+        agent: self,
+        name: name,
+        description: description,
+        output_extractor: output_extractor
+      )
+    end
   end
 end

@@ -15,6 +15,8 @@ SimpleCov.start do
   minimum_coverage_by_file 40
 end
 
+require_relative "../lib/agents"
+
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true

@@ -224,4 +224,125 @@ RSpec.describe Agents::Agent do
       expect(result).to eq("Base instructions")
     end
   end
+
+  describe "#as_tool" do
+    let(:agent) do
+      described_class.new(
+        name: "Research Agent",
+        instructions: "You research topics",
+        model: "gpt-4o-mini"
+      )
+    end
+
+    it "creates an AgentTool with default settings" do
+      tool = agent.as_tool
+
+      expect(tool).to be_a(Agents::AgentTool)
+      expect(tool.wrapped_agent).to eq(agent)
+      expect(tool.name).to eq("research_agent")
+      expect(tool.description).to eq("Execute Research Agent agent")
+      expect(tool.output_extractor).to be_nil
+    end
+
+    it "creates an AgentTool with custom name and description" do
+      tool = agent.as_tool(
+        name: "custom_research",
+        description: "Custom research functionality"
+      )
+
+      expect(tool.name).to eq("custom_research")
+      expect(tool.description).to eq("Custom research functionality")
+    end
+
+    it "creates an AgentTool with output extractor" do
+      extractor = ->(result) { "Summary: #{result.output}" }
+      tool = agent.as_tool(output_extractor: extractor)
+
+      expect(tool.output_extractor).to eq(extractor)
+    end
+
+    it "passes through all parameters to AgentTool" do
+      extractor = ->(result) { result.output.upcase }
+
+      tool = agent.as_tool(
+        name: "search_tool",
+        description: "Search functionality",
+        output_extractor: extractor
+      )
+
+      expect(tool.name).to eq("search_tool")
+      expect(tool.description).to eq("Search functionality")
+      expect(tool.output_extractor).to eq(extractor)
+    end
+
+    it "returns different AgentTool instances for multiple calls" do
+      tool1 = agent.as_tool
+      tool2 = agent.as_tool
+
+      expect(tool1).not_to be(tool2)
+      expect(tool1.wrapped_agent).to eq(tool2.wrapped_agent)
+    end
+
+    context "with complex agent names" do
+      let(:complex_agent) do
+        described_class.new(
+          name: "Complex Agent Name With Spaces!",
+          instructions: "Test",
+          model: "gpt-4o-mini"
+        )
+      end
+
+      it "transforms complex names correctly" do
+        tool = complex_agent.as_tool
+
+        expect(tool.name).to eq("complex_agent_name_with_spaces")
+        expect(tool.description).to eq("Execute Complex Agent Name With Spaces! agent")
+      end
+    end
+
+    context "integration test" do
+      let(:test_agent) do
+        described_class.new(
+          name: "Echo Agent",
+          instructions: "Echo back the input you receive",
+          model: "gpt-4o-mini"
+        )
+      end
+
+      let(:tool_context) do
+        run_context = Agents::RunContext.new({ state: { test: true } })
+        Agents::ToolContext.new(run_context: run_context)
+      end
+
+      it "creates a functional tool that can be executed" do
+        tool = test_agent.as_tool(name: "echo_tool")
+
+        expect(tool).to respond_to(:perform)
+        expect(tool).to respond_to(:execute)
+        expect(tool.name).to eq("echo_tool")
+
+        # Mock the underlying runner to avoid actual LLM calls
+        mock_runner = instance_double(Agents::Runner)
+        mock_result = instance_double(
+          Agents::RunResult,
+          output: "Echoed: test input",
+          error: nil
+        )
+
+        allow(Agents::Runner).to receive(:new).and_return(mock_runner)
+        allow(mock_runner).to receive(:run).and_return(mock_result)
+
+        result = tool.perform(tool_context, input: "test input")
+
+        expect(result).to eq("Echoed: test input")
+        expect(mock_runner).to have_received(:run).with(
+          test_agent,
+          "test input",
+          context: { state: { test: true } },
+          registry: {},
+          max_turns: 3
+        )
+      end
+    end
+  end
 end
