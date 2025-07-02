@@ -20,46 +20,46 @@ copilot = Copilot::CopilotOrchestrator.create
 runner = Agents::Runner.with_agents(copilot)
 
 # Demo scenarios
-scenarios = [
-  {
-    title: "API Errors - Enterprise Customer",
-    query: "mike.chen@techfirm.com reporting API 500 errors (CONV-004). Help?"
-  },
-  {
-    title: "Angry Customer - Login + Billing",
-    query: "john.smith@example.com can't login AND has billing issues (CONV-001). Threatening to cancel. What do I do?"
-  },
-  {
-    title: "Dark Mode Feature Request",
-    query: "Customer asking about dark mode. Is this being worked on? Should I create a ticket?"
-  },
-  {
-    title: "Enterprise Integration Issues",
-    query: "CONTACT-789 can't get API integration working. Need help with response."
-  }
-]
+# scenarios = [
+#   {
+#     title: "API Errors - Enterprise Customer",
+#     query: "mike.chen@techfirm.com reporting API 500 errors (CONV-004). Help?"
+#   },
+#   {
+#     title: "Angry Customer - Login + Billing",
+#     query: "john.smith@example.com can't login AND has billing issues (CONV-001). Threatening to cancel. What do I do?"
+#   },
+#   {
+#     title: "Dark Mode Feature Request",
+#     query: "Customer asking about dark mode. Is this being worked on? Should I create a ticket?"
+#   },
+#   {
+#     title: "Enterprise Integration Issues",
+#     query: "CONTACT-789 can't get API integration working. Need help with response."
+#   }
+# ]
 
-scenarios.each_with_index do |scenario, i|
-  puts("-" * 60)
-  puts "Scenario #{i + 1}: #{scenario[:title]}"
-  puts("-" * 60)
-  puts "Support Agent Query: #{scenario[:query]}"
-  puts
-  puts "Copilot Response:"
-  puts
+# scenarios.each_with_index do |scenario, i|
+#   puts("-" * 60)
+#   puts "Scenario #{i + 1}: #{scenario[:title]}"
+#   puts("-" * 60)
+#   puts "Support Agent Query: #{scenario[:query]}"
+#   puts
+#   puts "Copilot Response:"
+#   puts
 
-  begin
-    result = runner.run(scenario[:query])
-    puts result.output
-  rescue StandardError => e
-    puts "Error: #{e.message}"
-  end
+#   begin
+#     result = runner.run(scenario[:query])
+#     puts result.output
+#   rescue StandardError => e
+#     puts "Error: #{e.message}"
+#   end
 
-  puts
-  puts "Press Enter to continue to next scenario..."
-  gets
-  puts
-end
+#   puts
+#   puts "Press Enter to continue to next scenario..."
+#   gets
+#   puts
+# end
 
 puts "=== Interactive Mode ==="
 puts "Now you can ask the copilot questions directly."
