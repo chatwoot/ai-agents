@@ -48,8 +48,7 @@ module Agents
     # @param name [String, nil] Override the tool name (defaults to snake_case agent name)
     # @param description [String, nil] Override the tool description
     # @param output_extractor [Proc, nil] Custom proc to extract/transform the agent's output
-    # @param params [Hash] Additional parameter definitions for the tool (not currently supported)
-    def initialize(agent:, name: nil, description: nil, output_extractor: nil, params: {})
+    def initialize(agent:, name: nil, description: nil, output_extractor: nil)
       @wrapped_agent = agent
       @tool_name = name || transform_agent_name(agent.name)
       @tool_description = description || "Execute #{agent.name} agent"

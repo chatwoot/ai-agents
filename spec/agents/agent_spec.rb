@@ -263,13 +263,11 @@ RSpec.describe Agents::Agent do
 
     it "passes through all parameters to AgentTool" do
       extractor = ->(result) { result.output.upcase }
-      params = { query: { type: "string", description: "Search query" } }
 
       tool = agent.as_tool(
         name: "search_tool",
         description: "Search functionality",
-        output_extractor: extractor,
-        params: params
+        output_extractor: extractor
       )
 
       expect(tool.name).to eq("search_tool")

@@ -204,20 +204,12 @@ module Agents
     #     output_extractor: ->(result) { result.context[:extracted_data]&.to_json || result.output }
     #   )
     #
-    # @example Multi-parameter tool
-    #   translation_tool = translator_agent.as_tool(
-    #     params: {
-    #       text: { type: "string", description: "Text to translate" },
-    #       target_language: { type: "string", description: "Target language code" }
-    #     }
-    #   )
-    def as_tool(name: nil, description: nil, output_extractor: nil, params: {})
+    def as_tool(name: nil, description: nil, output_extractor: nil)
       AgentTool.new(
         agent: self,
         name: name,
         description: description,
-        output_extractor: output_extractor,
-        params: params
+        output_extractor: output_extractor
       )
     end
   end
