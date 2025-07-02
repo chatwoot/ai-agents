@@ -18,6 +18,7 @@ puts
 # Create the main copilot
 copilot = Copilot::CopilotOrchestrator.create
 runner = Agents::Runner.with_agents(copilot)
+context = {}
 
 # Demo scenarios
 # scenarios = [
@@ -74,7 +75,11 @@ loop do
   puts
   puts "Copilot:"
   begin
-    result = runner.run(input)
+    result = runner.run(input, context: context)
+
+    # Update context with the returned context from Runner
+    context = result.context if result.respond_to?(:context) && result.context
+
     puts result.output
   rescue StandardError => e
     puts "Error: #{e.message}"
