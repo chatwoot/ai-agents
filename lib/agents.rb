@@ -24,12 +24,6 @@ module Agents
       @configuration ||= Configuration.new
     end
 
-    # Reset configuration (useful for tests)
-    def reset_configuration!
-      @configuration = nil
-      @logger = nil
-    end
-
     # Get the configured logger instance
     # @return [Logger] The logger instance
     def logger

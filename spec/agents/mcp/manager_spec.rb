@@ -519,7 +519,7 @@ RSpec.describe Agents::MCP::Manager do
           result: { "data" => "value", "status" => "ok" }
         )
 
-        expect(complex_result.to_s).to eq('{"data"=>"value", "status"=>"ok"}')
+        expect(complex_result.to_s).to eq('{"data" => "value", "status" => "ok"}')
       end
     end
   end

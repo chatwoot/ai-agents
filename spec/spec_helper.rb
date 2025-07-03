@@ -20,10 +20,4 @@ RSpec.configure do |config|
 
   # Capture warnings
   config.warnings = false
-
-  # Clean up after each test
-  config.after do
-    # Reset configuration to avoid test pollution
-    Agents.reset_configuration! if Agents.respond_to?(:reset_configuration!)
-  end
 end
