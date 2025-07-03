@@ -205,13 +205,17 @@ RSpec.describe Agents::Runner do
                         name: "handoff_to_handoffagent",
                         description: "Transfer to HandoffAgent",
                         parameters: {},
-                        target_agent: handoff_agent,
-                        execute: "Transferring to HandoffAgent")
+                        target_agent: handoff_agent)
       end
 
       before do
         allow(Agents::HandoffTool).to receive(:new).with(handoff_agent)
                                                    .and_return(handoff_tool_instance)
+        allow(handoff_tool_instance).to receive(:perform).and_return("Transferring to HandoffAgent")
+        allow(handoff_tool_instance).to receive(:execute).and_return("Transferring to HandoffAgent")
+        allow(handoff_tool_instance).to receive(:is_a?) do |klass|
+          klass == Agents::HandoffTool
+        end
 
         # First request - triage agent decides to handoff
         stub_request(:post, "https://api.openai.com/v1/chat/completions")

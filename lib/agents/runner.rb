@@ -83,11 +83,13 @@ module Agents
     # @param max_turns [Integer] Maximum conversation turns before stopping
     # @return [RunResult] The result containing output, messages, and usage
     def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS)
-      # Determine current agent from context or use starting agent
-      current_agent = context[:current_agent] || starting_agent
+      # Use starting agent if provided, otherwise resolve from context
+      current_agent = starting_agent || resolve_agent_from_context(context[:current_agent], registry)
 
       # Create context wrapper with deep copy for thread safety
       context_copy = deep_copy_context(context)
+      # Store the resolved agent name in context
+      context_copy[:current_agent] = current_agent.name
       context_wrapper = RunContext.new(context_copy)
       current_turn = 0
 
@@ -129,7 +131,7 @@ module Agents
 
           # Create new context wrapper for next agent
           next_context = context_wrapper.context.dup
-          next_context[:current_agent] = next_agent
+          next_context[:current_agent] = next_agent.name
           next_context[:handoff_message] = handoff_message
 
           # Continue with the next agent using the handoff message as input
@@ -189,6 +191,21 @@ module Agents
 
     private
 
+    def resolve_agent_from_context(agent_ref, registry)
+      return nil unless agent_ref
+
+      # If it's already an agent object, return it
+      return agent_ref if agent_ref.respond_to?(:name)
+
+      # If it's a string and we have a registry, look it up
+      if agent_ref.is_a?(String) && registry[agent_ref]
+        return registry[agent_ref]
+      end
+
+      # Return nil if we couldn't resolve it
+      nil
+    end
+
     def deep_copy_context(context)
       # Handle deep copying for thread safety
       context.dup.tap do |copied|
@@ -232,7 +249,7 @@ module Agents
 
       # Update context with latest state
       context_wrapper.context[:conversation_history] = valid_messages
-      context_wrapper.context[:current_agent] = current_agent
+      context_wrapper.context[:current_agent] = current_agent.name
       context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
       context_wrapper.context[:last_updated] = Time.now
     rescue StandardError => e

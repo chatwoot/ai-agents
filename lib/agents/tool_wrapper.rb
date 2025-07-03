@@ -70,6 +70,12 @@ module Agents
     # Fallback call method for compatibility with tools that expect it
     # This handles cases where MCP tools are accidentally wrapped
     def call(*args, **kwargs)
+      # Convert first hash argument to kwargs if needed
+      if args.length == 1 && args[0].is_a?(Hash) && kwargs.empty?
+        kwargs = args[0].transform_keys(&:to_sym)
+        args = []
+      end
+
       # If the wrapped tool has a call method (like MCP tools), use it directly
       if @tool.respond_to?(:call)
         # For Agents::Tool instances, set the context in thread-local variable
