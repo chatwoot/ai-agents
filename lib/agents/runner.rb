@@ -176,10 +176,6 @@ module Agents
       # Save state even on error
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
-      Agents.logger.error "FATAL ERROR: #{e.message}"
-      Agents.logger.error "Error class: #{e.class}"
-      Agents.logger.debug "Backtrace: #{e.backtrace.first(10).join("\n  ")}"
-
       RunResult.new(
         output: nil,
         messages: chat ? extract_messages(chat) : [],
@@ -198,9 +194,7 @@ module Agents
       return agent_ref if agent_ref.respond_to?(:name)
 
       # If it's a string and we have a registry, look it up
-      if agent_ref.is_a?(String) && registry[agent_ref]
-        return registry[agent_ref]
-      end
+      return registry[agent_ref] if agent_ref.is_a?(String) && registry[agent_ref]
 
       # Return nil if we couldn't resolve it
       nil

@@ -33,22 +33,6 @@ end
 puts "Linear MCP Integration Example"
 puts "=" * 40
 
-# Check for access token
-access_token = ENV["LINEAR_ACCESS_TOKEN"]
-
-if access_token
-  puts "\n✓ Using LINEAR_ACCESS_TOKEN from environment"
-  puts "  Token: #{access_token[0..10]}..."
-else
-  puts "\n⚠ No LINEAR_ACCESS_TOKEN found"
-  puts "  Will attempt connection without authentication"
-  puts "  Some features may be limited"
-  puts "\n  To get full functionality:"
-  puts "  1. Go to https://linear.app/settings/api"
-  puts "  2. Create a Personal API Key"
-  puts "  3. Set LINEAR_ACCESS_TOKEN environment variable"
-end
-
 puts "\nSetting up MCP Connection:"
 
 # Configure MCP client
@@ -57,11 +41,6 @@ mcp_config = {
   command: "npx",
   args: ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
 }
-
-# Add environment token if available
-if access_token
-  mcp_config[:env] = { "LINEAR_ACCESS_TOKEN" => access_token }
-end
 
 # Create agent with Linear MCP client
 agent = Agents::Agent.new(
@@ -77,7 +56,7 @@ agent = Agents::Agent.new(
 
     When using Linear tools:
     1. Always check what teams/projects are available first
-    2. Be specific about which workspace/team you're working with  
+    2. Be specific about which workspace/team you're working with#{"  "}
     3. Provide clear summaries of the information you retrieve
     4. If authentication fails, explain the issue clearly
 
@@ -97,7 +76,7 @@ begin
 
   # Try to get available tools
   tools = agent.all_tools.select { |tool| tool.is_a?(Agents::MCP::Tool) }
-  
+
   if tools.any?
     puts "✓ Successfully connected to Linear MCP"
     puts "✓ Available tools: #{tools.length}"
