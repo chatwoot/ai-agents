@@ -20,6 +20,9 @@ module Agents
   PREFIX
 
   class << self
+    # Logger for debugging (can be set by users)
+    attr_accessor :logger
+
     # Configure both Agents and RubyLLM in one block
     def configure
       yield(configuration) if block_given?
@@ -38,9 +41,7 @@ module Agents
     end
 
     # Set a custom logger
-    def logger=(logger)
-      @logger = logger
-    end
+    attr_writer :logger
 
     private
 

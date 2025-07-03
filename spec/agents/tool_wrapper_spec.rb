@@ -7,7 +7,8 @@ RSpec.describe Agents::ToolWrapper do
     instance_double(Agents::Tool,
                     name: "test_tool",
                     description: "A test tool",
-                    parameters: { city: { type: "string", description: "City name" }, country: { type: "string", description: "Country name" } },
+                    parameters: { city: { type: "string", description: "City name" },
+                                  country: { type: "string", description: "Country name" } },
                     execute: "result",
                     perform: "result")
   end
