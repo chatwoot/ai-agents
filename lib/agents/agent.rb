@@ -15,11 +15,16 @@ require "set"
 #     tools: [calculator_tool, weather_tool]
 #   )
 #
-# @example Creating an agent with dynamic instructions
+# @example Creating an agent with dynamic state-aware instructions
 #   agent = Agents::Agent.new(
 #     name: "Support Agent",
 #     instructions: ->(context) {
-#       "You are supporting user #{context.context[:user_name]}"
+#       state = context.context[:state] || {}
+#       base = "You are a support agent."
+#       if state[:customer_name]
+#         base += " Customer: #{state[:customer_name]} (#{state[:customer_id]})"
+#       end
+#       base
 #     }
 #   )
 #
@@ -226,10 +231,8 @@ module Agents
     # @option changes [String] :model New model identifier
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
-    # @option changes [Array<Agents::MCP::Client>] :mcp_clients New MCP clients
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
-      # Filter out MCP tools from current tools if we're providing new MCP clients
       base_tools = if changes.key?(:mcp_clients)
                      @tools.reject { |tool| tool.is_a?(MCP::Tool) }
                    else
@@ -256,24 +259,65 @@ module Agents
     #     instructions: "You are a helpful support agent"
     #   )
     #
-    # @example Dynamic instructions based on context
+    # @example Dynamic instructions with state awareness
     #   agent = Agent.new(
-    #     name: "Support",
+    #     name: "Sales Agent",
     #     instructions: ->(context) {
-    #       user = context.context[:user]
-    #       "You are helping #{user.name}. They are a #{user.tier} customer with account #{user.id}"
+    #       state = context.context[:state] || {}
+    #       base = "You are a sales agent."
+    #       if state[:customer_name] && state[:current_plan]
+    #         base += " Customer: #{state[:customer_name]} on #{state[:current_plan]} plan."
+    #       end
+    #       base
     #     }
     #   )
     #
     # @param context [Agents::RunContext] The current execution context containing runtime data
     # @return [String, nil] The system prompt string or nil if no instructions are set
     def get_system_prompt(context)
+      # TODO: Add string interpolation support for instructions
+      # Allow instructions like "You are helping %{customer_name}" that automatically
+      # get state values injected from context[:state] using Ruby's % formatting
       case instructions
       when String
         instructions
       when Proc
         instructions.call(context)
       end
+    end
+
+    # Transform this agent into a tool, callable by other agents.
+    # This enables agent-to-agent collaboration without conversation handoffs.
+    #
+    # Agent-as-tool is different from handoffs in two key ways:
+    # 1. The wrapped agent receives generated input, not conversation history
+    # 2. The wrapped agent returns a result to the calling agent, rather than taking over
+    #
+    # @param name [String, nil] Override the tool name (defaults to snake_case agent name)
+    # @param description [String, nil] Override the tool description
+    # @param output_extractor [Proc, nil] Custom proc to extract/transform the agent's output
+    # @param params [Hash] Additional parameter definitions for the tool
+    # @return [Agents::AgentTool] A tool that wraps this agent
+    #
+    # @example Basic agent-as-tool
+    #   research_agent = Agent.new(name: "Researcher", instructions: "Research topics")
+    #   research_tool = research_agent.as_tool(
+    #     name: "research_topic",
+    #     description: "Research a topic using company knowledge base"
+    #   )
+    #
+    # @example Custom output extraction
+    #   analyzer_tool = analyzer_agent.as_tool(
+    #     output_extractor: ->(result) { result.context[:extracted_data]&.to_json || result.output }
+    #   )
+    #
+    def as_tool(name: nil, description: nil, output_extractor: nil)
+      AgentTool.new(
+        agent: self,
+        name: name,
+        description: description,
+        output_extractor: output_extractor
+      )
     end
   end
 end

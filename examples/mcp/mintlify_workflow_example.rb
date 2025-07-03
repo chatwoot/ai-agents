@@ -37,7 +37,7 @@ end
 #   Replace "/Users/username/.mcp/acme-d0cb791b/src/index.js" with your actual path
 #
 # Note: The acme-d0cb791b identifier may vary depending on your Chatwoot MCP installation
-mintlify_server_path = ENV["MINTLIFY_MCP_SERVER"] || "/Users/username/.mcp/acme-d0cb791b/src/index.js"
+mintlify_server_path = ENV["MINTLIFY_MCP_SERVER"] || "/Users/tanmaydeepsharma/.mcp/acme-d0cb791b/src/index.js"
 
 # FILESYSTEM ROOT CONFIGURATION:
 # Set the root directory for filesystem operations

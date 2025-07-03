@@ -82,7 +82,18 @@ module Agents
         super(name, type: json_type, desc: desc, required: required, **options)
       end
     end
-    
+
+    # Execute the tool with context injection.
+    # This method is called by the runner and handles the thread-safe
+    # execution pattern by passing all state through parameters.
+    #
+    # @param tool_context [Agents::ToolContext] The execution context containing shared state and usage tracking
+    # @param params [Hash] Tool-specific parameters as defined by the tool's param declarations
+    # @return [String] The tool's result
+    def execute(tool_context, **params)
+      perform(tool_context, **params)
+    end
+
     # RubyLLM compatibility method - handles both positional and keyword arguments
     # This method provides backward compatibility and flexibility for different calling patterns.
     #
@@ -108,17 +119,6 @@ module Agents
       end
 
       perform(tool_context, **combined_params)
-    end
-
-    # Execute the tool with context injection.
-    # This method is called by the runner and handles the thread-safe
-    # execution pattern by passing all state through parameters.
-    #
-    # @param tool_context [Agents::ToolContext] The execution context containing shared state and usage tracking
-    # @param params [Hash] Tool-specific parameters as defined by the tool's param declarations
-    # @return [String] The tool's result
-    def execute(tool_context, **params)
-      perform(tool_context, **params)
     end
 
     # Perform the tool's action. Subclasses must implement this method.

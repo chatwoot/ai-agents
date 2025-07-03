@@ -2,14 +2,16 @@
 <br>
 <br>
 <p>
-  <img src="./.github/ruby-agent.png" width="200px"/>
-  <h1>Ruby Agents</h1>
+  <img src="./.github/ruby-agents.png" height="80px"/>
+  <h1>
+    AI Agents
+  </h1>
 </p>
 <br>
 <br>
 </div>
 
-A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspired by OpenAI's Agents SDK but built specifically for Ruby developers.
+A delightful provider agnostic Ruby SDK for building multi-agent AI workflows with seamless handoffs tool calling, and shared context.
 
 ## ✨ Features
 
@@ -17,7 +19,6 @@ A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspire
 - **🔄 Seamless Handoffs**: Transparent agent-to-agent transfers (users never know!)
 - **🛠️ Tool Integration**: Agents can use custom tools and functions
 - **💾 Shared Context**: State management across agent interactions
-- **🚀 Simple API**: One method call handles everything including handoffs
 - **🔌 Provider Agnostic**: Works with OpenAI, Anthropic, and other LLM providers
 
 ## 🚀 Quick Start
@@ -27,7 +28,7 @@ A Ruby SDK for building multi-agent AI workflows with seamless handoffs, inspire
 Add to your Gemfile:
 
 ```ruby
-gem 'ruby-agents'
+gem 'ai-agents'
 ```
 
 ### Basic Usage
@@ -40,15 +41,18 @@ Agents.configure do |config|
   config.openai_api_key = ENV['OPENAI_API_KEY']
 end
 
-# Create a simple agent
-agent = Agents::Agent.new(
+# Create agents
+weather_agent = Agents::Agent.new(
   name: "Weather Assistant",
   instructions: "Help users get weather information",
   tools: [WeatherTool.new]
 )
 
-# Use the agent with the Runner
-result = Agents::Runner.run(agent, "What's the weather like today?")
+# Create a thread-safe runner (reusable across conversations)
+runner = Agents::Runner.with_agents(weather_agent)
+
+# Use the runner for conversations
+result = runner.run("What's the weather like today?")
 puts result.output
 ```
 
@@ -63,37 +67,45 @@ triage = Agents::Agent.new(
   instructions: "Route customers to the right specialist"
 )
 
-faq = Agents::Agent.new(
-  name: "FAQ Agent",
-  instructions: "Answer frequently asked questions",
-  tools: [FaqLookupTool.new]
+sales = Agents::Agent.new(
+  name: "Sales Agent",
+  instructions: "Answer details about plans",
+  tools: [CreateLeadTool.new, CRMLookupTool.new]
 )
 
 support = Agents::Agent.new(
   name: "Support Agent",
-  instructions: "Handle technical issues",
-  tools: [TicketTool.new]
+  instructions: "Handle account realted and technical issues",
+  tools: [FaqLookupTool.new, TicketTool.new]
 )
 
 # Wire up handoff relationships - clean and simple!
-triage.register_handoffs(faq, support)
-faq.register_handoffs(triage)     # Can route back to triage
-support.register_handoffs(triage)  # Hub-and-spoke pattern
+triage.register_handoffs(sales, support)
+sales.register_handoffs(triage)     # Can route back to triage
+support.register_handoffs(triage)   # Hub-and-spoke pattern
 
-# Run a conversation with automatic handoffs
-result = Agents::Runner.run(triage, "How many seats are on the plane?")
-# User gets direct answer from FAQ agent without knowing about the handoff!
+# Create runner with all agents (triage is default entry point)
+runner = Agents::Runner.with_agents(triage, sales, support)
+
+# Run conversations with automatic handoffs and persistence
+result = runner.run("Do you have special plans for businesses?")
+# User gets direct answer from sales agent without knowing about the handoff!
+
+# Continue the conversation seamlessly
+result = runner.run("What is the pricing for the premium fibre plan?", context: result.context)
+# Context automatically tracks conversation history and current agent
 ```
 
 ## 🏗️ Architecture
 
 ### Core Components
 
-- **Agent**: Individual AI agents with specific roles and capabilities
-- **Runner**: Orchestrates multi-agent conversations with automatic handoffs
-- **Context**: Shared state management across agents
-- **Tools**: Custom functions that agents can use
-- **Handoffs**: Seamless transfers between specialized agents
+- **Agent**: Individual AI assistants configured with specific instructions, tools, and handoff relationships. Agents are immutable and thread-safe.
+- **AgentRunner**: Thread-safe execution manager that coordinates multi-agent conversations. Create once and reuse across multiple threads safely.
+- **Runner**: Internal orchestrator that handles individual conversation turns and manages the execution loop (used internally by AgentRunner).
+- **Context & State**: Shared conversation state that persists across agent handoffs. Fully serializable for database storage and session management.
+- **Tools**: Custom functions that agents can execute to interact with external systems (APIs, databases, etc.).
+- **Handoffs**: Automatic transfers between specialized agents based on conversation context, completely transparent to users.
 
 ### Agent Definition
 
@@ -117,16 +129,16 @@ agent.register_handoffs(technical_support, billing)
 #### Class-based (Coming soon)
 
 ```ruby
-class CustomerServiceAgent < Agents::Agent
-  name "Customer Service"
-  instructions <<~PROMPT
-    You are a helpful customer service agent.
-    Always be polite and professional.
-  PROMPT
+# Create agents as instances
+agent = Agents::Agent.new(
+  name: "Customer Service",
+  instructions: "You are a helpful customer service agent.",
+  model: "gpt-4o",
+  tools: [EmailTool.new, TicketTool.new]
+)
 
-  model "gpt-4o"
-  uses EmailTool, TicketTool
-end
+# Register handoffs after creation
+agent.register_handoffs(technical_support, billing)
 ```
 
 ### Custom Tools
@@ -134,11 +146,11 @@ end
 ```ruby
 class EmailTool < Agents::Tool
   description "Send emails to customers"
-  param :to, String, "Email address"
-  param :subject, String, "Email subject"
-  param :body, String, "Email body"
+  param :to, type: "string", desc: "Email address"
+  param :subject, type: "string", desc: "Email subject"
+  param :body, type: "string", desc: "Email body"
 
-  def perform(to:, subject:, body:, context:)
+  def perform(tool_context, to:, subject:, body:)
     # Send email logic here
     "Email sent to #{to}"
   end
@@ -147,10 +159,8 @@ end
 
 ### Handoff Patterns
 
-#### Hub-and-Spoke Pattern (Recommended)
-
 ```ruby
-# Central triage agent routes to specialists
+# Central triage agent routes to specialists (hub-and-spoke pattern)
 triage = Agents::Agent.new(name: "Triage")
 billing = Agents::Agent.new(name: "Billing")
 support = Agents::Agent.new(name: "Support")
@@ -163,78 +173,37 @@ billing.register_handoffs(triage)
 support.register_handoffs(triage)
 ```
 
-#### Circular Handoffs
+### Context Management & Persistence
 
 ```ruby
-# Agents can hand off to each other
-sales = Agents::Agent.new(name: "Sales")
-customer_info = Agents::Agent.new(name: "Customer Info")
+# Context is automatically managed and serializable
+runner = Agents::Runner.with_agents(triage, billing, support)
 
-# Both agents can transfer to each other
-sales.register_handoffs(customer_info)
-customer_info.register_handoffs(sales)
-```
+# Start a conversation
+result = runner.run("I need billing help")
 
-### Context Management
-
-```ruby
-# Context is automatically managed by the Runner
-context = {}
-result = Agents::Runner.run(agent, "Hello", context: context)
-
-# Access conversation history and agent state
+# Context is automatically updated with conversation history and current agent
+context = result.context
 puts context[:conversation_history]
-puts context[:current_agent].name
+puts context[:current_agent]  # Agent name (string), not object!
+
+# Serialize context for persistence (Rails, databases, etc.)
+json_context = JSON.dump(context)
+
+# Later: restore and continue conversation
+restored_context = JSON.parse(json_context, symbolize_names: true)
+result = runner.run("Actually, I need technical support too", context: restored_context)
+# System automatically determines correct agent from conversation history
 ```
 
 ## 📋 Examples
 
-### ISP Customer Support
+Check out the `examples/` folder for complete working demos showcasing multi-agent workflows.
 
-See the complete ISP support example in `examples/isp-support/`:
-
-```ruby
-# Run the interactive demo
+```bash
+# Run the ISP support demo
 ruby examples/isp-support/interactive.rb
 ```
-
-This showcases:
-- **Triage Agent**: Routes customers to appropriate specialists
-- **Customer Info Agent**: Handles account info and billing inquiries
-- **Sales Agent**: Manages new connections and upgrades
-- **Support Agent**: Provides technical troubleshooting
-- **Hub-and-Spoke Handoffs**: Clean architecture pattern
-
-### Airline Customer Service
-
-See the airline booking example in `examples/booking/`:
-
-```ruby
-# Run the interactive demo
-ruby examples/booking/interactive.rb
-```
-
-This showcases:
-- **Triage Agent**: Routes questions to specialists
-- **FAQ Agent**: Answers questions about policies, seats, baggage
-- **Seat Booking Agent**: Handles seat changes and updates
-- **Seamless Handoffs**: Users never repeat their questions
-
-### Sample Conversation
-
-```
-You: How many seats are on the plane?
-
-Agent: The plane has a total of 120 seats, which includes 22 business
-class seats and 98 economy seats. Exit rows are located at rows 4 and
-16, and rows 5-8 are designated as Economy Plus, offering extra legroom.
-```
-
-Behind the scenes:
-1. Triage Agent receives question
-2. Automatically transfers to FAQ Agent
-3. FAQ Agent processes original question and responds
-4. User sees seamless experience!
 
 ## 🔧 Configuration
 
@@ -276,8 +245,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Inspired by [OpenAI's Agents SDK](https://github.com/openai/agents)
 - Built on top of [RubyLLM](https://rubyllm.com) for LLM integration
-- Thanks to the Ruby community for continuous inspiration
-
----
-
-**Built with ❤️ by the Chatwoot Team**

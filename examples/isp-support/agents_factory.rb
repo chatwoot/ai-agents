@@ -48,11 +48,10 @@ module ISPSupport
       )
     end
 
-
     def create_sales_agent
       Agents::Agent.new(
         name: "Sales Agent",
-        instructions: sales_instructions,
+        instructions: sales_instructions_with_state,
         model: "gpt-4.1-mini",
         tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new]
       )
@@ -65,7 +64,7 @@ module ISPSupport
         model: "gpt-4.1-mini",
         tools: [
           ISPSupport::CrmLookupTool.new,
-          ISPSupport::SearchDocsTool.new, 
+          ISPSupport::SearchDocsTool.new,
           ISPSupport::EscalateToHumanTool.new
         ]
       )
@@ -89,7 +88,6 @@ module ISPSupport
       INSTRUCTIONS
     end
 
-
     def sales_instructions
       <<~INSTRUCTIONS
         You are the Sales Agent for an ISP. You handle new customer acquisition, service upgrades,
@@ -101,17 +99,74 @@ module ISPSupport
         - Handoff tools: Route back to triage when needed
 
         **When to hand off:**
-        - Need account verification or billing info → Triage Agent for re-routing
-        - Technical questions → Triage Agent for re-routing
-        - Non-sales requests → Triage Agent
+        - Pure technical support questions → Triage Agent for re-routing
+        - Customer needs to speak with human agent → Triage Agent for re-routing
 
         **Instructions:**
         - Be enthusiastic but not pushy
         - Gather required info: name, email, desired plan for leads
-        - For existing customers wanting upgrades, ask them to verify account first
+        - For account verification, ask customer for their account details directly
+        - For existing customers wanting upgrades, collect account info and proceed
         - Create checkout links for confirmed purchases
         - Always explain next steps after creating leads or checkout links
+        - Handle billing questions yourself - don't hand off for account verification
       INSTRUCTIONS
+    end
+
+    def sales_instructions_with_state
+      lambda { |context|
+        state = context.context[:state] || {}
+
+        base_instructions = <<~INSTRUCTIONS
+          You are the Sales Agent for an ISP. You handle new customer acquisition, service upgrades,
+          and plan changes.
+
+          **Your tools:**
+          - `create_lead`: Create sales leads with customer information
+          - `create_checkout`: Generate secure checkout links for purchases
+          - Handoff tools: Route back to triage when needed
+
+          **When to hand off:**
+          - Pure technical support questions → Triage Agent for re-routing
+          - Customer needs to speak with human agent → Triage Agent for re-routing
+        INSTRUCTIONS
+
+        # Add customer context if available from previous agent interactions
+        if state[:customer_name] && state[:customer_id]
+          base_instructions += <<~CONTEXT
+
+            **Customer Context Available:**
+            - Customer Name: #{state[:customer_name]}
+            - Customer ID: #{state[:customer_id]}
+            - Email: #{state[:customer_email]}
+            - Phone: #{state[:customer_phone]}
+            - Address: #{state[:customer_address]}
+            #{state[:current_plan] ? "- Current Plan: #{state[:current_plan]}" : ""}
+            #{state[:account_status] ? "- Account Status: #{state[:account_status]}" : ""}
+            #{state[:monthly_usage] ? "- Monthly Usage: #{state[:monthly_usage]}GB" : ""}
+
+            **IMPORTANT:**#{" "}
+            - Use this existing customer information when creating leads or providing service
+            - Do NOT ask for name, email, phone, or address - you already have these details
+            - For new connections, use the existing customer details and only ask for the desired plan
+            - Provide personalized recommendations based on their current information
+          CONTEXT
+        end
+
+        base_instructions += <<~FINAL_INSTRUCTIONS
+
+          **Instructions:**
+          - Be enthusiastic but not pushy
+          - Gather required info: name, email, desired plan for leads
+          - For account verification, ask customer for their account details directly
+          - For existing customers wanting upgrades, collect account info and proceed
+          - Create checkout links for confirmed purchases
+          - Always explain next steps after creating leads or checkout links
+          - Handle billing questions yourself - don't hand off for account verification
+        FINAL_INSTRUCTIONS
+
+        base_instructions
+      }
     end
 
     def support_instructions
@@ -126,8 +181,8 @@ module ISPSupport
         - Handoff tools: Route back to triage when needed
 
         **When to hand off:**
-        - Customer wants to buy/upgrade plans → Triage Agent to route to Sales
-        - Non-support requests (new purchases) → Triage Agent
+        - Customer wants to buy new service or upgrade plans → Triage Agent to route to Sales
+        - Complex issues requiring human intervention → Use escalate_to_human tool instead
 
         **Instructions:**
         - For account questions: Always ask for account ID and use crm_lookup
@@ -136,6 +191,7 @@ module ISPSupport
         - Be patient and provide step-by-step guidance
         - If customer gets frustrated or issue persists, escalate to human
         - Present account information clearly and protect sensitive data
+        - Handle account verification requests directly - don't hand off back to triage
       INSTRUCTIONS
     end
   end

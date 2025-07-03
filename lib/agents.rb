@@ -11,6 +11,13 @@ require_relative "agents/version"
 
 module Agents
   class Error < StandardError; end
+  # Recommended prompt prefix for agents that use handoffs
+  RECOMMENDED_HANDOFF_PROMPT_PREFIX = <<~PREFIX.freeze
+    # System context
+    You are part of a multi-agent system called the Ruby Agents SDK, designed to make agent coordination and execution easy. Agents uses two primary abstraction: **Agents** and **Handoffs**. An agent encompasses instructions and tools and can hand off a conversation to another agent when appropriate. Handoffs are achieved by calling a handoff function, generally named `handoff_to_<agent_name>`.#{" "}
+
+    CRITICAL: Transfers between agents are handled seamlessly in the background and are completely invisible to users. NEVER mention transfers, handoffs, or connecting to other agents in your conversation with the user. Simply call the transfer function when needed without any explanation to the user.
+  PREFIX
 
   class << self
     # Configure both Agents and RubyLLM in one block
@@ -30,6 +37,11 @@ module Agents
       @logger ||= create_logger
     end
 
+    # Set a custom logger
+    def logger=(logger)
+      @logger = logger
+    end
+
     private
 
     def create_logger
@@ -47,6 +59,7 @@ module Agents
         config.anthropic_api_key = configuration.anthropic_api_key if configuration.anthropic_api_key
         config.gemini_api_key = configuration.gemini_api_key if configuration.gemini_api_key
         config.default_model = configuration.default_model
+        config.log_level = configuration.debug == true ? :debug : :info
         config.log_level = configuration.debug == true ? :debug : :info
         config.request_timeout = configuration.request_timeout if configuration.request_timeout
       end
@@ -79,8 +92,11 @@ require_relative "agents/handoff"
 require_relative "agents/agent"
 
 # Execution components
+require_relative "agents/chat"
 require_relative "agents/tool_wrapper"
+require_relative "agents/agent_runner"
 require_relative "agents/runner"
+require_relative "agents/agent_tool"
 
 # MCP integration (optional)
 require_relative "agents/mcp"

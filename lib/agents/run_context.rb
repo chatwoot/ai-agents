@@ -91,7 +91,7 @@ module Agents
       end
 
       # Add usage metrics from an LLM response to the running totals.
-      # Safely handles nil values in the usage object and various property name formats.
+      # Safely handles nil values in the usage object.
       #
       # @param usage [Object] An object responding to input_tokens, output_tokens, and total_tokens
       # @example Adding usage from an LLM response
@@ -100,9 +100,9 @@ module Agents
         return unless usage
 
         begin
-          input_tokens = usage.respond_to?(:input_tokens) ? usage.input_tokens : 0
-          output_tokens = usage.respond_to?(:output_tokens) ? usage.output_tokens : 0
-          total_tokens = usage.respond_to?(:total_tokens) ? usage.total_tokens : (input_tokens + output_tokens)
+          input_tokens = usage.respond_to?(:input_tokens) ? (usage.input_tokens || 0) : 0
+          output_tokens = usage.respond_to?(:output_tokens) ? (usage.output_tokens || 0) : 0
+          total_tokens = usage.respond_to?(:total_tokens) ? (usage.total_tokens || (input_tokens + output_tokens)) : (input_tokens + output_tokens)
 
           @input_tokens += input_tokens
           @output_tokens += output_tokens

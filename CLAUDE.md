@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository Overview
+## Project Purpose
 
 This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilities, similar to OpenAI's Agents SDK but built for Ruby. The SDK enables the creation of sophisticated AI workflows with specialized agents, tool execution, conversation handoffs, MCP (Model Context Protocol) integration, and comprehensive tracing/observability.
 
@@ -13,38 +13,46 @@ This is a Ruby AI Agents SDK that provides multi-agent orchestration capabilitie
 
 ## Development Commands
 
-### Building and Testing
+### Testing
+```bash
+# Run all tests with RSpec
+bundle exec rspec
+
+# Run tests with coverage report (uses SimpleCov)
+bundle exec rake spec
+
+# Run specific test file
+bundle exec rspec spec/agents/agent_spec.rb
+
+# Run specific test with line number
+bundle exec rspec spec/agents/agent_spec.rb:25
+```
+
+### Code Quality
+```bash
+# Run RuboCop linter
+bundle exec rubocop
+
+# Run RuboCop with auto-correction
+bundle exec rubocop -a
+
+# Run both tests and linting (default rake task)
+bundle exec rake
+```
+
+### Development
 ```bash
 # Install dependencies
 bundle install
 
-# Run tests with RSpec
-rake spec
-# OR
-bundle exec rspec
+# Interactive Ruby console with gem loaded
+bundle exec irb -r ./lib/agents
 
-# Run specific spec file
-bundle exec rspec spec/agents/agent_spec.rb
-
-# Run tests with coverage report
-bundle exec rspec  # SimpleCov will generate coverage/index.html
-
-# Lint code (includes RSpec cops)
-rake rubocop
-# OR
-bundle exec rubocop
-
-# Auto-fix linting issues
-bundle exec rubocop -a
-
-# Run all checks (spec + lint)
-rake
+# Run ISP support example interactively
+ruby examples/isp-support/interactive.rb
 ```
 
-### Interactive Development
-```bash
-# Start interactive console
-bin/console
+## Architecture
 
 # Run ISP customer support demo (current main example)
 ruby examples/isp-support/interactive.rb
@@ -60,9 +68,9 @@ ruby examples/tracing/basic_example.rb
 ruby examples/tracing/mintlify_workflow_tracing_example.rb
 ```
 
-## Architecture and Code Structure
+### Configuration
 
-### Core Components (Generic Library)
+The SDK requires at least one LLM provider API key:
 
 **lib/agents.rb** - Main module and configuration entry point. Configures both the Agents SDK and underlying RubyLLM library. Key features:
 - Global configuration for API keys, models, timeouts, debug settings
@@ -209,17 +217,14 @@ agent.add_mcp_clients(filesystem_client)
 # Agent now has access to filesystem operations through MCP tools
 ```
 
-### Configuration Rules
+### Testing Strategy
 
-#### Class Naming
-- Use flat naming like `class Agents::Tool` instead of nested declarations
-- Follow Ruby naming conventions for agent and tool classes
+- SimpleCov tracks coverage with 50% minimum overall, 40% per file
+- WebMock is used for HTTP mocking in tests
+- RSpec is the testing framework with standard configuration
+- Tests are organized by component in `spec/agents/`
 
-#### Documentation
-- Always write doc strings when writing functions
-- Use YARD format for documentation
-- Always write RDoc for new methods
-- When creating a new file, start the file with a description comment on what the file has and where does it fit in the project
+### Examples
 
 #### Model Defaults
 - Default model is `gpt-4o-mini` (configured in lib/agents.rb)

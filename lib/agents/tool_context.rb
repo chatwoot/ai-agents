@@ -94,5 +94,41 @@ module Agents
     def usage
       @run_context.usage
     end
+
+    # Convenient access to the shared state hash within the context.
+    # This provides tools with a dedicated space to store and retrieve
+    # state that persists across agent interactions within a conversation.
+    #
+    # State is automatically initialized as an empty hash if it doesn't exist.
+    # All state modifications are automatically included in context serialization,
+    # making it persist across process boundaries (e.g., Rails with ActiveRecord).
+    #
+    # @return [Hash] The shared state hash
+    # @example Tool storing customer information in state
+    #   def perform(tool_context, customer_id:)
+    #     customer = Customer.find(customer_id)
+    #
+    #     # Store in shared state for other tools/agents to access
+    #     tool_context.state[:customer_id] = customer_id
+    #     tool_context.state[:customer_name] = customer.name
+    #     tool_context.state[:plan_type] = customer.plan
+    #
+    #     "Found customer #{customer.name}"
+    #   end
+    #
+    # @example Tool reading from shared state
+    #   def perform(tool_context)
+    #     customer_id = tool_context.state[:customer_id]
+    #     plan_type = tool_context.state[:plan_type]
+    #
+    #     if customer_id && plan_type
+    #       "Current plan: #{plan_type} for customer #{customer_id}"
+    #     else
+    #       "No customer information available"
+    #     end
+    #   end
+    def state
+      context[:state] ||= {}
+    end
   end
 end

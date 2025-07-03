@@ -3,21 +3,19 @@
 require_relative "lib/agents/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "ruby-agents"
+  spec.name = "ai-agents"
   spec.version = Agents::VERSION
   spec.authors = ["Shivam Mishra"]
   spec.email = ["scm.mymail@gmail.com"]
 
   spec.summary = "A Ruby SDK for building sophisticated multi-agent AI workflows"
   spec.description = "Ruby AI Agents SDK enables creating complex AI workflows with multi-agent orchestration, tool execution, safety guardrails, and provider-agnostic LLM integration."
-  spec.homepage = "https://github.com/chatwoot/ruby-agents"
-  spec.required_ruby_version = ">= 3.1.0"
-
-  # spec.metadata["allowed_push_host"] = "https://rubygems.org"
+  spec.homepage = "https://chatwoot.com/ai-agents"
+  spec.required_ruby_version = ">= 3.2.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/chatwoot/ruby-agents"
-  spec.metadata["changelog_uri"] = "https://github.com/chatwoot/ruby-agents/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/chatwoot/ai-agents"
+  spec.metadata["changelog_uri"] = "https://github.com/chatwoot/ai-agents"
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
