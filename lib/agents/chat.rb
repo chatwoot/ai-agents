@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "tool_context"
+require "securerandom"
 
 module Agents
   # Extended chat class that inherits from RubyLLM::Chat but adds proper handoff handling.
@@ -67,7 +68,8 @@ module Agents
         handoff_result = execute_handoff_tool(handoff_calls.first)
 
         # Add tool result to conversation
-        add_tool_result(handoff_calls.first.id, handoff_result[:message])
+        tool_call_id = extract_tool_call_id(handoff_calls.first)
+        add_tool_result(tool_call_id, handoff_result[:message])
 
         # Return handoff response to signal agent switch (ends turn)
         HandoffResponse.new(
@@ -87,8 +89,14 @@ module Agents
       handoff_calls = []
       regular_calls = []
 
-      tool_calls.each_value do |tool_call|
-        if handoff_tool_names.include?(tool_call.name)
+      # Handle both Hash and Array formats for tool_calls
+      tool_calls_array = tool_calls.is_a?(Hash) ? tool_calls.values : tool_calls
+
+      tool_calls_array.each do |tool_call|
+        # Extract tool name correctly based on tool_call structure
+        tool_name = extract_tool_call_name(tool_call)
+
+        if handoff_tool_names.include?(tool_name)
           handoff_calls << tool_call
         else
           regular_calls << tool_call
@@ -98,9 +106,39 @@ module Agents
       [handoff_calls, regular_calls]
     end
 
+    def extract_tool_call_name(tool_call)
+      # Handle different tool call formats from various LLM providers
+      if tool_call.respond_to?(:name)
+        tool_call.name
+      elsif tool_call.respond_to?(:function) && tool_call.function
+        if tool_call.function.respond_to?(:name)
+          tool_call.function.name
+        elsif tool_call.function.is_a?(Hash)
+          tool_call.function["name"] || tool_call.function[:name]
+        end
+      elsif tool_call.is_a?(Hash)
+        tool_call["name"] || tool_call[:name] ||
+          (tool_call["function"] && (tool_call["function"]["name"] || tool_call["function"][:name]))
+      else
+        tool_call.to_s
+      end
+    end
+
+    def extract_tool_call_id(tool_call)
+      # Handle different tool call ID formats
+      if tool_call.respond_to?(:id)
+        tool_call.id
+      elsif tool_call.is_a?(Hash)
+        tool_call["id"] || tool_call[:id]
+      else
+        SecureRandom.hex(8) # Fallback ID
+      end
+    end
+
     def execute_handoff_tool(tool_call)
-      tool = @handoff_tools.find { |t| t.name.to_s == tool_call.name }
-      raise "Handoff tool not found: #{tool_call.name}" unless tool
+      tool_name = extract_tool_call_name(tool_call)
+      tool = @handoff_tools.find { |t| t.name.to_s == tool_name }
+      raise "Handoff tool not found: #{tool_name}" unless tool
 
       # Execute the handoff tool directly with context
       tool_context = ToolContext.new(run_context: @context_wrapper)
@@ -117,7 +155,8 @@ module Agents
       tool_calls.each do |tool_call|
         @on[:new_message]&.call
         result = execute_tool(tool_call)
-        message = add_tool_result(tool_call.id, result)
+        tool_call_id = extract_tool_call_id(tool_call)
+        message = add_tool_result(tool_call_id, result)
         @on[:end_message]&.call(message)
       end
 
@@ -127,8 +166,20 @@ module Agents
 
     # Reuse RubyLLM's existing tool execution logic
     def execute_tool(tool_call)
-      tool = tools[tool_call.name.to_sym]
-      args = tool_call.arguments
+      tool_name = extract_tool_call_name(tool_call)
+      tool = tools[tool_name.to_sym]
+
+      # Extract arguments correctly
+      args = if tool_call.respond_to?(:arguments)
+               tool_call.arguments
+             elsif tool_call.respond_to?(:function) && tool_call.function.respond_to?(:arguments)
+               tool_call.function.arguments
+             elsif tool_call.is_a?(Hash) && tool_call["function"]
+               tool_call["function"]["arguments"]
+             else
+               {}
+             end
+
       tool.call(args)
     end
 

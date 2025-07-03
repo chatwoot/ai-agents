@@ -6,23 +6,22 @@
 # It serves as the central configuration hub that other components depend on.
 
 require "ruby_llm"
+require "logger"
 require_relative "agents/version"
 
 module Agents
   class Error < StandardError; end
-
   # OpenAI's recommended system prompt prefix for multi-agent workflows
   # This helps agents understand they're part of a coordinated system
-  RECOMMENDED_HANDOFF_PROMPT_PREFIX =
-    "# System context\n" \
-    "You are part of a multi-agent system called the Ruby Agents SDK, designed to make agent " \
-    "coordination and execution easy. Agents uses two primary abstraction: **Agents** and " \
-    "**Handoffs**. An agent encompasses instructions and tools and can hand off a " \
-    "conversation to another agent when appropriate. " \
-    "Handoffs are achieved by calling a handoff function, generally named " \
-    "`handoff_to_<agent_name>`. Transfers between agents are handled seamlessly in the background; " \
-    "do not mention or draw attention to these transfers in your conversation with the user.\n"
 
+  RECOMMENDED_HANDOFF_PROMPT_PREFIX = "# System context\n" \
+     "You are part of a multi-agent system called the Ruby Agents SDK, designed to make agent " \
+     "coordination and execution easy. Agents uses two primary abstraction: **Agents** and " \
+     "**Handoffs**. An agent encompasses instructions and tools and can hand off a " \
+     "conversation to another agent when appropriate. " \
+     "Handoffs are achieved by calling a handoff function, generally named " \
+     "`handoff_to_<agent_name>`. Transfers between agents are handled seamlessly in the background; " \
+     "do not mention or draw attention to these transfers in your conversation with the user.\n"
   class << self
     # Logger for debugging (can be set by users)
     attr_accessor :logger
@@ -38,7 +37,25 @@ module Agents
       @configuration ||= Configuration.new
     end
 
+    # Get the configured logger instance
+    # @return [Logger] The logger instance
+    def logger
+      @logger ||= create_logger
+    end
+
+    # Set a custom logger
+    attr_writer :logger
+
     private
+
+    def create_logger
+      logger = Logger.new($stdout)
+      logger.level = configuration.debug ? Logger::DEBUG : Logger::WARN
+      logger.formatter = proc do |severity, _datetime, _progname, msg|
+        "[#{severity}] #{msg}\n"
+      end
+      logger
+    end
 
     def configure_ruby_llm!
       RubyLLM.configure do |config|
@@ -58,7 +75,7 @@ module Agents
     def initialize
       @default_model = "gpt-4o-mini"
       @request_timeout = 120
-      @debug = false
+      @debug = ENV["AGENTS_DEBUG"] == "true"
     end
 
     # Check if at least one provider is configured
@@ -83,3 +100,6 @@ require_relative "agents/tool_wrapper"
 require_relative "agents/agent_runner"
 require_relative "agents/runner"
 require_relative "agents/agent_tool"
+
+# MCP integration (optional)
+require_relative "agents/mcp"

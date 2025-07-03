@@ -56,7 +56,7 @@ module Agents
       @tool_name = "handoff_to_#{target_agent.name.downcase.gsub(/\s+/, "_")}"
       @tool_description = "Transfer conversation to #{target_agent.name}"
 
-      super()
+      # Don't call super() - let RubyLLM handle the initialization
     end
 
     # Override the auto-generated name to use our specific name
@@ -74,6 +74,11 @@ module Agents
     def perform(_tool_context)
       # Simply return the transfer message - Chat class will handle the handoff
       "I'll transfer you to #{@target_agent.name} who can better assist you with this."
+    end
+
+    # Chat class calls execute instead of perform for handoff tools
+    def execute(tool_context, **args)
+      perform(tool_context)
     end
 
     # NOTE: RubyLLM will handle schema generation internally when needed

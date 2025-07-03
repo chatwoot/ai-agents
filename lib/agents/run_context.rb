@@ -97,9 +97,19 @@ module Agents
       # @example Adding usage from an LLM response
       #   usage.add(llm_response.usage)
       def add(usage)
-        @input_tokens += usage.input_tokens || 0
-        @output_tokens += usage.output_tokens || 0
-        @total_tokens += usage.total_tokens || 0
+        return unless usage
+
+        begin
+          input_tokens = usage.respond_to?(:input_tokens) ? (usage.input_tokens || 0) : 0
+          output_tokens = usage.respond_to?(:output_tokens) ? (usage.output_tokens || 0) : 0
+          total_tokens = usage.respond_to?(:total_tokens) ? (usage.total_tokens || (input_tokens + output_tokens)) : (input_tokens + output_tokens)
+
+          @input_tokens += input_tokens
+          @output_tokens += output_tokens
+          @total_tokens += total_tokens
+        rescue StandardError
+          # Silently ignore usage tracking errors to not interrupt agent execution
+        end
       end
     end
   end
