@@ -3,7 +3,15 @@
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::ToolWrapper do
-  let(:tool) { Agents::Tool.new }
+  let(:tool) do
+    instance_double(Agents::Tool,
+                    name: "test_tool",
+                    description: "A test tool",
+                    parameters: { city: { type: "string", description: "City name" },
+                                  country: { type: "string", description: "Country name" } },
+                    execute: "result",
+                    perform: "result")
+  end
   let(:context_wrapper) { instance_double(Agents::RunContext) }
   let(:tool_wrapper) { described_class.new(tool, context_wrapper) }
 
@@ -27,25 +35,25 @@ RSpec.describe Agents::ToolWrapper do
       args = { "city" => "NYC", "country" => "USA" }
 
       allow(Agents::ToolContext).to receive(:new).with(run_context: context_wrapper).and_return(tool_context)
-      allow(tool).to receive(:execute).with(tool_context, city: "NYC", country: "USA").and_return("result")
+      allow(tool).to receive(:perform).with(tool_context, city: "NYC", country: "USA").and_return("result")
 
       result = tool_wrapper.call(args)
 
       expect(result).to eq("result")
       expect(Agents::ToolContext).to have_received(:new).with(run_context: context_wrapper)
-      expect(tool).to have_received(:execute).with(tool_context, city: "NYC", country: "USA")
+      expect(tool).to have_received(:perform).with(tool_context, city: "NYC", country: "USA")
     end
 
     it "transforms string keys to symbols" do
       tool_context = instance_double(Agents::ToolContext)
-      args = { "string_key" => "value" }
+      args = { "city" => "NYC", "country" => "USA" }
 
       allow(Agents::ToolContext).to receive(:new).and_return(tool_context)
-      allow(tool).to receive(:execute).with(tool_context, string_key: "value")
+      allow(tool).to receive(:perform).with(tool_context, city: "NYC", country: "USA")
 
       tool_wrapper.call(args)
 
-      expect(tool).to have_received(:execute).with(tool_context, string_key: "value")
+      expect(tool).to have_received(:perform).with(tool_context, city: "NYC", country: "USA")
     end
   end
 

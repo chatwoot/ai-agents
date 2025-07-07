@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 # The core agent definition that represents an AI assistant with specific capabilities.
 # Agents are immutable, thread-safe objects that can be cloned with modifications.
 # They encapsulate the configuration needed to interact with an LLM including
@@ -42,14 +44,16 @@ module Agents
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [])
+    # @param mcp_clients [Array<Hash>, Hash, nil] MCP client configurations to add
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], mcp_clients: nil)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
+      @mcp_manager = nil
 
-      # Mutex for thread-safe handoff registration
+      # Mutex for thread-safe handoff registration and MCP client management
       # While agents are typically configured at startup, we want to ensure
       # that concurrent handoff registrations don't result in lost data.
       # For example, in a web server with multiple threads initializing
@@ -61,6 +65,9 @@ module Agents
 
       # Register initial handoff agents if provided
       register_handoffs(*handoff_agents) unless handoff_agents.empty?
+
+      # Add MCP clients if provided
+      add_mcp_clients(mcp_clients) if mcp_clients
     end
 
     # Get all tools available to this agent, including any auto-generated handoff tools
@@ -70,7 +77,11 @@ module Agents
       @mutex.synchronize do
         # Compute handoff tools dynamically
         handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
-        @tools + handoff_tools
+
+        # Cache MCP tools to avoid repeated fetching which causes subprocess spawning
+        @cached_mcp_tools ||= @mcp_manager ? @mcp_manager.get_agent_tools : []
+
+        @tools + handoff_tools + @cached_mcp_tools
       end
     end
 
@@ -96,6 +107,95 @@ module Agents
         @handoff_agents.uniq! # Prevent duplicates
       end
       self
+    end
+
+    # Add MCP clients to this agent using configurations
+    #
+    # @param client_configs [Hash, Array<Hash>] Client configuration(s) to add
+    # @return [self] Returns self for method chaining
+    # @example Adding MCP clients
+    #   agent.add_mcp_clients({
+    #     name: "filesystem",
+    #     command: "npx",
+    #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    #   })
+    #
+    #   # Or add multiple clients
+    #   agent.add_mcp_clients([
+    #     { name: "filesystem", command: "npx", args: ["fs-server"] },
+    #     { name: "api", url: "http://localhost:8000" }
+    #   ])
+    def add_mcp_clients(client_configs)
+      configs_array = Array(client_configs)
+
+      @mutex.synchronize do
+        # Initialize MCP manager if not exists
+        @mcp_manager ||= MCP::Manager.new(
+          enable_fallback_mode: true,
+          handle_collisions: :prefix
+        )
+
+        # Add each client configuration
+        configs_array.each do |config|
+          add_mcp_client(config)
+        end
+      end
+
+      self
+    end
+
+    # Add a single MCP client to this agent
+    #
+    # @param config [Hash] The MCP client configuration
+    # @return [self] Returns self for method chaining
+    def add_mcp_client(config)
+      # Initialize MCP manager if not exists
+      @mcp_manager ||= MCP::Manager.new(
+        enable_fallback_mode: true,
+        handle_collisions: :prefix
+      )
+
+      # Add client to manager
+      begin
+        @mcp_manager.add_client(**config)
+      rescue StandardError => e
+        warn "Failed to add MCP client '#{config[:name]}': #{e.message}"
+        # Continue without this client rather than failing entirely
+      end
+
+      self
+    end
+
+    # Refresh MCP tools by reconnecting to all clients and reloading their tools
+    # This can be used if MCP servers have updated their available tools
+    #
+    # @return [self] Returns self for method chaining
+    def refresh_mcp_tools
+      @mutex.synchronize do
+        if @mcp_manager
+          @mcp_manager.refresh_all_clients
+          # Clear cached tools so they'll be re-fetched on next all_tools call
+          @cached_mcp_tools = nil
+        end
+      end
+
+      self
+    end
+
+    # Get MCP manager for this agent
+    #
+    # @return [Agents::MCP::Manager, nil] MCP manager or nil if no MCP clients
+    def mcp_manager
+      @mutex.synchronize { @mcp_manager }
+    end
+
+    # Get health status of all MCP clients
+    #
+    # @return [Hash] Health status by client name, or empty hash if no MCP manager
+    def mcp_client_health
+      @mutex.synchronize do
+        @mcp_manager ? @mcp_manager.client_health_status : {}
+      end
     end
 
     # Creates a new agent instance with modified attributes while preserving immutability.
@@ -133,12 +233,19 @@ module Agents
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
+      base_tools = if changes.key?(:mcp_clients)
+                     @tools.reject { |tool| tool.is_a?(MCP::Tool) }
+                   else
+                     @tools.dup
+                   end
+
       self.class.new(
         name: changes.fetch(:name, @name),
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
-        tools: changes.fetch(:tools, @tools.dup),
-        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents)
+        tools: changes.fetch(:tools, base_tools),
+        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
+        mcp_clients: changes.fetch(:mcp_clients, changes.key?(:mcp_clients) ? nil : @mcp_clients)
       )
     end
 

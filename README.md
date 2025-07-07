@@ -109,6 +109,25 @@ result = runner.run("What is the pricing for the premium fibre plan?", context: 
 
 ### Agent Definition
 
+Agents can be created in two ways:
+
+#### Instance-based (Recommended for dynamic agents)
+
+```ruby
+# Create agents as instances
+agent = Agents::Agent.new(
+  name: "Customer Service",
+  instructions: "You are a helpful customer service agent.",
+  model: "gpt-4o",
+  tools: [EmailTool.new, TicketTool.new]
+)
+
+# Register handoffs after creation
+agent.register_handoffs(technical_support, billing)
+```
+
+#### Class-based (Coming soon)
+
 ```ruby
 # Create agents as instances
 agent = Agents::Agent.new(
