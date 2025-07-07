@@ -45,6 +45,7 @@ module Agents
 
     # RubyLLM calls this method (follows RubyLLM::Tool pattern)
     def execute(**args)
+      args = args.transform_keys(&:to_sym)
       Agents.logger.debug "ToolWrapper execute called on #{@tool.class.name} with args: #{args.inspect}"
 
       # Create tool context with current run context
