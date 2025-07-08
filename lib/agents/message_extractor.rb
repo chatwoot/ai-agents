@@ -26,8 +26,6 @@ module Agents
       new(chat, current_agent).extract
     end
 
-    private
-
     def initialize(chat, current_agent)
       @chat = chat
       @current_agent = current_agent
@@ -46,6 +44,8 @@ module Agents
       end
     end
 
+    private
+
     def extract_user_or_assistant_message(msg)
       return nil unless msg.content && !msg.content.strip.empty?
 
@@ -59,7 +59,11 @@ module Agents
         message[:agent_name] = @current_agent.name if @current_agent
 
         # Add tool calls if present
-        message[:tool_calls] = msg.tool_calls.map(&:to_h) if msg.tool_call?
+        if msg.tool_call? && msg.tool_calls
+          # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
+          # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
+          message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
+        end
       end
 
       message

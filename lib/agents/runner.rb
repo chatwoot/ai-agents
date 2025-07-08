@@ -101,11 +101,11 @@ module Agents
         # Get response from LLM (Extended Chat handles tool execution with handoff detection)
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
-                   emit_event(context_wrapper, :agent_thinking, current_agent.name, input)
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
                    chat.ask(input)
                  else
                    # Emit agent thinking event for continuation
-                   emit_event(context_wrapper, :agent_thinking, current_agent.name, "(continuing conversation)")
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)")
                    chat.complete
                  end
         response = result
@@ -127,7 +127,7 @@ module Agents
           save_conversation_state(chat, context_wrapper, current_agent)
 
           # Emit agent handoff event
-          emit_event(context_wrapper, :agent_handoff, current_agent.name, next_agent.name, "handoff")
+          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
@@ -253,20 +253,6 @@ module Agents
       chat.with_instructions(system_prompt) if system_prompt
       chat.with_tools(*wrapped_regular_tools) if wrapped_regular_tools.any?
       chat
-    end
-
-    # Emit callback events safely without disrupting execution
-    def emit_event(context_wrapper, event_type, *args)
-      callbacks = context_wrapper.callbacks || {}
-      callback_list = callbacks[event_type] || []
-
-      callback_list.each do |callback|
-        callback.call(*args)
-      rescue StandardError => e
-        # Log callback errors but don't let them crash execution
-        # In a real implementation, you might want to use a proper logger
-        warn "Callback error for #{event_type}: #{e.message}"
-      end
     end
   end
 end

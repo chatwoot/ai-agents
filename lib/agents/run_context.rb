@@ -56,7 +56,7 @@
 #   # - No race conditions or data leakage between runs
 module Agents
   class RunContext
-    attr_reader :context, :usage, :callbacks
+    attr_reader :context, :usage, :callbacks, :callback_manager
 
     # Initialize a new RunContext with execution context and usage tracking
     #
@@ -66,6 +66,7 @@ module Agents
       @context = context
       @usage = Usage.new
       @callbacks = callbacks || {}
+      @callback_manager = CallbackManager.new(@callbacks)
     end
 
     # Usage tracks token consumption across all LLM calls within a single run.
