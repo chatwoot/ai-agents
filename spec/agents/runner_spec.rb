@@ -50,8 +50,9 @@ RSpec.describe Agents::Runner do
     end
 
     it "passes all agents to AgentRunner constructor" do
-      expect(Agents::AgentRunner).to receive(:new).with([agent, handoff_agent])
+      allow(Agents::AgentRunner).to receive(:new).with([agent, handoff_agent])
       described_class.with_agents(agent, handoff_agent)
+      expect(Agents::AgentRunner).to have_received(:new).with([agent, handoff_agent])
     end
   end
 
