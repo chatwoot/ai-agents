@@ -4,17 +4,15 @@ require "webmock/rspec"
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::AgentRunner do
-  before do
-    # Configure RubyLLM for testing
-    RubyLLM.configure do |config|
-      config.openai_api_key = "test"
-    end
+  include OpenAITestHelper
 
-    WebMock.disable_net_connect!
+  before do
+    setup_openai_test_config
+    disable_net_connect!
   end
 
   after do
-    WebMock.allow_net_connect!
+    allow_net_connect!
   end
 
   let(:triage_agent) do
