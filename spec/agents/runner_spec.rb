@@ -282,8 +282,7 @@ RSpec.describe Agents::Runner do
         allow(runner).to receive_messages(
           create_chat: mock_chat,
           restore_conversation_history: nil,
-          save_conversation_state: nil,
-          extract_messages: []
+          save_conversation_state: nil
         )
         allow(mock_chat).to receive_messages(ask: mock_response, complete: mock_response)
 

@@ -130,7 +130,13 @@ RSpec.describe Agents::AgentRunner do
           "Hello",
           context: {},
           registry: hash_including("Triage Agent" => triage_agent),
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
 
@@ -142,7 +148,13 @@ RSpec.describe Agents::AgentRunner do
           "Hello",
           context: {},
           registry: anything,
-          max_turns: 5
+          max_turns: 5,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
@@ -166,7 +178,13 @@ RSpec.describe Agents::AgentRunner do
           "More billing questions",
           context: context_with_history,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
@@ -189,7 +207,13 @@ RSpec.describe Agents::AgentRunner do
           "Continue conversation",
           context: context_with_unknown_agent,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
@@ -212,7 +236,13 @@ RSpec.describe Agents::AgentRunner do
           "Continue",
           context: context_without_attribution,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
