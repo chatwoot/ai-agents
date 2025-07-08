@@ -540,6 +540,27 @@ RSpec.describe Agents::AgentRunner do
           expect(callbacks.length).to eq(1)
         end
       end
+
+      it "safely handles concurrent callback registration on same runner" do
+        runner = described_class.new([triage_agent])
+        registered_callbacks = []
+
+        # 10 threads concurrently registering callbacks on the same runner
+        threads = 10.times.map do |i|
+          Thread.new do
+            callback = proc { |_tool, _args| "Callback #{i}" }
+            runner.on_tool_start(&callback)
+            registered_callbacks << callback
+          end
+        end
+
+        threads.each(&:join)
+
+        # All callbacks should be registered without data corruption
+        final_callbacks = runner.instance_variable_get(:@callbacks)[:tool_start]
+        expect(final_callbacks.length).to eq(10)
+        expect(registered_callbacks.length).to eq(10)
+      end
     end
   end
 end
