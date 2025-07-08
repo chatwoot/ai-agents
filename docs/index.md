@@ -26,6 +26,7 @@ AI Agents is a Ruby SDK that enables developers to create sophisticated multi-ag
 - **Multi-Agent Orchestration**: Define and manage multiple AI agents with distinct roles
 - **Seamless Handoffs**: Transfer conversations between agents without user knowledge
 - **Tool Integration**: Allow agents to use custom tools to interact with external systems
+- **Callbacks**: Real-time notifications for agent thinking, tool execution, and handoffs
 - **Shared Context**: Maintain state and conversation history across agent interactions
 - **Thread-Safe Architecture**: Reusable agent runners that work safely across multiple threads
 - **Provider Agnostic**: Support for OpenAI, Anthropic, and Gemini
@@ -93,3 +94,4 @@ puts result.output
 - [Working with Tools](concepts/tools.html)
 - [Agent Handoffs](concepts/handoffs.html)
 - [Using the Runner](concepts/runner.html)
+- [Callbacks](concepts/callbacks.html)

@@ -18,4 +18,5 @@ The AI Agents library is built around several key concepts that work together to
 - **[Context](concepts/context.html)** - Serializable state management that persists across agent interactions
 - **[Handoffs](concepts/handoffs.html)** - Tool-based mechanism for seamless agent transitions
 - **[Tools](concepts/tools.html)** - Stateless extensions for external system integration
+- **[Callbacks](concepts/callbacks.html)** - Real-time notifications for agent thinking, tool execution, and handoffs
 - **[AgentTool](concepts/agent-tool.html)** - Agent-to-agent collaboration without conversation handoffs
