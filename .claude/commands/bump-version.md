@@ -14,7 +14,7 @@ The types of version jumps are
 To bump up the version, follow these steps:
 
 1. Update the version number in the `lib/agents/version.rb` file.
-2. Run `bundle install` to ensure the the lock file picks up the new version.
+2. Run `bundle install` to ensure the lock file picks up the new version.
 
 To update the chagnelog.
 
