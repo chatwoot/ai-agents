@@ -46,7 +46,22 @@ module Agents
     # RubyLLM calls this method (follows RubyLLM::Tool pattern)
     def call(args)
       tool_context = ToolContext.new(run_context: @context_wrapper)
-      @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+
+      # Emit tool start event
+      emit_event(:tool_start, @tool.name, args)
+
+      begin
+        result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+
+        # Emit tool complete event
+        emit_event(:tool_complete, @tool.name, result)
+
+        result
+      rescue StandardError => e
+        # Emit tool complete event even on error, but with error result
+        emit_event(:tool_complete, @tool.name, "ERROR: #{e.message}")
+        raise
+      end
     end
 
     # Delegate metadata methods to the tool
@@ -66,6 +81,22 @@ module Agents
     # Make this work with RubyLLM's tool calling
     def to_s
       name
+    end
+
+    private
+
+    # Emit callback events safely without disrupting tool execution
+    def emit_event(event_type, *args)
+      callbacks = @context_wrapper.callbacks || {}
+      callback_list = callbacks[event_type] || []
+
+      callback_list.each do |callback|
+        callback.call(*args)
+      rescue StandardError => e
+        # Log callback errors but don't let them crash tool execution
+        # In a real implementation, you might want to use a proper logger
+        warn "Callback error for #{event_type}: #{e.message}"
+      end
     end
   end
 end

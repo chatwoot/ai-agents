@@ -77,14 +77,15 @@ module Agents
     # @param context [Hash] Shared context data accessible to all tools
     # @param registry [Hash] Registry of agents for handoff resolution
     # @param max_turns [Integer] Maximum conversation turns before stopping
+    # @param callbacks [Hash] Optional callbacks for real-time event notifications
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS)
+    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, callbacks: {})
       # The starting_agent is already determined by AgentRunner based on conversation history
       current_agent = starting_agent
 
       # Create context wrapper with deep copy for thread safety
       context_copy = deep_copy_context(context)
-      context_wrapper = RunContext.new(context_copy)
+      context_wrapper = RunContext.new(context_copy, callbacks: callbacks)
       current_turn = 0
 
       # Create chat and restore conversation history
@@ -97,8 +98,12 @@ module Agents
 
         # Get response from LLM (Extended Chat handles tool execution with handoff detection)
         result = if current_turn == 1
+                   # Emit agent thinking event for initial message
+                   emit_event(context_wrapper, :agent_thinking, current_agent.name, input)
                    chat.ask(input)
                  else
+                   # Emit agent thinking event for continuation
+                   emit_event(context_wrapper, :agent_thinking, current_agent.name, "(continuing conversation)")
                    chat.complete
                  end
         response = result
@@ -118,6 +123,9 @@ module Agents
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
+
+          # Emit agent handoff event
+          emit_event(context_wrapper, :agent_handoff, current_agent.name, next_agent.name, "handoff")
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
@@ -263,6 +271,20 @@ module Agents
         message[:agent_name] = current_agent.name if msg.role == :assistant && current_agent
 
         message
+      end
+    end
+
+    # Emit callback events safely without disrupting execution
+    def emit_event(context_wrapper, event_type, *args)
+      callbacks = context_wrapper.callbacks || {}
+      callback_list = callbacks[event_type] || []
+
+      callback_list.each do |callback|
+        callback.call(*args)
+      rescue StandardError => e
+        # Log callback errors but don't let them crash execution
+        # In a real implementation, you might want to use a proper logger
+        warn "Callback error for #{event_type}: #{e.message}"
       end
     end
   end

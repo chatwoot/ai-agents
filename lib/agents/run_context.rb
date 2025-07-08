@@ -56,14 +56,16 @@
 #   # - No race conditions or data leakage between runs
 module Agents
   class RunContext
-    attr_reader :context, :usage
+    attr_reader :context, :usage, :callbacks
 
     # Initialize a new RunContext with execution context and usage tracking
     #
     # @param context [Hash] The execution context data (will be duplicated for isolation)
-    def initialize(context)
+    # @param callbacks [Hash] Optional callbacks for real-time event notifications
+    def initialize(context, callbacks: {})
       @context = context
       @usage = Usage.new
+      @callbacks = callbacks || {}
     end
 
     # Usage tracks token consumption across all LLM calls within a single run.
