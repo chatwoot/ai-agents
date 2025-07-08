@@ -208,6 +208,7 @@ The codebase follows comprehensive testing patterns with strong emphasis on thre
 - Integration tests for complex workflows
 - Thread-safety tests for concurrent scenarios
 - Clear separation of setup, execution, and assertion phases
+- Context description should always match /^when\b/, /^with\b/, or /^without\b/.
 
 ### Examples
 
