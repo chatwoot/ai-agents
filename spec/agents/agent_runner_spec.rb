@@ -4,17 +4,15 @@ require "webmock/rspec"
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::AgentRunner do
-  before do
-    # Configure RubyLLM for testing
-    RubyLLM.configure do |config|
-      config.openai_api_key = "test"
-    end
+  include OpenAITestHelper
 
-    WebMock.disable_net_connect!
+  before do
+    setup_openai_test_config
+    disable_net_connect!
   end
 
   after do
-    WebMock.allow_net_connect!
+    allow_net_connect!
   end
 
   let(:triage_agent) do
@@ -121,7 +119,7 @@ RSpec.describe Agents::AgentRunner do
       allow(mock_runner_instance).to receive(:run).and_return(mock_result)
     end
 
-    context "new conversation (empty context)" do
+    context "when starting a new conversation with empty context" do
       it "uses the default agent (first in list)" do
         runner.run("Hello")
 
@@ -130,7 +128,13 @@ RSpec.describe Agents::AgentRunner do
           "Hello",
           context: {},
           registry: hash_including("Triage Agent" => triage_agent),
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
 
@@ -142,12 +146,18 @@ RSpec.describe Agents::AgentRunner do
           "Hello",
           context: {},
           registry: anything,
-          max_turns: 5
+          max_turns: 5,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
 
-    context "continuing conversation with history" do
+    context "when continuing conversation with history" do
       let(:context_with_history) do
         {
           conversation_history: [
@@ -166,12 +176,18 @@ RSpec.describe Agents::AgentRunner do
           "More billing questions",
           context: context_with_history,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
 
-    context "history with unknown agent" do
+    context "when history contains unknown agent" do
       let(:context_with_unknown_agent) do
         {
           conversation_history: [
@@ -189,12 +205,18 @@ RSpec.describe Agents::AgentRunner do
           "Continue conversation",
           context: context_with_unknown_agent,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
 
-    context "history without agent attribution" do
+    context "when history lacks agent attribution" do
       let(:context_without_attribution) do
         {
           conversation_history: [
@@ -212,7 +234,13 @@ RSpec.describe Agents::AgentRunner do
           "Continue",
           context: context_without_attribution,
           registry: anything,
-          max_turns: Agents::Runner::DEFAULT_MAX_TURNS
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
         )
       end
     end
@@ -376,6 +404,163 @@ RSpec.describe Agents::AgentRunner do
       result = runner.run("Test message")
 
       expect(result).to eq(mock_result)
+    end
+  end
+
+  describe "callback system" do
+    let(:runner) { described_class.new([triage_agent, billing_agent]) }
+    let(:mock_runner_instance) { instance_double(Agents::Runner) }
+
+    before do
+      allow(Agents::Runner).to receive(:new).and_return(mock_runner_instance)
+      allow(mock_runner_instance).to receive(:run).and_return(mock_result)
+    end
+
+    describe "callback registration" do
+      it "registers tool_start callbacks" do
+        callback = proc { |tool_name, _args| "tool started: #{tool_name}" }
+        result_runner = runner.on_tool_start(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:tool_start]).to include(callback)
+      end
+
+      it "registers tool_complete callbacks" do
+        callback = proc { |tool_name, _result| "tool completed: #{tool_name}" }
+        result_runner = runner.on_tool_complete(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:tool_complete]).to include(callback)
+      end
+
+      it "registers agent_thinking callbacks" do
+        callback = proc { |agent_name, _input| "agent thinking: #{agent_name}" }
+        result_runner = runner.on_agent_thinking(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:agent_thinking]).to include(callback)
+      end
+
+      it "registers agent_handoff callbacks" do
+        callback = proc { |from, to, _reason| "handoff: #{from} -> #{to}" }
+        result_runner = runner.on_agent_handoff(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:agent_handoff]).to include(callback)
+      end
+
+      it "supports method chaining" do
+        result_runner = runner
+                        .on_tool_start { |_tool, _args| puts "Tool started" }
+                        .on_tool_complete { |_tool, _result| puts "Tool completed" }
+                        .on_agent_thinking { |_agent, _input| puts "Agent thinking" }
+                        .on_agent_handoff { |_from, _to, _reason| puts "Handoff" }
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:tool_start]).not_to be_empty
+        expect(runner.instance_variable_get(:@callbacks)[:tool_complete]).not_to be_empty
+        expect(runner.instance_variable_get(:@callbacks)[:agent_thinking]).not_to be_empty
+        expect(runner.instance_variable_get(:@callbacks)[:agent_handoff]).not_to be_empty
+      end
+
+      it "accumulates multiple callbacks for the same event" do
+        callback1 = proc { |_tool, _args| puts "Callback 1" }
+        callback2 = proc { |_tool, _args| puts "Callback 2" }
+
+        runner.on_tool_start(&callback1)
+        runner.on_tool_start(&callback2)
+
+        expect(runner.instance_variable_get(:@callbacks)[:tool_start]).to include(callback1, callback2)
+      end
+    end
+
+    describe "callback passing to runner" do
+      it "passes registered callbacks to the underlying runner" do
+        tool_callback = proc { |_tool, _args| puts "Tool callback" }
+        agent_callback = proc { |_agent, _input| puts "Agent callback" }
+
+        runner.on_tool_start(&tool_callback)
+        runner.on_agent_thinking(&agent_callback)
+        runner.run("Test message")
+
+        expect(mock_runner_instance).to have_received(:run).with(
+          anything,
+          anything,
+          hash_including(
+            callbacks: hash_including(
+              tool_start: [tool_callback],
+              agent_thinking: [agent_callback],
+              tool_complete: [],
+              agent_handoff: []
+            )
+          )
+        )
+      end
+
+      it "passes empty callback arrays when no callbacks registered" do
+        runner.run("Test message")
+
+        expect(mock_runner_instance).to have_received(:run).with(
+          anything,
+          anything,
+          hash_including(
+            callbacks: {
+              tool_start: [],
+              tool_complete: [],
+              agent_thinking: [],
+              agent_handoff: []
+            }
+          )
+        )
+      end
+    end
+
+    describe "thread safety with callbacks" do
+      it "maintains callback isolation between threads" do
+        results = {}
+        runners = []
+
+        threads = 3.times.map do |i|
+          Thread.new do
+            local_runner = described_class.new([triage_agent])
+            local_runner.on_tool_start { |_tool, _args| results[i] = "Thread #{i}" }
+            runners[i] = local_runner
+            i
+          end
+        end
+
+        thread_results = threads.map(&:value)
+
+        expect(thread_results).to contain_exactly(0, 1, 2)
+        expect(runners.length).to eq(3)
+
+        # Verify each runner has its own callback storage
+        runners.each_with_index do |runner, _i|
+          callbacks = runner.instance_variable_get(:@callbacks)[:tool_start]
+          expect(callbacks.length).to eq(1)
+        end
+      end
+
+      it "safely handles concurrent callback registration on same runner" do
+        runner = described_class.new([triage_agent])
+        registered_callbacks = []
+
+        # 10 threads concurrently registering callbacks on the same runner
+        threads = 10.times.map do |i|
+          Thread.new do
+            callback = proc { |_tool, _args| "Callback #{i}" }
+            runner.on_tool_start(&callback)
+            registered_callbacks << callback
+          end
+        end
+
+        threads.each(&:join)
+
+        # All callbacks should be registered without data corruption
+        final_callbacks = runner.instance_variable_get(:@callbacks)[:tool_start]
+        expect(final_callbacks.length).to eq(10)
+        expect(registered_callbacks.length).to eq(10)
+      end
     end
   end
 end

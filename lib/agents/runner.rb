@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "message_extractor"
+
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
   # Runner manages the conversation flow, handles tool execution through RubyLLM,
@@ -77,14 +79,15 @@ module Agents
     # @param context [Hash] Shared context data accessible to all tools
     # @param registry [Hash] Registry of agents for handoff resolution
     # @param max_turns [Integer] Maximum conversation turns before stopping
+    # @param callbacks [Hash] Optional callbacks for real-time event notifications
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS)
+    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, callbacks: {})
       # The starting_agent is already determined by AgentRunner based on conversation history
       current_agent = starting_agent
 
       # Create context wrapper with deep copy for thread safety
       context_copy = deep_copy_context(context)
-      context_wrapper = RunContext.new(context_copy)
+      context_wrapper = RunContext.new(context_copy, callbacks: callbacks)
       current_turn = 0
 
       # Create chat and restore conversation history
@@ -97,8 +100,12 @@ module Agents
 
         # Get response from LLM (Extended Chat handles tool execution with handoff detection)
         result = if current_turn == 1
+                   # Emit agent thinking event for initial message
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
                    chat.ask(input)
                  else
+                   # Emit agent thinking event for continuation
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)")
                    chat.complete
                  end
         response = result
@@ -118,6 +125,9 @@ module Agents
 
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
+
+          # Emit agent handoff event
+          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
@@ -143,7 +153,7 @@ module Agents
 
         return RunResult.new(
           output: response.content,
-          messages: extract_messages(chat, current_agent),
+          messages: MessageExtractor.extract_messages(chat, current_agent),
           usage: context_wrapper.usage,
           context: context_wrapper.context
         )
@@ -154,7 +164,7 @@ module Agents
 
       RunResult.new(
         output: "Conversation ended: #{e.message}",
-        messages: chat ? extract_messages(chat, current_agent) : [],
+        messages: chat ? MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -165,7 +175,7 @@ module Agents
 
       RunResult.new(
         output: nil,
-        messages: chat ? extract_messages(chat, current_agent) : [],
+        messages: chat ? MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -208,7 +218,7 @@ module Agents
 
     def save_conversation_state(chat, context_wrapper, current_agent)
       # Extract messages from chat
-      messages = extract_messages(chat, current_agent)
+      messages = MessageExtractor.extract_messages(chat, current_agent)
 
       # Update context with latest state
       context_wrapper.context[:conversation_history] = messages
@@ -243,27 +253,6 @@ module Agents
       chat.with_instructions(system_prompt) if system_prompt
       chat.with_tools(*wrapped_regular_tools) if wrapped_regular_tools.any?
       chat
-    end
-
-    def extract_messages(chat, current_agent)
-      return [] unless chat.respond_to?(:messages)
-
-      chat.messages.filter_map do |msg|
-        # Only include user and assistant messages with content
-        next unless %i[user assistant].include?(msg.role)
-        next unless msg.content && !msg.content.strip.empty?
-
-        message = {
-          role: msg.role,
-          content: msg.content
-        }
-
-        # Add agent attribution for assistant messages to enable conversation continuity
-        # This allows AgentRunner to determine which agent should continue the conversation
-        message[:agent_name] = current_agent.name if msg.role == :assistant && current_agent
-
-        message
-      end
     end
   end
 end

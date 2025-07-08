@@ -4,8 +4,14 @@ require_relative "../../lib/agents"
 
 RSpec.describe Agents::ToolWrapper do
   let(:tool) { Agents::Tool.new }
-  let(:context_wrapper) { instance_double(Agents::RunContext) }
+  let(:callback_manager) { instance_double(Agents::CallbackManager) }
+  let(:context_wrapper) { instance_double(Agents::RunContext, callback_manager: callback_manager) }
   let(:tool_wrapper) { described_class.new(tool, context_wrapper) }
+
+  before do
+    allow(callback_manager).to receive(:emit_tool_start)
+    allow(callback_manager).to receive(:emit_tool_complete)
+  end
 
   describe "#initialize" do
     it "stores the tool and context wrapper" do
@@ -46,6 +52,20 @@ RSpec.describe Agents::ToolWrapper do
       tool_wrapper.call(args)
 
       expect(tool).to have_received(:execute).with(tool_context, string_key: "value")
+    end
+
+    it "emits tool_complete with error message when tool execution fails" do
+      tool_context = instance_double(Agents::ToolContext)
+      args = { "city" => "NYC" }
+      error_message = "Network timeout"
+
+      allow(Agents::ToolContext).to receive(:new).with(run_context: context_wrapper).and_return(tool_context)
+      allow(tool).to receive(:execute).with(tool_context, city: "NYC").and_raise(StandardError, error_message)
+
+      expect { tool_wrapper.call(args) }.to raise_error(StandardError, error_message)
+
+      expect(callback_manager).to have_received(:emit_tool_start).with(tool.name, args)
+      expect(callback_manager).to have_received(:emit_tool_complete).with(tool.name, "ERROR: #{error_message}")
     end
   end
 

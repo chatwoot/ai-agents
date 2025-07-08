@@ -11,6 +11,8 @@ module Agents
   # ## Usage Pattern
   #   # Create once (typically at application startup)
   #   runner = Agents::Runner.with_agents(triage_agent, billing_agent, support_agent)
+  #     .on_tool_start { |tool_name, args| broadcast_event('tool_start', tool_name, args) }
+  #     .on_tool_complete { |tool_name, result| broadcast_event('tool_complete', tool_name, result) }
   #
   #   # Use safely from multiple threads
   #   result = runner.run("I need billing help")           # New conversation
@@ -22,6 +24,10 @@ module Agents
   # - Each run() call creates independent execution context
   # - No shared mutable state between concurrent executions
   #
+  # ## Callback Thread Safety
+  # Callback registration is thread-safe using internal synchronization. Multiple threads
+  # can safely register callbacks concurrently without data races.
+  #
   class AgentRunner
     # Initialize with a list of agents. The first agent becomes the default entry point.
     #
@@ -30,10 +36,19 @@ module Agents
       raise ArgumentError, "At least one agent must be provided" if agents.empty?
 
       @agents = agents.dup.freeze
+      @callbacks_mutex = Mutex.new
       @default_agent = agents.first
 
       # Build simple registry from provided agents - developer controls what's available
       @registry = build_registry(agents).freeze
+
+      # Initialize callback storage - use thread-safe arrays
+      @callbacks = {
+        tool_start: [],
+        tool_complete: [],
+        agent_thinking: [],
+        agent_handoff: []
+      }
     end
 
     # Execute a conversation turn with automatic agent selection.
@@ -50,13 +65,63 @@ module Agents
       current_agent = determine_conversation_agent(context)
 
       # Execute using stateless Runner - each execution is independent and thread-safe
+      # Pass callbacks to enable real-time event notifications
       Runner.new.run(
         current_agent,
         input,
         context: context,
         registry: @registry,
-        max_turns: max_turns
+        max_turns: max_turns,
+        callbacks: @callbacks
       )
+    end
+
+    # Register a callback for tool start events.
+    # Called when an agent is about to execute a tool.
+    #
+    # @param block [Proc] Callback block that receives (tool_name, args)
+    # @return [self] For method chaining
+    def on_tool_start(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:tool_start] << block }
+      self
+    end
+
+    # Register a callback for tool completion events.
+    # Called when an agent has finished executing a tool.
+    #
+    # @param block [Proc] Callback block that receives (tool_name, result)
+    # @return [self] For method chaining
+    def on_tool_complete(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:tool_complete] << block }
+      self
+    end
+
+    # Register a callback for agent thinking events.
+    # Called when an agent is about to make an LLM call.
+    #
+    # @param block [Proc] Callback block that receives (agent_name, input)
+    # @return [self] For method chaining
+    def on_agent_thinking(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:agent_thinking] << block }
+      self
+    end
+
+    # Register a callback for agent handoff events.
+    # Called when control is transferred from one agent to another.
+    #
+    # @param block [Proc] Callback block that receives (from_agent, to_agent, reason)
+    # @return [self] For method chaining
+    def on_agent_handoff(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:agent_handoff] << block }
+      self
     end
 
     private

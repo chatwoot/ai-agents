@@ -14,16 +14,20 @@ class ISPSupportDemo
     end
 
     # Create agents
-    agents = ISPSupport::AgentsFactory.create_agents
+    @agents = ISPSupport::AgentsFactory.create_agents
 
     # Create thread-safe runner with all agents (triage first = default entry point)
     @runner = Agents::Runner.with_agents(
-      agents[:triage],
-      agents[:sales],
-      agents[:support]
+      @agents[:triage],
+      @agents[:sales],
+      @agents[:support]
     )
 
+    # Setup real-time callbacks for UI feedback
+    setup_callbacks
+
     @context = {}
+    @current_status = ""
 
     puts "🏢 Welcome to ISP Customer Support!"
     puts "Type '/help' for commands or 'exit' to quit."
@@ -39,12 +43,18 @@ class ISPSupportDemo
       break if command_result == :exit
       next if command_result == :handled || user_input.empty?
 
+      # Clear any previous status and show agent is working
+      clear_status_line
+      print "🤖 Processing..."
+
       # Use the runner - it automatically determines the right agent from context
       result = @runner.run(user_input, context: @context)
 
       # Update our context with the returned context from Runner
       @context = result.context if result.respond_to?(:context) && result.context
 
+      # Clear status and show response
+      clear_status_line
       puts "🤖 #{result.output || "[No output]"}"
 
       puts
@@ -52,6 +62,35 @@ class ISPSupportDemo
   end
 
   private
+
+  def setup_callbacks
+    @runner.on_agent_thinking do |agent_name, _input|
+      update_status("🧠 #{agent_name} is thinking...")
+    end
+
+    @runner.on_tool_start do |tool_name, _args|
+      update_status("🔧 Using #{tool_name}...")
+    end
+
+    @runner.on_tool_complete do |tool_name, _result|
+      update_status("✅ #{tool_name} completed")
+    end
+
+    @runner.on_agent_handoff do |from_agent, to_agent, _reason|
+      update_status("🔄 Handoff: #{from_agent} → #{to_agent}")
+    end
+  end
+
+  def update_status(message)
+    clear_status_line
+    print message
+    $stdout.flush
+  end
+
+  def clear_status_line
+    print "\r#{" " * 80}\r" # Clear the current line
+    $stdout.flush
+  end
 
   def handle_command(input)
     case input.downcase

@@ -46,7 +46,17 @@ module Agents
     # RubyLLM calls this method (follows RubyLLM::Tool pattern)
     def call(args)
       tool_context = ToolContext.new(run_context: @context_wrapper)
-      @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+
+      @context_wrapper.callback_manager.emit_tool_start(@tool.name, args)
+
+      begin
+        result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result)
+        result
+      rescue StandardError => e
+        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}")
+        raise
+      end
     end
 
     # Delegate metadata methods to the tool

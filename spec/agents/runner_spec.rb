@@ -4,17 +4,15 @@ require "webmock/rspec"
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::Runner do
-  before do
-    # Configure RubyLLM for testing
-    RubyLLM.configure do |config|
-      config.openai_api_key = "test"
-    end
+  include OpenAITestHelper
 
-    WebMock.disable_net_connect!
+  before do
+    setup_openai_test_config
+    disable_net_connect!
   end
 
   after do
-    WebMock.allow_net_connect!
+    allow_net_connect!
   end
 
   let(:agent) do
@@ -50,8 +48,9 @@ RSpec.describe Agents::Runner do
     end
 
     it "passes all agents to AgentRunner constructor" do
-      expect(Agents::AgentRunner).to receive(:new).with([agent, handoff_agent])
+      allow(Agents::AgentRunner).to receive(:new).with([agent, handoff_agent])
       described_class.with_agents(agent, handoff_agent)
+      expect(Agents::AgentRunner).to have_received(:new).with([agent, handoff_agent])
     end
   end
 
@@ -60,30 +59,7 @@ RSpec.describe Agents::Runner do
 
     context "when simple conversation without tools" do
       before do
-        stub_request(:post, "https://api.openai.com/v1/chat/completions")
-          .to_return(
-            status: 200,
-            body: {
-              id: "chatcmpl-123",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-4o",
-              choices: [{
-                index: 0,
-                message: {
-                  role: "assistant",
-                  content: "Hello! How can I help you?"
-                },
-                finish_reason: "stop"
-              }],
-              usage: {
-                prompt_tokens: 10,
-                completion_tokens: 8,
-                total_tokens: 18
-              }
-            }.to_json,
-            headers: { "Content-Type" => "application/json" }
-          )
+        stub_simple_chat("Hello! How can I help you?")
       end
 
       it "completes simple conversation in single turn" do
@@ -154,26 +130,7 @@ RSpec.describe Agents::Runner do
       let(:context_with_agent) { { current_agent: "HandoffAgent" } }
 
       before do
-        stub_request(:post, "https://api.openai.com/v1/chat/completions")
-          .to_return(
-            status: 200,
-            body: {
-              id: "chatcmpl-789",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-4o",
-              choices: [{
-                index: 0,
-                message: {
-                  role: "assistant",
-                  content: "I'm the specialist agent"
-                },
-                finish_reason: "stop"
-              }],
-              usage: { prompt_tokens: 15, completion_tokens: 6, total_tokens: 21 }
-            }.to_json,
-            headers: { "Content-Type" => "application/json" }
-          )
+        stub_simple_chat("I'm the specialist agent")
       end
 
       it "stores current agent name in context" do
@@ -210,57 +167,11 @@ RSpec.describe Agents::Runner do
         allow(Agents::HandoffTool).to receive(:new).with(handoff_agent)
                                                    .and_return(handoff_tool_instance)
 
-        # First request - triage agent decides to handoff
-        stub_request(:post, "https://api.openai.com/v1/chat/completions")
-          .to_return(
-            {
-              status: 200,
-              body: {
-                id: "chatcmpl-handoff1",
-                object: "chat.completion",
-                created: 1_677_652_288,
-                model: "gpt-4o",
-                choices: [{
-                  index: 0,
-                  message: {
-                    role: "assistant",
-                    content: nil,
-                    tool_calls: [{
-                      id: "call_handoff",
-                      type: "function",
-                      function: {
-                        name: "handoff_to_handoffagent",
-                        arguments: "{}"
-                      }
-                    }]
-                  },
-                  finish_reason: "tool_calls"
-                }],
-                usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
-              }.to_json,
-              headers: { "Content-Type" => "application/json" }
-            },
-            # Second request - handoff agent responds
-            {
-              status: 200,
-              body: {
-                id: "chatcmpl-handoff2",
-                object: "chat.completion",
-                created: 1_677_652_300,
-                model: "gpt-4o",
-                choices: [{
-                  index: 0,
-                  message: {
-                    role: "assistant",
-                    content: "Hello, I'm the specialist. How can I help?"
-                  },
-                  finish_reason: "stop"
-                }],
-                usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 }
-              }.to_json,
-              headers: { "Content-Type" => "application/json" }
-            }
-          )
+        # First request - triage agent decides to handoff, then specialist responds
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "Hello, I'm the specialist. How can I help?"
+        )
       end
 
       it "switches to handoff agent and continues conversation" do
@@ -282,8 +193,7 @@ RSpec.describe Agents::Runner do
         allow(runner).to receive_messages(
           create_chat: mock_chat,
           restore_conversation_history: nil,
-          save_conversation_state: nil,
-          extract_messages: []
+          save_conversation_state: nil
         )
         allow(mock_chat).to receive_messages(ask: mock_response, complete: mock_response)
 
