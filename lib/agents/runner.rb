@@ -199,7 +199,7 @@ module Agents
 
       history.each do |msg|
         # Only restore user and assistant messages with content
-        next unless %i[user assistant].include?(msg[:role])
+        next unless %i[user assistant].include?(msg[:role].to_sym)
         next unless msg[:content] && !msg[:content].strip.empty?
 
         chat.add_message(
