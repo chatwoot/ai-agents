@@ -124,6 +124,25 @@ RSpec.describe Agents::Runner do
         expect(result.output).to eq("Yes, that's correct! Is there anything else?")
         expect(result.messages.length).to eq(4) # 2 from history + 2 new
       end
+
+      context "with string roles in history" do
+        let(:context_with_string_roles) do
+          {
+            conversation_history: [
+              { role: "user", content: "What's 2+2?" },
+              { role: "assistant", content: "2+2 equals 4." }
+            ]
+          }
+        end
+
+        it "handles string roles correctly" do
+          result = runner.run(agent, "Thanks for confirming", context: context_with_string_roles)
+
+          expect(result.success?).to be true
+          expect(result.output).to eq("Yes, that's correct! Is there anything else?")
+          expect(result.messages.length).to eq(4) # 2 from history + 2 new
+        end
+      end
     end
 
     context "when using current_agent from context" do
