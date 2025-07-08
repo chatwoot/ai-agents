@@ -53,6 +53,20 @@ RSpec.describe Agents::ToolWrapper do
 
       expect(tool).to have_received(:execute).with(tool_context, string_key: "value")
     end
+
+    it "emits tool_complete with error message when tool execution fails" do
+      tool_context = instance_double(Agents::ToolContext)
+      args = { "city" => "NYC" }
+      error_message = "Network timeout"
+
+      allow(Agents::ToolContext).to receive(:new).with(run_context: context_wrapper).and_return(tool_context)
+      allow(tool).to receive(:execute).with(tool_context, city: "NYC").and_raise(StandardError, error_message)
+
+      expect { tool_wrapper.call(args) }.to raise_error(StandardError, error_message)
+
+      expect(callback_manager).to have_received(:emit_tool_start).with(tool.name, args)
+      expect(callback_manager).to have_received(:emit_tool_complete).with(tool.name, "ERROR: #{error_message}")
+    end
   end
 
   describe "#name" do
