@@ -16,7 +16,7 @@ To bump up the version, follow these steps:
 1. Update the version number in the `lib/agents/version.rb` file.
 2. Run `bundle install` to ensure the lock file picks up the new version.
 
-To update the chagnelog.
+To update the changelog.
 
 1. Find the changelog file in `CHANGELOG.md`.
 2. Add a new section for the new version number.
