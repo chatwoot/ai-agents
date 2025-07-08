@@ -1,3 +1,8 @@
+---
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*)
+description: Bump version, update changelog and commit changes
+---
+
 You need to bump the version of the ruby gem and update the CHANGELOG. We need a #$ARGUMENTS version bump.
 
 The types of version jumps are
