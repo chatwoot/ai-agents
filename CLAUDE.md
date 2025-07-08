@@ -9,6 +9,7 @@ This project is a Ruby SDK for building multi-agent AI workflows. It allows deve
 -   **Multi-Agent Orchestration**: Defining and managing multiple AI agents with distinct roles.
 -   **Seamless Handoffs**: Transferring conversations between agents without the user's knowledge.
 -   **Tool Integration**: Allowing agents to use custom tools to interact with external systems.
+-   **Real-time Callbacks**: Event-driven system for monitoring agent execution, tool usage, and handoffs.
 -   **Shared Context**: Maintaining state and conversation history across agent interactions with full persistence support.
 -   **Thread-Safe Architecture**: Reusable agent runners that work safely across multiple threads.
 -   **Provider Agnostic**: Supporting various LLM providers like OpenAI, Anthropic, and Gemini.
@@ -52,6 +53,7 @@ ruby examples/isp-support/interactive.rb
 
 This will start a command-line interface where you can interact with the multi-agent system. The example demonstrates:
 - Thread-safe agent runner creation
+- Real-time callback system with UI feedback
 - Automatic agent selection based on conversation history
 - Context persistence that works across process boundaries
 - Seamless handoffs between triage, sales, and support agents
@@ -64,6 +66,7 @@ This will start a command-line interface where you can interact with the multi-a
 -   **AgentRunner**: The thread-safe execution manager that coordinates multi-agent conversations and provides the main API.
 -   **Runner**: Internal component that manages individual conversation turns (used by AgentRunner).
 -   **Context**: A shared state object that stores conversation history and agent information, fully serializable for persistence.
+-   **Callbacks**: Event hooks for monitoring agent execution, including agent thinking, tool start/complete, and handoffs.
 
 ## Development Commands
 
@@ -111,10 +114,12 @@ ruby examples/isp-support/interactive.rb
 ### Core Components
 
 - **Agents::Agent**: Individual AI agents with specific roles, instructions, and tools
+- **Agents::AgentRunner**: Thread-safe execution manager with callback support
 - **Agents::Runner**: Orchestrates multi-agent conversations with automatic handoffs
 - **Agents::Tool**: Base class for custom tools that agents can execute
 - **Agents::Context**: Shared state management across agent interactions
 - **Agents::Handoff**: Manages seamless transfers between agents
+- **Agents::CallbackManager**: Centralized event handling for real-time monitoring
 
 ### Key Design Principles
 
@@ -129,17 +134,19 @@ ruby examples/isp-support/interactive.rb
 
 ```
 lib/agents/
-├── agent.rb          # Core agent definition and configuration
-├── agent_runner.rb   # Thread-safe execution manager (main API)
-├── runner.rb         # Internal execution engine for conversation turns
-├── tool.rb           # Base class for custom tools
-├── handoff.rb        # Agent handoff management
-├── chat.rb           # Chat message handling
-├── result.rb         # Result object for agent responses
-├── run_context.rb    # Execution context management
-├── tool_context.rb   # Tool execution context
-├── tool_wrapper.rb   # Thread-safe tool wrapping
-└── version.rb        # Gem version
+├── agent.rb            # Core agent definition and configuration
+├── agent_runner.rb     # Thread-safe execution manager (main API)
+├── runner.rb           # Internal execution engine for conversation turns
+├── tool.rb             # Base class for custom tools
+├── handoff.rb          # Agent handoff management
+├── chat.rb             # Chat message handling
+├── result.rb           # Result object for agent responses
+├── run_context.rb      # Execution context management
+├── tool_context.rb     # Tool execution context
+├── tool_wrapper.rb     # Thread-safe tool wrapping
+├── callback_manager.rb # Centralized callback event handling
+├── message_extractor.rb # Conversation history processing
+└── version.rb          # Gem version
 ```
 
 ### Configuration
@@ -167,7 +174,13 @@ support = Agent.new(name: "Support", instructions: "Technical support...")
 triage.register_handoffs(billing, support)
 
 # Create thread-safe runner (first agent is default entry point)
-runner = Agents::Runner.with_agents(triage, billing, support)
+runner = Agents::AgentRunner.with_agents(triage, billing, support)
+
+# Add real-time callbacks for monitoring
+runner.on_agent_thinking { |agent_name, input| puts "🧠 #{agent_name} is thinking..." }
+runner.on_tool_start { |tool_name, args| puts "🔧 Using #{tool_name}..." }
+runner.on_tool_complete { |tool_name, result| puts "✅ #{tool_name} completed" }
+runner.on_agent_handoff { |from, to, reason| puts "🔄 Handoff: #{from} → #{to}" }
 
 # Use for conversations - automatically handles agent selection and persistence
 result = runner.run("I have a billing question")
@@ -184,10 +197,17 @@ When creating custom tools:
 
 ### Testing Strategy
 
+The codebase follows comprehensive testing patterns with strong emphasis on thread safety and isolation, here's some points to note
+
 - SimpleCov tracks coverage with 50% minimum overall, 40% per file
-- WebMock is used for HTTP mocking in tests
-- RSpec is the testing framework with standard configuration
-- Tests are organized by component in `spec/agents/`
+- RSpec testing framework with descriptive context blocks
+- Tests organized by component in `spec/agents/` mirroring lib structure
+- **Instance Doubles**: Extensive use of `instance_double` for clean dependency mocking, never use generic `double` or `stub`
+- **WebMock**: HTTP call stubbing with network isolation (`WebMock.disable_net_connect!`)
+- Unit tests for individual components
+- Integration tests for complex workflows
+- Thread-safety tests for concurrent scenarios
+- Clear separation of setup, execution, and assertion phases
 
 ### Examples
 
@@ -195,3 +215,26 @@ The `examples/` directory contains complete working examples:
 - `isp-support/`: Multi-agent ISP customer support system
 - Shows hub-and-spoke architecture patterns
 - Demonstrates tool integration and handoff workflows
+- Includes real-time callback implementation for UI feedback
+
+## Callback System
+
+The SDK includes a comprehensive callback system for monitoring agent execution in real-time. This is particularly useful for:
+
+- **UI Feedback**: Show users what's happening during agent execution
+- **Debugging**: Track tool usage and agent handoffs
+- **Analytics**: Monitor system performance and usage patterns
+- **Rails Integration**: Stream updates via ActionCable
+
+### Available Callbacks
+
+- `on_agent_thinking`: Triggered when an agent starts processing
+- `on_tool_start`: Triggered when a tool begins execution
+- `on_tool_complete`: Triggered when a tool finishes execution
+- `on_agent_handoff`: Triggered when control transfers between agents
+
+### Callback Integration
+
+Callbacks are thread-safe and non-blocking. If a callback raises an exception, it won't interrupt agent execution. The system uses a centralized CallbackManager for efficient event handling.
+
+For detailed callback documentation, see `docs/concepts/callbacks.md`.
