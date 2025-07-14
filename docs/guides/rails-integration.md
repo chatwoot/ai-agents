@@ -85,7 +85,7 @@ class Conversation < ApplicationRecord
     create!(
       user: user,
       context: result.context.to_h,
-      current_agent: result.context.current_agent_name
+      current_agent: result.context[:current_agent]
     )
   end
 end
@@ -209,7 +209,7 @@ class AgentConversationsController < ApplicationController
       
       render json: {
         response: result.output,
-        agent: result.context.current_agent_name,
+        agent: result.context[:current_agent],
         conversation_id: result.context[:conversation_id]
       }
     rescue => e
@@ -313,7 +313,7 @@ class AgentConversationJob < ApplicationJob
       "agent_conversation_#{user_id}",
       {
         response: result.output,
-        agent: result.context.current_agent_name,
+        agent: result.context[:current_agent],
         conversation_id: conversation_id
       }
     )

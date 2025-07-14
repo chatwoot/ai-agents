@@ -84,4 +84,4 @@ result1 = runner.run("I need help with my bill")
 result2 = runner.run("What payment methods do you accept?", context: result1.context)
 ```
 
-The `run` method returns a `RunResult` with output, conversation history, usage metrics, and updated context.
+The `run` method returns a `RunResult` with output, messages, usage metrics, error status, and updated context.
