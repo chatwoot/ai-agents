@@ -183,7 +183,7 @@ class ContextCleaner
     # Limit total context size
     if cleaned.keys.size > MAX_CONTEXT_KEYS
       # Keep essential keys, remove extras
-      essential_keys = [:user_id, :current_agent_name, :conversation_history]
+      essential_keys = [:user_id, :current_agent, :conversation_history]
       extra_keys = cleaned.keys - essential_keys
       extra_keys.first(cleaned.keys.size - MAX_CONTEXT_KEYS).each do |key|
         cleaned.delete(key)
@@ -292,7 +292,7 @@ class VersionedContext
       {
         version: index,
         timestamp: context[:updated_at],
-        agent: context[:current_agent_name]
+        agent: context[:current_agent]
       }
     end
   end
@@ -409,12 +409,10 @@ class ContextMigrator
   private
   
   def self.migrate_v1_to_v2(context)
-    # V1 -> V2: Rename 'current_agent' to 'current_agent_name'
+    # V1 -> V2: Rename 'current_agent' to 'current_agent' (no change needed)
     migrated = context.deep_dup
     
-    if migrated[:current_agent]
-      migrated[:current_agent_name] = migrated.delete(:current_agent)
-    end
+    # No migration needed - current_agent is already the correct field name
     
     migrated[:_version] = 2
     migrated

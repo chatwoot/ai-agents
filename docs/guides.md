@@ -2,7 +2,7 @@
 layout: default
 title: Guides
 nav_order: 3
-published: false
+published: true
 has_children: true
 ---
 
