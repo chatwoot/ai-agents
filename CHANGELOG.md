@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-07-14
+
+### Added
+- Support for additional LLM providers:
+  - DeepSeek (`deepseek_api_key`)
+  - OpenRouter (`openrouter_api_key`)
+  - Ollama (`ollama_api_base`)
+  - AWS Bedrock (`bedrock_api_key`, `bedrock_secret_key`, `bedrock_region`, `bedrock_session_token`)
+- OpenAI API base URL configuration (`openai_api_base`) for custom endpoints
+- OpenAI organization and project ID configuration (`openai_organization_id`, `openai_project_id`)
+- Updated `Configuration#configured?` method to check all supported providers
+
 ## [0.2.1] - 2025-07-08
 
 ### Fixed
