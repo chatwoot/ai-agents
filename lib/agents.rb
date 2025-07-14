@@ -42,18 +42,52 @@ module Agents
 
     def configure_ruby_llm!
       RubyLLM.configure do |config|
-        config.openai_api_key = configuration.openai_api_key if configuration.openai_api_key
-        config.anthropic_api_key = configuration.anthropic_api_key if configuration.anthropic_api_key
-        config.gemini_api_key = configuration.gemini_api_key if configuration.gemini_api_key
-        config.default_model = configuration.default_model
-        config.log_level = configuration.debug == true ? :debug : :info
-        config.request_timeout = configuration.request_timeout if configuration.request_timeout
+        configure_providers(config)
+        configure_general_settings(config)
       end
+    end
+
+    def configure_providers(config)
+      # OpenAI configuration
+      apply_if_present(config, :openai_api_key)
+      apply_if_present(config, :openai_api_base)
+      apply_if_present(config, :openai_organization_id)
+      apply_if_present(config, :openai_project_id)
+
+      # Other providers
+      apply_if_present(config, :anthropic_api_key)
+      apply_if_present(config, :gemini_api_key)
+      apply_if_present(config, :deepseek_api_key)
+      apply_if_present(config, :openrouter_api_key)
+      apply_if_present(config, :ollama_api_base)
+
+      # AWS Bedrock configuration
+      apply_if_present(config, :bedrock_api_key)
+      apply_if_present(config, :bedrock_secret_key)
+      apply_if_present(config, :bedrock_region)
+      apply_if_present(config, :bedrock_session_token)
+    end
+
+    def configure_general_settings(config)
+      config.default_model = configuration.default_model
+      config.log_level = configuration.debug == true ? :debug : :info
+      apply_if_present(config, :request_timeout)
+    end
+
+    def apply_if_present(config, key)
+      value = configuration.send(key)
+      config.send("#{key}=", value) if value
     end
   end
 
   class Configuration
-    attr_accessor :openai_api_key, :anthropic_api_key, :gemini_api_key, :request_timeout, :default_model, :debug
+    # Provider API keys and configuration
+    attr_accessor :openai_api_key, :openai_api_base, :openai_organization_id, :openai_project_id
+    attr_accessor :anthropic_api_key, :gemini_api_key, :deepseek_api_key, :openrouter_api_key, :ollama_api_base,
+                  :bedrock_api_key, :bedrock_secret_key, :bedrock_region, :bedrock_session_token
+
+    # General configuration
+    attr_accessor :request_timeout, :default_model, :debug
 
     def initialize
       @default_model = "gpt-4o-mini"
@@ -64,7 +98,9 @@ module Agents
     # Check if at least one provider is configured
     # @return [Boolean] True if any provider has an API key
     def configured?
-      @openai_api_key || @anthropic_api_key || @gemini_api_key
+      @openai_api_key || @anthropic_api_key || @gemini_api_key ||
+        @deepseek_api_key || @openrouter_api_key || @ollama_api_base ||
+        @bedrock_api_key
     end
   end
 end

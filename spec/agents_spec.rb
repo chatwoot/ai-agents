@@ -43,8 +43,10 @@ RSpec.describe Agents do
   describe ".configure" do
     let(:mock_ruby_llm_config) do
       Class.new do
-        attr_writer :openai_api_key, :anthropic_api_key, :gemini_api_key,
-                    :default_model, :log_level, :request_timeout
+        attr_writer :openai_api_key, :openai_api_base, :openai_organization_id, :openai_project_id,
+                    :anthropic_api_key, :gemini_api_key, :deepseek_api_key, :openrouter_api_key,
+                    :ollama_api_base, :bedrock_api_key, :bedrock_secret_key, :bedrock_region,
+                    :bedrock_session_token, :default_model, :log_level, :request_timeout
         attr_reader :log_level
       end.new
     end
@@ -116,6 +118,25 @@ RSpec.describe Agents do
       result = described_class.configure {}
       expect(result).to be_a(Agents::Configuration)
     end
+
+    it "configures RubyLLM with all new provider keys" do
+      allow(RubyLLM).to receive(:configure)
+
+      described_class.configure do |config|
+        config.openai_api_base = "https://custom.openai.com"
+        config.openai_organization_id = "org-123"
+        config.openai_project_id = "proj-456"
+        config.deepseek_api_key = "test-deepseek"
+        config.openrouter_api_key = "test-openrouter"
+        config.ollama_api_base = "http://localhost:11434"
+        config.bedrock_api_key = "test-bedrock-key"
+        config.bedrock_secret_key = "test-bedrock-secret"
+        config.bedrock_region = "us-east-1"
+        config.bedrock_session_token = "test-session"
+      end
+
+      expect(RubyLLM).to have_received(:configure)
+    end
   end
 end
 
@@ -131,8 +152,18 @@ RSpec.describe Agents::Configuration do
 
     it "initializes API keys as nil" do
       expect(config.openai_api_key).to be_nil
+      expect(config.openai_api_base).to be_nil
+      expect(config.openai_organization_id).to be_nil
+      expect(config.openai_project_id).to be_nil
       expect(config.anthropic_api_key).to be_nil
       expect(config.gemini_api_key).to be_nil
+      expect(config.deepseek_api_key).to be_nil
+      expect(config.openrouter_api_key).to be_nil
+      expect(config.ollama_api_base).to be_nil
+      expect(config.bedrock_api_key).to be_nil
+      expect(config.bedrock_secret_key).to be_nil
+      expect(config.bedrock_region).to be_nil
+      expect(config.bedrock_session_token).to be_nil
     end
   end
 
@@ -166,6 +197,48 @@ RSpec.describe Agents::Configuration do
       config.debug = true
       expect(config.debug).to be true
     end
+
+    it "allows setting and getting openai_api_base" do
+      config.openai_api_base = "https://custom.openai.com"
+      expect(config.openai_api_base).to eq("https://custom.openai.com")
+    end
+
+    it "allows setting and getting openai_organization_id" do
+      config.openai_organization_id = "org-123"
+      expect(config.openai_organization_id).to eq("org-123")
+    end
+
+    it "allows setting and getting openai_project_id" do
+      config.openai_project_id = "proj-456"
+      expect(config.openai_project_id).to eq("proj-456")
+    end
+
+    it "allows setting and getting deepseek_api_key" do
+      config.deepseek_api_key = "test-deepseek-key"
+      expect(config.deepseek_api_key).to eq("test-deepseek-key")
+    end
+
+    it "allows setting and getting openrouter_api_key" do
+      config.openrouter_api_key = "test-openrouter-key"
+      expect(config.openrouter_api_key).to eq("test-openrouter-key")
+    end
+
+    it "allows setting and getting ollama_api_base" do
+      config.ollama_api_base = "http://localhost:11434"
+      expect(config.ollama_api_base).to eq("http://localhost:11434")
+    end
+
+    it "allows setting and getting bedrock credentials" do
+      config.bedrock_api_key = "test-bedrock-key"
+      config.bedrock_secret_key = "test-bedrock-secret"
+      config.bedrock_region = "us-east-1"
+      config.bedrock_session_token = "test-session-token"
+
+      expect(config.bedrock_api_key).to eq("test-bedrock-key")
+      expect(config.bedrock_secret_key).to eq("test-bedrock-secret")
+      expect(config.bedrock_region).to eq("us-east-1")
+      expect(config.bedrock_session_token).to eq("test-session-token")
+    end
   end
 
   describe "#configured?" do
@@ -191,6 +264,26 @@ RSpec.describe Agents::Configuration do
     it "returns truthy when multiple API keys are set" do
       config.openai_api_key = "openai-key"
       config.anthropic_api_key = "anthropic-key"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when deepseek_api_key is set" do
+      config.deepseek_api_key = "test-key"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when openrouter_api_key is set" do
+      config.openrouter_api_key = "test-key"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when ollama_api_base is set" do
+      config.ollama_api_base = "http://localhost:11434"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when bedrock_api_key is set" do
+      config.bedrock_api_key = "test-key"
       expect(config).to be_configured
     end
   end
