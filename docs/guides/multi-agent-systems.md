@@ -210,7 +210,7 @@ RSpec.describe "Customer Support Workflow" do
     result = runner.run("I have a billing question")
     
     # Verify handoff occurred
-    expect(result.context.current_agent_name).to eq("Billing")
+    expect(result.context[:current_agent]).to eq("Billing")
     
     # Test continued conversation
     followup = runner.run("What are your payment terms?", context: result.context)

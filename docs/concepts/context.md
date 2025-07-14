@@ -19,7 +19,7 @@ The main context hash that persists across sessions:
 context = {
   user_id: 123,
   conversation_history: [...],
-  current_agent_name: "Billing",
+  current_agent: "Billing",
   state: { customer_tier: "premium" }  # Tools use this nested hash for persistent data
 }
 ```
@@ -69,7 +69,7 @@ runner = Agents::Runner.with_agents(triage_agent, billing_agent)
 # First interaction
 result1 = runner.run("I need billing help")
 # Triage agent hands off to billing agent
-# Context includes: current_agent_name: "Billing"
+# Context includes: current_agent: "Billing"
 
 # Continue conversation
 result2 = runner.run("What payment methods do you accept?", context: result1.context)

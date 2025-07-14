@@ -27,36 +27,22 @@ By passing all the necessary data through the `ToolContext`, we ensure that tool
 
 ## Creating a Tool
 
-You can create a tool in two ways:
+You create tools by creating a class that inherits from `Agents::Tool` and implements the `perform` method:
 
-1.  **Creating a Tool Class:** For more complex tools, you can create a class that inherits from `Agents::Tool` and implements the `perform` method.
+```ruby
+class WeatherTool < Agents::Tool
+  name "get_weather"
+  description "Get the current weather for a location."
+  param :location, type: "string", desc: "The city and state, e.g., San Francisco, CA"
 
-    ```ruby
-    class WeatherTool < Agents::Tool
-      name "get_weather"
-      description "Get the current weather for a location."
-      param :location, type: "string", desc: "The city and state, e.g., San Francisco, CA"
+  def perform(tool_context, location:)
+    # Access the API key from the shared context
+    api_key = tool_context.context[:weather_api_key]
 
-      def perform(tool_context, location:)
-        # Access the API key from the shared context
-        api_key = tool_context.context[:weather_api_key]
+    # Call the weather API and return the result
+    WeatherApi.get(location, api_key)
+  end
+end
+```
 
-        # Call the weather API and return the result
-        WeatherApi.get(location, api_key)
-      end
-    end
-    ```
-
-2.  **Using the Functional Tool Definition:** For simpler tools, you can use the `Agents::Tool.tool` helper to define a tool with a block.
-
-    ```ruby
-    calculator_tool = Agents::Tool.tool(
-      "calculate",
-      description: "Perform a mathematical calculation."
-    ) do |tool_context, expression:|
-      # Perform the calculation and return the result
-      eval(expression).to_s
-    end
-    ```
-
-In both cases, the `perform` method receives the `tool_context` and the tool's parameters as arguments. This design ensures that your tools are always thread-safe and easy to test.
+The `perform` method receives the `tool_context` and the tool's parameters as arguments. This design ensures that your tools are always thread-safe and easy to test.
