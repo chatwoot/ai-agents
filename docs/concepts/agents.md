@@ -21,6 +21,7 @@ This project is in early development. While thread safety is a core design goal 
 *   **`model`**: The language model the agent will use (e.g., `"gpt-4.1-mini"`).
 *   **`tools`**: An array of `Agents::Tool` instances that the agent can use to perform actions.
 *   **`handoff_agents`**: An array of other agents that this agent can hand off conversations to.
+*   **`temperature`**: Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
 
 ### Example
 
@@ -30,7 +31,8 @@ assistant_agent = Agents::Agent.new(
   name: "Assistant",
   instructions: "You are a helpful assistant.",
   model: "gpt-4.1-mini",
-  tools: [CalculatorTool.new]
+  tools: [CalculatorTool.new],
+  temperature: 0.3
 )
 
 # Create a specialized agent by cloning the base agent
