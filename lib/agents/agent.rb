@@ -33,7 +33,7 @@
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents
+    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature
 
     # Initialize a new Agent instance
     #
@@ -42,12 +42,14 @@ module Agents
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [])
+    # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
+      @temperature = temperature
 
       # Mutex for thread-safe handoff registration
       # While agents are typically configured at startup, we want to ensure
@@ -131,6 +133,7 @@ module Agents
     # @option changes [String] :model New model identifier
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
+    # @option changes [Float] :temperature Temperature for LLM responses (0.0-1.0)
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
       self.class.new(
@@ -138,7 +141,8 @@ module Agents
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
         tools: changes.fetch(:tools, @tools.dup),
-        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents)
+        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
+        temperature: changes.fetch(:temperature, @temperature)
       )
     end
 

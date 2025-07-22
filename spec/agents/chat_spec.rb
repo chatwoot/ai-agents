@@ -93,6 +93,18 @@ RSpec.describe Agents::Chat do
       chat = described_class.new(handoff_tools: [handoff_tool], context_wrapper: context)
       expect(chat.instance_variable_get(:@handoff_tools)).to eq([handoff_tool])
     end
+
+    it "accepts temperature parameter" do
+      chat = described_class.new(temperature: 0.5, handoff_tools: [], context_wrapper: context)
+
+      expect(chat.instance_variable_get(:@temperature)).to eq(0.5)
+    end
+
+    it "sets temperature after initialization" do
+      chat = described_class.new(model: "gpt-4", temperature: 0.8, handoff_tools: [], context_wrapper: context)
+
+      expect(chat.instance_variable_get(:@temperature)).to eq(0.8)
+    end
   end
 
   describe "#complete" do
