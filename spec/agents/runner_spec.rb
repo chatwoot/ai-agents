@@ -21,6 +21,7 @@ RSpec.describe Agents::Runner do
                     model: "gpt-4o",
                     tools: [],
                     handoff_agents: [],
+                    temperature: 0.7,
                     get_system_prompt: "You are a helpful assistant")
   end
 
@@ -30,6 +31,7 @@ RSpec.describe Agents::Runner do
                     model: "gpt-4o",
                     tools: [],
                     handoff_agents: [],
+                    temperature: 0.7,
                     get_system_prompt: "You are a specialist")
   end
 
@@ -170,6 +172,7 @@ RSpec.describe Agents::Runner do
                         model: "gpt-4o",
                         tools: [],
                         handoff_agents: [handoff_agent],
+                        temperature: 0.7,
                         get_system_prompt: "You route users to specialists")
       end
 

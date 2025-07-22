@@ -16,6 +16,7 @@ RSpec.describe Agents::Agent do
       expect(agent.model).to eq("gpt-4.1-mini")
       expect(agent.tools).to eq([])
       expect(agent.handoff_agents).to eq([])
+      expect(agent.temperature).to eq(0.7)
     end
 
     it "creates agent with all parameters" do
@@ -28,7 +29,8 @@ RSpec.describe Agents::Agent do
         instructions: instructions,
         model: "gpt-4o",
         tools: tools,
-        handoff_agents: handoff_agents
+        handoff_agents: handoff_agents,
+        temperature: 0.9
       )
 
       expect(agent.name).to eq("Test Agent")
@@ -36,6 +38,7 @@ RSpec.describe Agents::Agent do
       expect(agent.model).to eq("gpt-4o")
       expect(agent.tools).to eq(tools)
       expect(agent.handoff_agents).to include(other_agent)
+      expect(agent.temperature).to eq(0.9)
     end
 
     it "creates agent with Proc instructions" do
@@ -56,6 +59,12 @@ RSpec.describe Agents::Agent do
       tools << instance_double(Agents::Tool, "AnotherTool")
 
       expect(agent.tools.size).to eq(1)
+    end
+
+    it "creates agent with custom temperature" do
+      agent = described_class.new(name: "Test", temperature: 0.2)
+
+      expect(agent.temperature).to eq(0.2)
     end
   end
 
@@ -139,7 +148,8 @@ RSpec.describe Agents::Agent do
         instructions: "Original instructions",
         model: "gpt-4",
         tools: [test_tool],
-        handoff_agents: [other_agent]
+        handoff_agents: [other_agent],
+        temperature: 0.7
       )
     end
 
@@ -164,6 +174,7 @@ RSpec.describe Agents::Agent do
       expect(cloned.model).to eq("gpt-3.5-turbo")
       expect(cloned.instructions).to eq("Original instructions")
       expect(cloned.tools).to eq([test_tool])
+      expect(cloned.temperature).to eq(0.7)
     end
 
     it "duplicates tools array to prevent mutation" do
@@ -171,6 +182,13 @@ RSpec.describe Agents::Agent do
       cloned.tools << instance_double(Agents::Tool, "NewTool")
 
       expect(original_agent.tools.size).to eq(1)
+    end
+
+    it "overrides temperature in clone" do
+      cloned = original_agent.clone(temperature: 0.1)
+
+      expect(cloned.temperature).to eq(0.1)
+      expect(original_agent.temperature).to eq(0.7)
     end
   end
 

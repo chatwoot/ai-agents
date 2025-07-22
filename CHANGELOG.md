@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-07-22
+
+### Added
+- Temperature control for agent responses
+  - Added `temperature` parameter to `Agent#initialize` with default value of 0.7
+  - Temperature controls randomness in LLM responses (0.0 = deterministic, 1.0 = very random)
+  - Temperature is passed through to underlying Chat instance for model configuration
+  - Agent cloning supports temperature overrides via `clone(temperature: value)`
+
 ## [0.2.2] - 2025-07-14
 
 ### Added
