@@ -44,7 +44,8 @@ module ISPSupport
         name: "Triage Agent",
         instructions: triage_instructions,
         model: "gpt-4.1-mini",
-        tools: []
+        tools: [],
+        temperature: 0.3  # Lower temperature for consistent routing decisions
       )
     end
 
@@ -53,7 +54,8 @@ module ISPSupport
         name: "Sales Agent",
         instructions: sales_instructions_with_state,
         model: "gpt-4.1-mini",
-        tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new]
+        tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new],
+        temperature: 0.8  # Higher temperature for more persuasive, varied sales language
       )
     end
 
@@ -66,7 +68,8 @@ module ISPSupport
           ISPSupport::CrmLookupTool.new,
           ISPSupport::SearchDocsTool.new,
           ISPSupport::EscalateToHumanTool.new
-        ]
+        ],
+        temperature: 0.5  # Balanced temperature for helpful but consistent technical support
       )
     end
 
