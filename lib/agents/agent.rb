@@ -13,6 +13,23 @@
 #     tools: [calculator_tool, weather_tool]
 #   )
 #
+# @example Creating an agent with structured output
+#   agent = Agents::Agent.new(
+#     name: "DataExtractor",
+#     instructions: "Extract structured information from user input",
+#     model: "gpt-4o",
+#     response_schema: {
+#       type: 'object',
+#       properties: {
+#         entities: { type: 'array', items: { type: 'string' } },
+#         sentiment: { type: 'string', enum: ['positive', 'negative', 'neutral'] },
+#         summary: { type: 'string' }
+#       },
+#       required: ['entities', 'sentiment'],
+#       additionalProperties: false
+#     }
+#   )
+#
 # @example Creating an agent with dynamic state-aware instructions
 #   agent = Agents::Agent.new(
 #     name: "Support Agent",
@@ -33,7 +50,7 @@
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature
+    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema
 
     # Initialize a new Agent instance
     #
@@ -43,13 +60,16 @@ module Agents
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
     # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7)
+    # @param response_schema [Hash, nil] JSON schema for structured output responses
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7,
+                   response_schema: nil)
       @name = name
       @instructions = instructions
       @model = model
       @tools = tools.dup
       @handoff_agents = []
       @temperature = temperature
+      @response_schema = response_schema
 
       # Mutex for thread-safe handoff registration
       # While agents are typically configured at startup, we want to ensure
@@ -134,6 +154,7 @@ module Agents
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
     # @option changes [Float] :temperature Temperature for LLM responses (0.0-1.0)
+    # @option changes [Hash, nil] :response_schema JSON schema for structured output
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
       self.class.new(
@@ -142,7 +163,8 @@ module Agents
         model: changes.fetch(:model, @model),
         tools: changes.fetch(:tools, @tools.dup),
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
-        temperature: changes.fetch(:temperature, @temperature)
+        temperature: changes.fetch(:temperature, @temperature),
+        response_schema: changes.fetch(:response_schema, @response_schema)
       )
     end
 

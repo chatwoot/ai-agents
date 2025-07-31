@@ -105,6 +105,39 @@ RSpec.describe Agents::Chat do
 
       expect(chat.instance_variable_get(:@temperature)).to eq(0.8)
     end
+
+    it "accepts response_schema parameter" do
+      schema = { type: "object", properties: { answer: { type: "string" } } }
+
+      expect do
+        described_class.new(
+          model: "gpt-4o",
+          response_schema: schema
+        )
+      end.not_to raise_error
+    end
+
+    it "accepts nil response_schema" do
+      expect do
+        described_class.new(
+          model: "gpt-4o",
+          response_schema: nil
+        )
+      end.not_to raise_error
+    end
+
+    it "calls with_schema when response_schema is provided" do
+      schema = { type: "object", properties: { answer: { type: "string" } } }
+      chat = described_class.new(model: "gpt-4o", response_schema: schema)
+
+      # Since with_schema is called during initialization and modifies @schema,
+      # we can verify it was called by checking the schema attribute
+      expect(chat.schema).to eq(schema)
+    end
+
+    it "inherits from RubyLLM::Chat" do
+      expect(described_class < RubyLLM::Chat).to be true
+    end
   end
 
   describe "#complete" do

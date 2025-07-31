@@ -22,6 +22,7 @@ RSpec.describe Agents::Runner do
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
+                    response_schema: nil,
                     get_system_prompt: "You are a helpful assistant")
   end
 
@@ -32,6 +33,7 @@ RSpec.describe Agents::Runner do
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
+                    response_schema: nil,
                     get_system_prompt: "You are a specialist")
   end
 
@@ -173,6 +175,7 @@ RSpec.describe Agents::Runner do
                         tools: [],
                         handoff_agents: [handoff_agent],
                         temperature: 0.7,
+                        response_schema: nil,
                         get_system_prompt: "You route users to specialists")
       end
 
@@ -270,6 +273,61 @@ RSpec.describe Agents::Runner do
 
         expect(result.success?).to be true
         expect(result.output).to eq("Done")
+      end
+    end
+
+    context "when using response_schema" do
+      let(:schema) do
+        {
+          type: "object",
+          properties: {
+            answer: { type: "string" },
+            confidence: { type: "number" }
+          },
+          required: %w[answer confidence]
+        }
+      end
+
+      let(:agent_with_schema) do
+        instance_double(Agents::Agent,
+                        name: "StructuredAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: schema,
+                        get_system_prompt: "You provide structured responses")
+      end
+
+      it "creates chat with agent's response_schema" do
+        # Stub the OpenAI response with structured JSON
+        stub_simple_chat('{"answer": "42", "confidence": 0.95}')
+
+        # Spy on Chat creation to verify schema is passed
+        chat_spy = nil
+        allow(Agents::Chat).to receive(:new) do |**args|
+          chat_spy = args
+          instance_double(Agents::Chat,
+                          with_instructions: nil,
+                          with_tools: nil,
+                          ask: instance_double(RubyLLM::Message,
+                                               content: '{"answer": "42", "confidence": 0.95}',
+                                               tool_call?: false,
+                                               role: :assistant),
+                          add_message: nil,
+                          messages: [])
+        end
+
+        result = runner.run(
+          agent_with_schema,
+          "What is the answer?",
+          context: {},
+          registry: { "StructuredAgent" => agent_with_schema },
+          max_turns: 1
+        )
+
+        expect(chat_spy).to include(response_schema: schema)
+        expect(result.output).to eq('{"answer": "42", "confidence": 0.95}')
       end
     end
   end

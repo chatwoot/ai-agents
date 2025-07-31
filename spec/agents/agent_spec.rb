@@ -66,6 +66,25 @@ RSpec.describe Agents::Agent do
 
       expect(agent.temperature).to eq(0.2)
     end
+
+    it "creates agent with response_schema" do
+      schema = {
+        type: "object",
+        properties: {
+          answer: { type: "string" }
+        },
+        required: ["answer"]
+      }
+      agent = described_class.new(name: "Test", response_schema: schema)
+
+      expect(agent.response_schema).to eq(schema)
+    end
+
+    it "defaults response_schema to nil" do
+      agent = described_class.new(name: "Test")
+
+      expect(agent.response_schema).to be_nil
+    end
   end
 
   describe "#register_handoffs" do
@@ -189,6 +208,25 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.temperature).to eq(0.1)
       expect(original_agent.temperature).to eq(0.7)
+    end
+
+    it "preserves response_schema when cloning" do
+      schema = { type: "object", properties: { result: { type: "string" } } }
+      agent_with_schema = described_class.new(name: "Test", response_schema: schema)
+      cloned = agent_with_schema.clone(name: "ClonedAgent")
+
+      expect(cloned.response_schema).to eq(schema)
+      expect(cloned.name).to eq("ClonedAgent")
+    end
+
+    it "allows changing response_schema when cloning" do
+      original_schema = { type: "object", properties: { result: { type: "string" } } }
+      new_schema = { type: "object", properties: { answer: { type: "string" } } }
+      agent = described_class.new(name: "Test", response_schema: original_schema)
+      cloned = agent.clone(response_schema: new_schema)
+
+      expect(cloned.response_schema).to eq(new_schema)
+      expect(agent.response_schema).to eq(original_schema)
     end
   end
 

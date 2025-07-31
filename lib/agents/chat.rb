@@ -26,13 +26,17 @@ module Agents
       end
     end
 
-    def initialize(model: nil, handoff_tools: [], context_wrapper: nil, temperature: nil, **options)
+    def initialize(model: nil, handoff_tools: [], context_wrapper: nil, temperature: nil, response_schema: nil,
+                   **options)
       super(model: model, **options)
       @handoff_tools = handoff_tools
       @context_wrapper = context_wrapper
 
       # Set temperature if provided (RubyLLM::Chat sets this via accessor)
       @temperature = temperature if temperature
+
+      # Set response schema if provided
+      with_schema(response_schema) if response_schema
 
       # Register handoff tools with RubyLLM for schema generation
       @handoff_tools.each { |tool| with_tool(tool) }
