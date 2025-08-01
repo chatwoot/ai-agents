@@ -248,7 +248,8 @@ module Agents
         model: agent.model,
         temperature: agent.temperature,
         handoff_tools: handoff_tools,        # Direct tools, no wrapper
-        context_wrapper: context_wrapper     # Pass context directly
+        context_wrapper: context_wrapper,    # Pass context directly
+        response_schema: agent.response_schema # Pass structured output schema
       )
 
       chat.with_instructions(system_prompt) if system_prompt

@@ -18,6 +18,7 @@ A delightful provider agnostic Ruby SDK for building multi-agent AI workflows wi
 - **🤖 Multi-Agent Orchestration**: Create specialized AI agents that work together
 - **🔄 Seamless Handoffs**: Transparent agent-to-agent transfers (users never know!)
 - **🛠️ Tool Integration**: Agents can use custom tools and functions
+- **📊 Structured Output**: JSON schema-validated responses for reliable data extraction
 - **💾 Shared Context**: State management across agent interactions
 - **🔌 Provider Agnostic**: Works with OpenAI, Anthropic, and other LLM providers
 
