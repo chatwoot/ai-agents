@@ -45,7 +45,8 @@ module ISPSupport
         instructions: triage_instructions,
         model: "gpt-4.1-mini",
         tools: [],
-        temperature: 0.3  # Lower temperature for consistent routing decisions
+        temperature: 0.3, # Lower temperature for consistent routing decisions
+        response_schema: triage_response_schema
       )
     end
 
@@ -88,7 +89,41 @@ module ISPSupport
         - If unclear, ask one clarifying question before routing
 
         Keep responses brief and professional. Use handoff tools to transfer to specialists.
+
+        Your response MUST be in the required JSON format with greeting, intent_category, needs_clarification, clarifying_question, and recommended_agent fields.
       INSTRUCTIONS
+    end
+
+    def triage_response_schema
+      {
+        type: "object",
+        properties: {
+          greeting: {
+            type: "string",
+            description: "A brief, friendly greeting acknowledging the customer's inquiry"
+          },
+          intent_category: {
+            type: "string",
+            enum: %w[sales support unclear],
+            description: "The detected category of the customer's intent"
+          },
+          needs_clarification: {
+            type: "boolean",
+            description: "Whether the intent is unclear and needs clarification"
+          },
+          clarifying_question: {
+            type: %w[string null],
+            description: "A question to ask if the intent is unclear (null if clear)"
+          },
+          recommended_agent: {
+            type: %w[string null],
+            enum: ["Sales Agent", "Support Agent", nil],
+            description: "The recommended specialist agent to route to (null if unclear)"
+          }
+        },
+        required: %w[greeting intent_category needs_clarification],
+        additionalProperties: false
+      }
     end
 
     def sales_instructions

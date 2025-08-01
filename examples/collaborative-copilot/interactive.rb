@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "json"
 require_relative "../../lib/agents"
 require_relative "agents/copilot_orchestrator"
 
@@ -80,7 +81,53 @@ loop do
     # Update context with the returned context from Runner
     context = result.context if result.respond_to?(:context) && result.context
 
-    puts result.output
+    output = result.output
+
+    # Check if the output might be structured JSON (e.g., from Analysis Agent)
+    if output&.strip&.start_with?("{") && context[:current_agent] == "Analysis Agent"
+      begin
+        analysis = JSON.parse(output)
+
+        # Display structured analysis in a readable format
+        puts "\n📊 Conversation Analysis:"
+        puts "━" * 60
+
+        # Conversation Health
+        health = analysis["conversation_health"]
+        puts "🏥 Health: #{health["status"].upcase} - #{health["summary"]}"
+
+        # Customer Sentiment
+        sentiment = analysis["customer_sentiment"]
+        puts "😊 Sentiment: #{sentiment["current"]} (#{sentiment["trajectory"]})"
+        puts "   Emotions: #{sentiment["key_emotions"].join(", ")}"
+
+        # Communication Quality
+        quality = analysis["communication_quality"]
+        puts "💬 Communication: #{quality["score"]}/10"
+        puts "   ✅ Strengths: #{quality["strengths"].join(", ")}" if quality["strengths"].any?
+        puts "   ⚠️  Improve: #{quality["areas_for_improvement"].join(", ")}" if quality["areas_for_improvement"].any?
+
+        # Risk Assessment
+        risk = analysis["risk_assessment"]
+        puts "⚠️  Risks: Escalation=#{risk["escalation_risk"]}, Churn=#{risk["churn_risk"]}"
+        puts "   Warning signs: #{risk["warning_signs"].join(", ")}" if risk["warning_signs"].any?
+
+        # Tone Recommendations
+        tone = analysis["tone_recommendations"]
+        puts "\n💡 Recommendations:"
+        puts "   Tone: #{tone["recommended_tone"]}"
+        puts "   Next: #{tone["next_steps"]}"
+        puts "   Use: #{tone["key_phrases"].join("; ")}" if tone["key_phrases"].any?
+        puts "   Avoid: #{tone["avoid_phrases"].join("; ")}" if tone["avoid_phrases"].any?
+
+        puts "━" * 60
+      rescue JSON::ParserError
+        # Fall back to regular output if not valid JSON
+        puts output
+      end
+    else
+      puts output
+    end
   rescue StandardError => e
     puts "Error: #{e.message}"
   end
