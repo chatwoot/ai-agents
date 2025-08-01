@@ -16,3 +16,4 @@ Practical guides for building real-world applications with the AI Agents library
 - **[Agent-as-Tool Pattern](guides/agent-as-tool-pattern.html)** - Enable agent collaboration behind the scenes without conversation handoffs
 - **[Rails Integration](guides/rails-integration.html)** - Integrating agents with Ruby on Rails applications and ActiveRecord persistence
 - **[State Persistence](guides/state-persistence.html)** - Managing conversation state and context across sessions and processes
+- **[Structured Output](guides/structured-output.html)** - Enforcing JSON schema validation for reliable agent responses
