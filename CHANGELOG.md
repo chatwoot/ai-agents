@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full support for complex nested schemas with objects, arrays, and validation constraints
   - Multi-agent systems can use different response schemas per agent
   - Comprehensive documentation with examples for data extraction and API integrations
-- Updated to RubyLLM 1.4.0 with enhanced structured output capabilities
+- Updated to RubyLLM 1.5.0 with enhanced structured output capabilities
 - New structured output documentation guide with practical examples
 
 ### Changed
