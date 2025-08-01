@@ -6,9 +6,6 @@ url: ""
 # Theme
 theme: just-the-docs
 
-# Color scheme
-color_scheme: ruby
-
 # Search
 search_enabled: true
 search:
