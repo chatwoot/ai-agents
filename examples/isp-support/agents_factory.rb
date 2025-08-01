@@ -112,12 +112,12 @@ module ISPSupport
             description: "Whether the intent is unclear and needs clarification"
           },
           clarifying_question: {
-            type: %w[string null],
+            type: ["string", "null"],
             description: "A question to ask if the intent is unclear (null if clear)"
           },
           recommended_agent: {
-            type: %w[string null],
-            enum: ["Sales Agent", "Support Agent", nil],
+            type: ["string", "null"],
+            enum: ["Sales Agent", "Support Agent", null],
             description: "The recommended specialist agent to route to (null if unclear)"
           }
         },
