@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-08-01
+
+### Added
+- **Structured Output Support**: Agents can now enforce JSON schema validation for responses
+  - Added `response_schema` parameter to `Agent#initialize` supporting both JSON Schema objects and `RubyLLM::Schema` classes
+  - Automatic response validation ensures agents return data in predictable formats
+  - Full support for complex nested schemas with objects, arrays, and validation constraints
+  - Multi-agent systems can use different response schemas per agent
+  - Comprehensive documentation with examples for data extraction and API integrations
+- Updated to RubyLLM 1.4.0 with enhanced structured output capabilities
+- New structured output documentation guide with practical examples
+
+### Changed
+- Enhanced `Chat` class to pass through `response_schema` configuration to underlying RubyLLM provider
+- Improved agent cloning to preserve and override response schemas
+
 ## [0.3.0] - 2025-07-22
 
 ### Added
