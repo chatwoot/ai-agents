@@ -200,7 +200,7 @@ module Agents
       history.each do |msg|
         # Only restore user and assistant messages with content
         next unless %i[user assistant].include?(msg[:role].to_sym)
-        next unless msg[:content] && !msg[:content].strip.empty?
+        next unless msg[:content] && !MessageExtractor.content_empty?(msg[:content])
 
         chat.add_message(
           role: msg[:role].to_sym,
@@ -228,8 +228,6 @@ module Agents
 
       # Clean up temporary handoff state
       context_wrapper.context.delete(:pending_handoff)
-    rescue StandardError => e
-      puts "[Agents] Failed to save conversation state: #{e.message}"
     end
 
     def create_chat(agent, context_wrapper)

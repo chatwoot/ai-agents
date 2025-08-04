@@ -329,6 +329,34 @@ RSpec.describe Agents::Runner do
         expect(chat_spy).to include(response_schema: schema)
         expect(result.output).to eq('{"answer": "42", "confidence": 0.95}')
       end
+
+      context "when conversation history contains Hash content from structured output" do
+        it "processes messages with Hash content without raising strip errors" do
+          # Set up conversation history with Hash content
+          context_with_hash_content = {
+            conversation_history: [
+              { role: :user, content: "What is 2+2?" },
+              { role: :assistant, content: { "answer" => "4", "confidence" => 1.0 }, agent_name: "StructuredAgent" }
+            ],
+            current_agent: "StructuredAgent"
+          }
+
+          # Stub simple OpenAI response for the new message
+          stub_simple_chat('{"answer": "6", "confidence": 0.9}')
+
+          # This should work without throwing NoMethodError on Hash#strip
+          result = runner.run(
+            agent_with_schema,
+            "What about 3+3?",
+            context: context_with_hash_content,
+            registry: { "StructuredAgent" => agent_with_schema },
+            max_turns: 1
+          )
+
+          expect(result.success?).to be true
+          expect(result.output).to eq({ "answer" => "6", "confidence" => 0.9 })
+        end
+      end
     end
   end
 end

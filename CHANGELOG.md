@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2025-08-04
+
+### Fixed
+- **Structured Output Conversation History**: Fixed crash when restoring conversation history containing Hash content from structured output responses
+  - Runner and MessageExtractor now properly handle Hash content without calling `.strip()` method
+  - Added `MessageExtractor.content_empty?` utility method to handle both String and Hash content types
+
 ## [0.4.1] - 2025-08-04
 
 ### Fixed
