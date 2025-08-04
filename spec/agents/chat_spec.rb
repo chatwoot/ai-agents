@@ -300,6 +300,76 @@ RSpec.describe Agents::Chat do
         expect(result.tool_call?).to be false
       end
     end
+
+    context "when response has structured output with JSON schema" do
+      let(:schema) { { type: "object", properties: { answer: { type: "string" } } } }
+      let(:chat) { described_class.new(handoff_tools: [], context_wrapper: context, response_schema: schema) }
+
+      before do
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-structured",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: '{"answer": "This is a structured response"}'
+                },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 10, completion_tokens: 15, total_tokens: 25 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "parses JSON response content automatically" do
+        result = chat.complete
+
+        expect(result.content).to eq({ "answer" => "This is a structured response" })
+        expect(result.content).to be_a(Hash)
+      end
+    end
+
+    context "when response has invalid JSON with schema" do
+      let(:schema) { { type: "object", properties: { answer: { type: "string" } } } }
+      let(:chat) { described_class.new(handoff_tools: [], context_wrapper: context, response_schema: schema) }
+
+      before do
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-invalid",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "Invalid JSON response"
+                },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "keeps original string content when JSON parsing fails" do
+        result = chat.complete
+
+        expect(result.content).to eq("Invalid JSON response")
+        expect(result.content).to be_a(String)
+      end
+    end
   end
 
   describe "#add_tool_result" do

@@ -55,6 +55,15 @@ module Agents
       )
       @on[:end_message]&.call(response)
 
+      # Handle JSON parsing for structured output (like RubyLLM::Chat)
+      if @schema && response.content.is_a?(String)
+        begin
+          response.content = JSON.parse(response.content)
+        rescue JSON::ParserError
+          # If parsing fails, keep content as string
+        end
+      end
+
       add_message(response)
 
       if response.tool_call?
