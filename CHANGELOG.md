@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-08-04
+
+### Fixed
+- **Structured Output JSON Parsing**: Fixed automatic JSON parsing for structured output responses
+  - Chat class now properly parses JSON string responses to Hash objects when schema is configured
+  - Maintains compatibility with RubyLLM's automatic parsing behavior from the documentation
+  - Gracefully handles invalid JSON by keeping original string content
+  - Added comprehensive test coverage for both valid and invalid JSON scenarios
+
 ## [0.4.0] - 2025-08-01
 
 ### Added
