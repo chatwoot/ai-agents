@@ -17,6 +17,21 @@ module Agents
   #     { role: :tool, content: "Result", tool_call_id: "call_123" }
   #   ]
   class MessageExtractor
+    # Check if content is considered empty (handles both String and Hash content)
+    #
+    # @param content [String, Hash, nil] The content to check
+    # @return [Boolean] true if content is empty, false otherwise
+    def self.content_empty?(content)
+      case content
+      when String
+        content.strip.empty?
+      when Hash
+        content.empty?
+      else
+        content.nil?
+      end
+    end
+
     # Extract messages from a chat object for conversation history persistence
     #
     # @param chat [Object] Chat object that responds to :messages
@@ -47,7 +62,7 @@ module Agents
     private
 
     def extract_user_or_assistant_message(msg)
-      return nil unless msg.content && !msg.content.strip.empty?
+      return nil unless msg.content && !self.class.content_empty?(msg.content)
 
       message = {
         role: msg.role,
