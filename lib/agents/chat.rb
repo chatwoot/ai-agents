@@ -51,6 +51,8 @@ module Agents
         temperature: @temperature,
         model: @model.id,
         connection: @connection,
+        params: @params,
+        schema: @schema,
         &block
       )
       @on[:end_message]&.call(response)

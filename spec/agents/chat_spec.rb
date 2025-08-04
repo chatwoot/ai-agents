@@ -334,6 +334,34 @@ RSpec.describe Agents::Chat do
         expect(result.content).to eq({ "answer" => "This is a structured response" })
         expect(result.content).to be_a(Hash)
       end
+
+      it "passes schema parameter to provider.complete" do
+        # Critical regression test - ensures schema is passed to OpenAI API
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .with { |req| JSON.parse(req.body).key?("response_format") }
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-schema-test",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: '{"answer": "Schema was passed correctly"}'
+                },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 10, completion_tokens: 15, total_tokens: 25 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+
+        result = chat.complete
+        expect(result.content).to eq({ "answer" => "Schema was passed correctly" })
+      end
     end
 
     context "when response has invalid JSON with schema" do
