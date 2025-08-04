@@ -171,6 +171,38 @@ RSpec.describe Agents::MessageExtractor do
     end
   end
 
+  describe ".content_empty?" do
+    it "returns true for empty string" do
+      expect(described_class.content_empty?("")).to be true
+    end
+
+    it "returns true for whitespace-only string" do
+      expect(described_class.content_empty?("   \n\t  ")).to be true
+    end
+
+    it "returns false for non-empty string" do
+      expect(described_class.content_empty?("Hello")).to be false
+    end
+
+    it "returns true for empty hash" do
+      expect(described_class.content_empty?({})).to be true
+    end
+
+    it "returns false for non-empty hash" do
+      expect(described_class.content_empty?({ "key" => "value" })).to be false
+    end
+
+    it "returns true for nil" do
+      expect(described_class.content_empty?(nil)).to be true
+    end
+
+    it "returns false for other non-string, non-hash values" do
+      expect(described_class.content_empty?(false)).to be false
+      expect(described_class.content_empty?(0)).to be false
+      expect(described_class.content_empty?([])).to be false
+    end
+  end
+
   describe ".extract_messages" do
     let(:chat) { instance_double(RubyLLM::Chat, messages: []) }
 
