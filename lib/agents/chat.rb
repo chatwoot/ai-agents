@@ -51,6 +51,7 @@ module Agents
         temperature: @temperature,
         model: @model.id,
         connection: @connection,
+        params: @params,
         schema: @schema,
         &block
       )
