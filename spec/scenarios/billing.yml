@@ -1,0 +1,27 @@
+- name: double_charge_complaint
+  input: "I was charged twice for my internet service this month"
+  expect:
+    completes: true
+    final_agent: billing
+    uses_tools: [account_lookup]
+
+- name: billing_question_vague
+  input: "I have a question about my bill"
+  expect:
+    completes: false
+    clarifies: true
+    final_agent: billing
+
+- name: payment_method_update
+  input: "I need to update my credit card on file"
+  expect:
+    completes: true
+    final_agent: billing
+    uses_tools: [update_payment_method]
+
+- name: refund_request
+  input: "I want a refund for last month's service outage"
+  expect:
+    completes: true
+    final_agent: billing
+    escalates: true

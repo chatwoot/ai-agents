@@ -1,0 +1,29 @@
+- name: extremely_vague_request
+  input: "Help me"
+  expect:
+    completes: false
+    clarifies: true
+
+- name: mixed_billing_technical
+  input: "My bill seems wrong and my internet is slow"
+  expect:
+    completes: true
+    # Could end with either agent depending on implementation
+
+- name: angry_customer
+  input: "This is ridiculous! I've been waiting for hours and nothing is working! Cancel my service immediately!"
+  expect:
+    escalates: true
+    completes: false
+
+- name: nonsensical_request
+  input: "Purple elephant dancing on my router bandwidth"
+  expect:
+    completes: false
+    clarifies: true
+
+- name: multiple_issues_at_once
+  input: "I need to pay my bill, my internet is down, and I want to upgrade my plan"
+  expect:
+    completes: true
+    # This tests how well the system handles multiple simultaneous issues

@@ -121,3 +121,6 @@ require_relative "agents/callback_manager"
 require_relative "agents/agent_runner"
 require_relative "agents/runner"
 require_relative "agents/agent_tool"
+
+# Evaluation framework
+require_relative "agents/evaluation"

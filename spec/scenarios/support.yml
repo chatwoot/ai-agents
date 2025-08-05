@@ -1,0 +1,27 @@
+- name: internet_slow
+  input: "My internet is really slow today"
+  expect:
+    completes: true
+    final_agent: support
+    uses_tools: [speed_test, diagnostics]
+
+- name: connection_outage
+  input: "I can't connect to the internet at all"
+  expect:
+    completes: true
+    final_agent: support
+    uses_tools: [connectivity_check]
+
+- name: wifi_password_reset
+  input: "I forgot my WiFi password"
+  expect:
+    completes: true
+    final_agent: support
+    uses_tools: [reset_wifi_password]
+
+- name: technical_issue_complex
+  input: "My modem keeps disconnecting every few hours and the lights are blinking red"
+  expect:
+    completes: true
+    final_agent: support
+    uses_tools: [modem_diagnostics, signal_check]
