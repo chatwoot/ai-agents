@@ -111,6 +111,7 @@ GEM
       lint_roller (~> 1.1)
       rubocop (~> 1.72, >= 1.72.1)
     ruby-progressbar (1.13.0)
+    ruby_llm-schema (0.1.6)
     simplecov (0.22.0)
       docile (~> 1.1)
       simplecov-html (~> 0.11)
@@ -140,6 +141,7 @@ DEPENDENCIES
   rubocop (~> 1.21)
   rubocop-rspec (~> 3.0)
   ruby_llm!
+  ruby_llm-schema
   simplecov (~> 0.22)
   webmock (~> 3.18)
 
