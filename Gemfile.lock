@@ -97,7 +97,7 @@ GEM
       lint_roller (~> 1.1)
       rubocop (~> 1.72, >= 1.72.1)
     ruby-progressbar (1.13.0)
-    ruby_llm (1.5.0)
+    ruby_llm (1.5.1)
       base64
       event_stream_parser (~> 1)
       faraday (>= 1.10.0)
@@ -134,7 +134,7 @@ DEPENDENCIES
   rspec (~> 3.12)
   rubocop (~> 1.21)
   rubocop-rspec (~> 3.0)
-  ruby_llm (~> 1.5.0)
+  ruby_llm (~> 1.5.1)
   simplecov (~> 0.22)
   webmock (~> 3.18)
 
