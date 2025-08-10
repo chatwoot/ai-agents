@@ -114,7 +114,6 @@ require_relative "agents/handoff"
 require_relative "agents/agent"
 
 # Execution components
-require_relative "agents/chat"
 require_relative "agents/tool_wrapper"
 require_relative "agents/message_extractor"
 require_relative "agents/callback_manager"
