@@ -58,7 +58,6 @@ class ISPSupportDemo
 
       # Handle structured output from triage agent
       output = result.output || "[No output]"
-
       if @context[:current_agent] == "Triage Agent" && output.start_with?("{")
         begin
           structured = JSON.parse(output)
