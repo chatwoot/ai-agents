@@ -252,10 +252,7 @@ module Agents
       system_prompt = agent.get_system_prompt(context_wrapper)
 
       # Create standard RubyLLM chat
-      chat = RubyLLM::Chat.new(
-        model: agent.model,
-        temperature: agent.temperature
-      )
+      chat = RubyLLM::Chat.new(model: agent.model)
 
       # Combine all tools - both handoff and regular tools need wrapping
       all_tools = []
@@ -271,11 +268,10 @@ module Agents
         all_tools << ToolWrapper.new(tool, context_wrapper)
       end
 
-      # Configure chat with instructions and tools
+      # Configure chat with instructions, temperature, tools, and schema
       chat.with_instructions(system_prompt) if system_prompt
+      chat.with_temperature(agent.temperature) if agent.temperature
       chat.with_tools(*all_tools) if all_tools.any?
-
-      # Set response schema if provided
       chat.with_schema(agent.response_schema) if agent.response_schema
 
       chat
