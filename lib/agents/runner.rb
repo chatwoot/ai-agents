@@ -110,17 +110,23 @@ module Agents
                  end
         response = result
 
-        # Check for handoff response from our extended chat
-        if response.is_a?(Agents::Chat::HandoffResponse)
-          next_agent = response.target_agent
+        # Check for handoff via RubyLLM's halt mechanism
+        if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
+          handoff_info = context_wrapper.context.delete(:pending_handoff)
+          next_agent = handoff_info[:target_agent]
 
           # Validate that the target agent is in our registry
           # This prevents handoffs to agents that weren't explicitly provided
           unless registry[next_agent.name]
             puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
-            next if response.tool_call?
-
-            next
+            # Return the halt content as the final response
+            save_conversation_state(chat, context_wrapper, current_agent)
+            return RunResult.new(
+              output: response.content,
+              messages: MessageExtractor.extract_messages(chat, current_agent),
+              usage: context_wrapper.usage,
+              context: context_wrapper.context
+            )
           end
 
           # Save current conversation state before switching
@@ -141,6 +147,17 @@ module Agents
           # This ensures the user gets a response from the new agent
           input = nil
           next
+        end
+
+        # Handle non-handoff halts - return the halt content as final response
+        if response.is_a?(RubyLLM::Tool::Halt)
+          save_conversation_state(chat, context_wrapper, current_agent)
+          return RunResult.new(
+            output: response.content,
+            messages: MessageExtractor.extract_messages(chat, current_agent),
+            usage: context_wrapper.usage,
+            context: context_wrapper.context
+          )
         end
 
         # If tools were called, continue the loop to let them execute
@@ -234,24 +251,33 @@ module Agents
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Separate handoff tools from regular tools
-      handoff_tools = agent.handoff_agents.map { |target_agent| HandoffTool.new(target_agent) }
-      regular_tools = agent.tools
-
-      # Only wrap regular tools - handoff tools will be handled directly by Chat
-      wrapped_regular_tools = regular_tools.map { |tool| ToolWrapper.new(tool, context_wrapper) }
-
-      # Create extended chat with handoff awareness and context
-      chat = Agents::Chat.new(
+      # Create standard RubyLLM chat
+      chat = RubyLLM::Chat.new(
         model: agent.model,
-        temperature: agent.temperature,
-        handoff_tools: handoff_tools,        # Direct tools, no wrapper
-        context_wrapper: context_wrapper,    # Pass context directly
-        response_schema: agent.response_schema # Pass structured output schema
+        temperature: agent.temperature
       )
 
+      # Combine all tools - both handoff and regular tools need wrapping
+      all_tools = []
+
+      # Add handoff tools
+      agent.handoff_agents.each do |target_agent|
+        handoff_tool = HandoffTool.new(target_agent)
+        all_tools << ToolWrapper.new(handoff_tool, context_wrapper)
+      end
+
+      # Add regular tools
+      agent.tools.each do |tool|
+        all_tools << ToolWrapper.new(tool, context_wrapper)
+      end
+
+      # Configure chat with instructions and tools
       chat.with_instructions(system_prompt) if system_prompt
-      chat.with_tools(*wrapped_regular_tools) if wrapped_regular_tools.any?
+      chat.with_tools(*all_tools) if all_tools.any?
+
+      # Set response schema if provided
+      chat.with_schema(agent.response_schema) if agent.response_schema
+
       chat
     end
   end
