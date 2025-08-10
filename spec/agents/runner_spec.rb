@@ -179,20 +179,9 @@ RSpec.describe Agents::Runner do
                         get_system_prompt: "You route users to specialists")
       end
 
-      let(:handoff_tool_instance) do
-        instance_double(Agents::HandoffTool,
-                        name: "handoff_to_handoffagent",
-                        description: "Transfer to HandoffAgent",
-                        parameters: {},
-                        target_agent: handoff_agent,
-                        execute: "Transferring to HandoffAgent")
-      end
-
       before do
-        allow(Agents::HandoffTool).to receive(:new).with(handoff_agent)
-                                                   .and_return(handoff_tool_instance)
-
-        # First request - triage agent decides to handoff, then specialist responds
+        # First request - triage agent decides to handoff
+        # After handoff, the specialist agent responds
         stub_chat_sequence(
           { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
           "Hello, I'm the specialist. How can I help?"
@@ -212,7 +201,7 @@ RSpec.describe Agents::Runner do
     context "when max_turns is exceeded" do
       it "raises MaxTurnsExceeded and returns error result" do
         # Mock chat to always return tool_call? = true, causing infinite loop
-        mock_chat = instance_double(Agents::Chat)
+        mock_chat = instance_double(RubyLLM::Chat)
         mock_response = instance_double(RubyLLM::Message, tool_call?: true)
 
         allow(runner).to receive_messages(
@@ -299,26 +288,26 @@ RSpec.describe Agents::Runner do
                         get_system_prompt: "You provide structured responses")
       end
 
-      it "creates chat with agent's response_schema" do
-        # Stub the OpenAI response with structured JSON
-        stub_simple_chat('{"answer": "42", "confidence": 0.95}')
+      it "includes response_schema in API request" do
+        # Expect the request to include response_format with our schema
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .with(body: hash_including({
+                                       "response_format" => {
+                                         "type" => "json_schema",
+                                         "json_schema" => {
+                                           "name" => "response",
+                                           "schema" => schema,
+                                           "strict" => true
+                                         }
+                                       }
+                                     }))
+          .to_return(status: 200, body: {
+            id: "test", object: "chat.completion", created: Time.now.to_i, model: "gpt-4o",
+            choices: [{ index: 0, message: { role: "assistant", content: "any response" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+          }.to_json, headers: { "Content-Type" => "application/json" })
 
-        # Spy on Chat creation to verify schema is passed
-        chat_spy = nil
-        allow(Agents::Chat).to receive(:new) do |**args|
-          chat_spy = args
-          instance_double(Agents::Chat,
-                          with_instructions: nil,
-                          with_tools: nil,
-                          ask: instance_double(RubyLLM::Message,
-                                               content: '{"answer": "42", "confidence": 0.95}',
-                                               tool_call?: false,
-                                               role: :assistant),
-                          add_message: nil,
-                          messages: [])
-        end
-
-        result = runner.run(
+        runner.run(
           agent_with_schema,
           "What is the answer?",
           context: {},
@@ -326,8 +315,7 @@ RSpec.describe Agents::Runner do
           max_turns: 1
         )
 
-        expect(chat_spy).to include(response_schema: schema)
-        expect(result.output).to eq('{"answer": "42", "confidence": 0.95}')
+        # If we get here without WebMock raising an error, the request included the schema
       end
 
       context "when conversation history contains Hash content from structured output" do
