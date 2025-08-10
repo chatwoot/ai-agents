@@ -81,7 +81,7 @@ support = Agents::Agent.new(
 triage.register_handoffs(support)
 
 # Create runner and start conversation
-runner = Agents::AgentRunner.with_agents(triage, support)
+runner = Agents::Runner.with_agents(triage, support)
 result = runner.run("I need help with a technical issue")
 
 puts result.output
