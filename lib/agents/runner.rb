@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "message_extractor"
+require_relative "handoff_descriptor"
 
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
@@ -110,42 +111,34 @@ module Agents
                  end
         response = result
 
-        # Check for handoff via RubyLLM's halt mechanism
-        if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
-          handoff_info = context_wrapper.context.delete(:pending_handoff)
-          next_agent = handoff_info[:target_agent]
+        # Check for handoff descriptor - direct continuation approach
+        if (descriptor = context_wrapper.context.delete(:pending_handoff_descriptor))
+          next_agent = descriptor.target_agent
 
           # Validate that the target agent is in our registry
           # This prevents handoffs to agents that weren't explicitly provided
           unless registry[next_agent.name]
             puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
-            # Return the halt content as the final response
-            update_conversation_context(context_wrapper, current_agent)
-            return RunResult.new(
-              output: response.content,
-              messages: MessageExtractor.extract_messages(chat, current_agent),
-              usage: context_wrapper.usage,
-              context: context_wrapper.context
-            )
+            # Continue with current agent, treating descriptor message as normal response
+            next
           end
 
           # Emit agent handoff event
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
-          # Switch to new agent - store agent name for persistence
+          # Switch to new agent atomically - all mutations in one place
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
           # Reconfigure the existing chat for the new agent
           reconfigure_chat_for_agent(chat, current_agent, context_wrapper)
 
-          # Force the new agent to respond to the conversation context
-          # This ensures the user gets a response from the new agent
-          input = nil
+          # LLM continues naturally with the new agent context
+          # No need to force continuation - it happens automatically
           next
         end
 
-        # Handle non-handoff halts - return the halt content as final response
+        # Handle regular halts (non-handoff) - return the halt content as final response
         if response.is_a?(RubyLLM::Tool::Halt)
           update_conversation_context(context_wrapper, current_agent)
           return RunResult.new(
@@ -258,7 +251,7 @@ module Agents
       context_wrapper.context[:last_updated] = Time.now
 
       # Clean up temporary handoff state
-      context_wrapper.context.delete(:pending_handoff)
+      context_wrapper.context.delete(:pending_handoff_descriptor)
     end
 
     def create_chat(agent, context_wrapper)

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "handoff_descriptor"
+
 module Agents
   # A thread-safe wrapper that bridges RubyLLM's tool execution with our context injection pattern.
   # This wrapper solves a critical problem: RubyLLM calls tools with just the LLM-provided
@@ -51,6 +53,10 @@ module Agents
 
       begin
         result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+
+        # Store HandoffDescriptor in context for Runner to process atomically
+        @context_wrapper.context[:pending_handoff_descriptor] = result if result.is_a?(HandoffDescriptor)
+
         @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result)
         result
       rescue StandardError => e
