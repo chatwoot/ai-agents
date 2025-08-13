@@ -90,7 +90,7 @@ module Agents
       context_wrapper = RunContext.new(context_copy, callbacks: callbacks)
       current_turn = 0
 
-      # Create chat and restore conversation history
+      # Create chat once and restore conversation history if any
       chat = create_chat(current_agent, context_wrapper)
       restore_conversation_history(chat, context_wrapper)
 
@@ -120,7 +120,7 @@ module Agents
           unless registry[next_agent.name]
             puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
             # Return the halt content as the final response
-            save_conversation_state(chat, context_wrapper, current_agent)
+            update_conversation_context(context_wrapper, current_agent)
             return RunResult.new(
               output: response.content,
               messages: MessageExtractor.extract_messages(chat, current_agent),
@@ -129,9 +129,6 @@ module Agents
             )
           end
 
-          # Save current conversation state before switching
-          save_conversation_state(chat, context_wrapper, current_agent)
-
           # Emit agent handoff event
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
@@ -139,9 +136,8 @@ module Agents
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
-          # Create new chat for new agent with restored history
-          chat = create_chat(current_agent, context_wrapper)
-          restore_conversation_history(chat, context_wrapper)
+          # Reconfigure the existing chat for the new agent
+          reconfigure_chat_for_agent(chat, current_agent, context_wrapper)
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -151,7 +147,7 @@ module Agents
 
         # Handle non-handoff halts - return the halt content as final response
         if response.is_a?(RubyLLM::Tool::Halt)
-          save_conversation_state(chat, context_wrapper, current_agent)
+          update_conversation_context(context_wrapper, current_agent)
           return RunResult.new(
             output: response.content,
             messages: MessageExtractor.extract_messages(chat, current_agent),
@@ -165,8 +161,8 @@ module Agents
 
         # If no tools were called, we have our final response
 
-        # Save final state before returning
-        save_conversation_state(chat, context_wrapper, current_agent)
+        # Update final context before returning
+        update_conversation_context(context_wrapper, current_agent)
 
         return RunResult.new(
           output: response.content,
@@ -176,8 +172,8 @@ module Agents
         )
       end
     rescue MaxTurnsExceeded => e
-      # Save state even on error
-      save_conversation_state(chat, context_wrapper, current_agent) if chat
+      # Update context even on error
+      update_conversation_context(context_wrapper, current_agent) if chat && current_agent
 
       RunResult.new(
         output: "Conversation ended: #{e.message}",
@@ -187,8 +183,8 @@ module Agents
         context: context_wrapper.context
       )
     rescue StandardError => e
-      # Save state even on error
-      save_conversation_state(chat, context_wrapper, current_agent) if chat
+      # Update context even on error
+      update_conversation_context(context_wrapper, current_agent) if chat && current_agent
 
       RunResult.new(
         output: nil,
@@ -211,6 +207,9 @@ module Agents
       end
     end
 
+    # Restore conversation history from context into chat
+    # This method is now only called once during initial chat creation
+    # since we maintain a single chat instance throughout handoffs
     def restore_conversation_history(chat, context_wrapper)
       history = context_wrapper.context[:conversation_history] || []
 
@@ -233,12 +232,27 @@ module Agents
       context_wrapper.context[:conversation_history] = []
     end
 
-    def save_conversation_state(chat, context_wrapper, current_agent)
-      # Extract messages from chat
-      messages = MessageExtractor.extract_messages(chat, current_agent)
+    # Reconfigure an existing chat instance for a new agent using RubyLLM's replace option
+    # This eliminates the need to create new chats and restore history on handoffs
+    def reconfigure_chat_for_agent(chat, agent, context_wrapper)
+      # Get system prompt for the new agent (may be dynamic)
+      system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Update context with latest state
-      context_wrapper.context[:conversation_history] = messages
+      # Build tools for the new agent
+      all_tools = build_agent_tools(agent, context_wrapper)
+
+      # Use RubyLLM's replace option to swap configuration
+      chat.with_instructions(system_prompt, replace: true) if system_prompt
+      chat.with_tools(*all_tools, replace: true) if all_tools.any?
+      chat.with_temperature(agent.temperature) if agent.temperature
+      chat.with_schema(agent.response_schema) if agent.response_schema
+
+      chat
+    end
+
+    # Update conversation context with current state
+    # Simplified version that doesn't need to save/restore full conversation history
+    def update_conversation_context(context_wrapper, current_agent)
       context_wrapper.context[:current_agent] = current_agent.name
       context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
       context_wrapper.context[:last_updated] = Time.now
@@ -254,7 +268,21 @@ module Agents
       # Create standard RubyLLM chat
       chat = RubyLLM::Chat.new(model: agent.model)
 
-      # Combine all tools - both handoff and regular tools need wrapping
+      # Build tools for the agent
+      all_tools = build_agent_tools(agent, context_wrapper)
+
+      # Configure chat with instructions, temperature, tools, and schema
+      chat.with_instructions(system_prompt) if system_prompt
+      chat.with_temperature(agent.temperature) if agent.temperature
+      chat.with_tools(*all_tools) if all_tools.any?
+      chat.with_schema(agent.response_schema) if agent.response_schema
+
+      chat
+    end
+
+    # Build tools for an agent - both handoff and regular tools need wrapping
+    # Extracted to a separate method to reduce duplication between create_chat and reconfigure_chat_for_agent
+    def build_agent_tools(agent, context_wrapper)
       all_tools = []
 
       # Add handoff tools
@@ -268,13 +296,7 @@ module Agents
         all_tools << ToolWrapper.new(tool, context_wrapper)
       end
 
-      # Configure chat with instructions, temperature, tools, and schema
-      chat.with_instructions(system_prompt) if system_prompt
-      chat.with_temperature(agent.temperature) if agent.temperature
-      chat.with_tools(*all_tools) if all_tools.any?
-      chat.with_schema(agent.response_schema) if agent.response_schema
-
-      chat
+      all_tools
     end
   end
 end
