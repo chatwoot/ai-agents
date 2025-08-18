@@ -219,13 +219,25 @@ module Agents
         next unless %i[user assistant].include?(msg[:role].to_sym)
         next unless msg[:content] && !MessageExtractor.content_empty?(msg[:content])
 
-        chat.add_message(
+        # Extract text content safely - handle both string and hash content
+        content = case msg[:content]
+                  when String
+                    msg[:content]
+                  when Hash
+                    msg[:content][:text] || msg[:content]["text"] || msg[:content].to_s
+                  else
+                    msg[:content].to_s
+                  end
+
+        # Create a proper RubyLLM::Message and pass it to add_message
+        message = RubyLLM::Message.new(
           role: msg[:role].to_sym,
-          content: msg[:content]
+          content: content
         )
+        chat.add_message(message)
       rescue StandardError => e
         # Continue with partial history on error
-        puts "[Agents] Failed to restore message: #{e.message}"
+        puts "[Agents] Failed to restore message: #{e.message}\n#{e.backtrace.join("\n")}"
       end
     rescue StandardError => e
       # If history restoration completely fails, continue with empty history
