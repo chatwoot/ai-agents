@@ -102,21 +102,13 @@ module ISPSupport
             type: "string",
             description: "Your response to the customer"
           },
-          clarifying_question: {
-            type: %w[string null],
-            description: "A question to ask if the intent is unclear (null if clear)"
-          },
-          needs_clarification: {
-            type: "boolean",
-            description: "Whether the intent is unclear and needs clarification"
-          },
           intent: {
             type: "string",
             enum: %w[sales support unclear],
             description: "The detected intent category"
           }
         },
-        required: %w[response clarifying_question needs_clarification intent],
+        required: %w[response intent],
         additionalProperties: false
       }
     end
