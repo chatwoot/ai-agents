@@ -49,7 +49,7 @@ class CreateConversations < ActiveRecord::Migration[7.0]
       t.string :current_agent
       t.timestamps
     end
-    
+
     add_index :conversations, [:user_id, :created_at]
   end
 end
@@ -61,25 +61,25 @@ Define the Conversation model:
 # app/models/conversation.rb
 class Conversation < ApplicationRecord
   belongs_to :user
-  
+
   # Serialize context as JSON
   serialize :context, JSON
-  
+
   validates :context, presence: true
-  
+
   def self.for_user(user)
     where(user: user).order(:created_at)
   end
-  
+
   def self.latest_for_user(user)
     for_user(user).last
   end
-  
+
   # Convert to agent context hash
   def to_agent_context
     context.deep_symbolize_keys
   end
-  
+
   # Create from agent result
   def self.from_agent_result(user, result)
     create!(
@@ -102,26 +102,26 @@ class AgentConversationService
     @user = user
     @runner = create_agent_runner
   end
-  
+
   def send_message(message)
     # Get existing conversation context
     context = load_conversation_context
-    
+
     # Run agent with message
     result = @runner.run(message, context: context)
-    
+
     # Persist updated conversation
     save_conversation(result)
-    
+
     result
   end
-  
+
   def reset_conversation
     Conversation.where(user: @user).destroy_all
   end
-  
+
   private
-  
+
   def create_agent_runner
     # Create your agents here
     triage_agent = Agents::Agent.new(
@@ -129,52 +129,52 @@ class AgentConversationService
       instructions: build_triage_instructions,
       tools: [CustomerLookupTool.new]
     )
-    
+
     billing_agent = Agents::Agent.new(
       name: "Billing",
       instructions: "Handle billing and payment inquiries.",
       tools: [BillingTool.new, PaymentTool.new]
     )
-    
+
     support_agent = Agents::Agent.new(
       name: "Support",
       instructions: "Provide technical support and troubleshooting.",
       tools: [TechnicalTool.new]
     )
-    
+
     triage_agent.register_handoffs(billing_agent, support_agent)
-    
-    Agents::AgentRunner.with_agents(triage_agent, billing_agent, support_agent)
+
+    Agents::Runner.with_agents(triage_agent, billing_agent, support_agent)
   end
-  
+
   def build_triage_instructions
     ->(context) {
       user_info = context[:user_info] || {}
-      
+
       <<~INSTRUCTIONS
         You are a customer service triage agent for #{@user.name}.
-        
+
         Customer Details:
         - Name: #{@user.name}
         - Email: #{@user.email}
         - Account Type: #{user_info[:account_type] || 'standard'}
-        
+
         Route customers to the appropriate department:
         - Billing: Payment issues, account billing, refunds
         - Support: Technical problems, product questions
-        
+
         Always be professional and helpful.
       INSTRUCTIONS
     }
   end
-  
+
   def load_conversation_context
     latest_conversation = Conversation.latest_for_user(@user)
     return initial_context unless latest_conversation
-    
+
     latest_conversation.to_agent_context
   end
-  
+
   def initial_context
     {
       user_id: @user.id,
@@ -185,7 +185,7 @@ class AgentConversationService
       }
     }
   end
-  
+
   def save_conversation(result)
     Conversation.from_agent_result(@user, result)
   end
@@ -200,13 +200,13 @@ Create a controller for handling agent conversations:
 # app/controllers/agent_conversations_controller.rb
 class AgentConversationsController < ApplicationController
   before_action :authenticate_user!
-  
+
   def create
     service = AgentConversationService.new(current_user)
-    
+
     begin
       result = service.send_message(params[:message])
-      
+
       render json: {
         response: result.output,
         agent: result.context[:current_agent],
@@ -217,19 +217,19 @@ class AgentConversationsController < ApplicationController
       render json: { error: "Unable to process your request" }, status: 500
     end
   end
-  
+
   def reset
     service = AgentConversationService.new(current_user)
     service.reset_conversation
-    
+
     render json: { message: "Conversation reset successfully" }
   end
-  
+
   def history
     conversations = Conversation.for_user(current_user)
                                .includes(:user)
                                .limit(50)
-    
+
     render json: conversations.map do |conv|
       {
         id: conv.id,
@@ -252,13 +252,13 @@ class CustomerLookupTool < Agents::Tool
   name "lookup_customer"
   description "Look up customer information by email or ID"
   param :identifier, type: "string", desc: "Email address or customer ID"
-  
+
   def perform(tool_context, identifier:)
     # Access Rails models safely
     customer = User.find_by(email: identifier) || User.find_by(id: identifier)
-    
+
     return "Customer not found" unless customer
-    
+
     {
       name: customer.name,
       email: customer.email,
@@ -274,13 +274,13 @@ class BillingTool < Agents::Tool
   name "get_billing_info"
   description "Retrieve billing information for a customer"
   param :user_id, type: "integer", desc: "Customer user ID"
-  
+
   def perform(tool_context, user_id:)
     user = User.find(user_id)
     billing_info = user.billing_profile
-    
+
     return "No billing information found" unless billing_info
-    
+
     {
       plan: billing_info.plan_name,
       status: billing_info.status,
@@ -301,13 +301,13 @@ For longer conversations, use background jobs:
 # app/jobs/agent_conversation_job.rb
 class AgentConversationJob < ApplicationJob
   queue_as :default
-  
+
   def perform(user_id, message, conversation_id = nil)
     user = User.find(user_id)
     service = AgentConversationService.new(user)
-    
+
     result = service.send_message(message)
-    
+
     # Broadcast result via ActionCable
     ActionCable.server.broadcast(
       "agent_conversation_#{user_id}",
@@ -327,7 +327,7 @@ def create_async
     params[:message],
     params[:conversation_id]
   )
-  
+
   render json: { job_id: job_id }
 end
 ```
@@ -341,12 +341,12 @@ Implement comprehensive error handling:
 class AgentConversationService
   class AgentError < StandardError; end
   class ContextError < StandardError; end
-  
+
   def send_message(message)
     validate_message(message)
-    
+
     context = load_conversation_context
-    
+
     begin
       result = @runner.run(message, context: context)
       save_conversation(result)
@@ -359,9 +359,9 @@ class AgentConversationService
       raise ContextError, "Conversation context corrupted"
     end
   end
-  
+
   private
-  
+
   def validate_message(message)
     raise ArgumentError, "Message cannot be blank" if message.blank?
     raise ArgumentError, "Message too long" if message.length > 5000
@@ -378,26 +378,26 @@ Test Rails integration with RSpec:
 RSpec.describe AgentConversationService do
   let(:user) { create(:user) }
   let(:service) { described_class.new(user) }
-  
+
   describe '#send_message' do
     it 'creates a conversation record' do
       expect {
         service.send_message("Hello")
       }.to change(Conversation, :count).by(1)
     end
-    
+
     it 'persists context correctly' do
       result = service.send_message("Hello")
       conversation = Conversation.last
-      
+
       expect(conversation.user).to eq(user)
       expect(conversation.context).to include('user_id' => user.id)
     end
   end
-  
+
   describe '#reset_conversation' do
     before { service.send_message("Hello") }
-    
+
     it 'destroys all conversations for user' do
       expect {
         service.reset_conversation
