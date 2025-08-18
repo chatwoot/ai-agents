@@ -124,6 +124,29 @@ module Agents
       self
     end
 
+    # Enable OpenInference-compliant tracing for this agent runner.
+    # Requires opentelemetry-sdk and opentelemetry-exporter-otlp gems to be installed.
+    #
+    # @param service_name [String] Service name for OpenTelemetry traces
+    # @return [self] For method chaining
+    def with_tracing(service_name:)
+      return self unless defined?(Agents::Tracing)
+
+      begin
+        # Initialize tracer if not already done
+        @tracer ||= Agents::Tracing::Tracer.new(service_name: service_name)
+        
+        # Instrument callbacks
+        Agents::Tracing::Instrumentation.setup_callbacks(self, @tracer)
+      rescue => e
+        warn "Tracing initialization failed: #{e.message}"
+        warn "To enable tracing, add opentelemetry-sdk and opentelemetry-exporter-otlp to your Gemfile"
+      end
+      
+      # Return self for chaining
+      self
+    end
+
     private
 
     # Build agent registry from provided agents only.

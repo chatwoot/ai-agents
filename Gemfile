@@ -15,4 +15,6 @@ gem "rubocop-rspec", "~> 3.0"
 gem "simplecov", "~> 0.22", require: false
 gem "webmock", "~> 3.18", require: false
 
+gem "opentelemetry-exporter-otlp", "~> 0.20"
+gem "opentelemetry-sdk", "~> 1.8"
 gem "ruby_llm", "~> 1.6.2"

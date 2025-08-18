@@ -30,6 +30,14 @@ GEM
       net-http (>= 0.5.0)
     faraday-retry (2.3.2)
       faraday (~> 2.0)
+    google-protobuf (4.32.0)
+      bigdecimal
+      rake (>= 13)
+    google-protobuf (4.32.0-arm64-darwin)
+      bigdecimal
+      rake (>= 13)
+    googleapis-common-protos-types (1.20.0)
+      google-protobuf (>= 3.18, < 5.a)
     hashdiff (1.2.0)
     io-console (0.8.1)
     irb (1.15.2)
@@ -44,6 +52,25 @@ GEM
     multipart-post (2.4.1)
     net-http (0.6.0)
       uri
+    opentelemetry-api (1.6.0)
+    opentelemetry-common (0.22.0)
+      opentelemetry-api (~> 1.0)
+    opentelemetry-exporter-otlp (0.30.0)
+      google-protobuf (>= 3.18)
+      googleapis-common-protos-types (~> 1.3)
+      opentelemetry-api (~> 1.1)
+      opentelemetry-common (~> 0.20)
+      opentelemetry-sdk (~> 1.2)
+      opentelemetry-semantic_conventions
+    opentelemetry-registry (0.4.0)
+      opentelemetry-api (~> 1.1)
+    opentelemetry-sdk (1.8.1)
+      opentelemetry-api (~> 1.1)
+      opentelemetry-common (~> 0.20)
+      opentelemetry-registry (~> 0.2)
+      opentelemetry-semantic_conventions
+    opentelemetry-semantic_conventions (1.11.0)
+      opentelemetry-api (~> 1.0)
     parallel (1.27.0)
     parser (3.3.9.0)
       ast (~> 2.4.1)
@@ -130,6 +157,8 @@ PLATFORMS
 DEPENDENCIES
   ai-agents!
   irb
+  opentelemetry-exporter-otlp (~> 0.20)
+  opentelemetry-sdk (~> 1.8)
   rake (~> 13.0)
   rspec (~> 3.12)
   rubocop (~> 1.21)

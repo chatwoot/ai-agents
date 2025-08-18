@@ -21,34 +21,38 @@ class ISPSupportDemo
       @agents[:triage],
       @agents[:sales],
       @agents[:support]
-    )
+    ).with_tracing(service_name: "isp-customer-support")
 
     # Setup real-time callbacks for UI feedback
     setup_callbacks
 
     @context = {}
     @current_status = ""
+    @session_id = "isp-session-#{Time.now.to_i}-#{rand(1000)}"
 
     puts "🏢 Welcome to ISP Customer Support!"
+    puts "🔍 Session ID: #{@session_id} (for tracing)"
     puts "Type '/help' for commands or 'exit' to quit."
     puts
   end
 
   def start
-    loop do
-      print "💬 You: "
-      user_input = gets.chomp.strip
+    # Wrap the entire conversation session in tracing context
+    Agents::Tracing::SessionContext.with_session(@session_id) do
+      loop do
+        print "💬 You: "
+        user_input = gets.chomp.strip
 
-      command_result = handle_command(user_input)
-      break if command_result == :exit
-      next if command_result == :handled || user_input.empty?
+        command_result = handle_command(user_input)
+        break if command_result == :exit
+        next if command_result == :handled || user_input.empty?
 
-      # Clear any previous status and show agent is working
-      clear_status_line
-      print "🤖 Processing..."
+        # Clear any previous status and show agent is working
+        clear_status_line
+        print "🤖 Processing..."
 
-      # Use the runner - it automatically determines the right agent from context
-      result = @runner.run(user_input, context: @context)
+        # Use the runner - it automatically determines the right agent from context
+        result = @runner.run(user_input, context: @context)
 
       # Update our context with the returned context from Runner
       @context = result.context if result.respond_to?(:context) && result.context
@@ -75,6 +79,7 @@ class ISPSupportDemo
       end
 
       puts
+      end
     end
   end
 
@@ -159,6 +164,11 @@ class ISPSupportDemo
     puts "  /tools    - Show tools available to agents"
     puts "  /context  - Show current conversation context"
     puts "  exit/quit - End the session"
+    puts
+    puts "🔍 Tracing:"
+    puts "  Session ID: #{@session_id}"
+    puts "  All conversations in this session are traced together"
+    puts "  Set OTEL_EXPORTER_OTLP_ENDPOINT to customize trace destination"
     puts
     puts "💡 Example customer requests:"
     puts "  - 'What's my current plan?' (try account ID: CUST001)"
