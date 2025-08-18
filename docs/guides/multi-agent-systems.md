@@ -23,7 +23,7 @@ billing_agent = Agents::Agent.new(
 )
 
 support_agent = Agents::Agent.new(
-  name: "Support", 
+  name: "Support",
   instructions: "Provide technical troubleshooting and product support."
 )
 
@@ -37,7 +37,7 @@ triage_agent = Agents::Agent.new(
 triage_agent.register_handoffs(billing_agent, support_agent)
 
 # Create runner with triage as entry point
-runner = Agents::AgentRunner.with_agents(triage_agent, billing_agent, support_agent)
+runner = Agents::Runner.with_agents(triage_agent, billing_agent, support_agent)
 ```
 
 ### Dynamic Instructions
@@ -52,7 +52,7 @@ support_agent = Agents::Agent.new(
     <<~INSTRUCTIONS
       You are a technical support specialist for #{customer_tier} tier customers.
       #{customer_tier == "premium" ? "Provide priority white-glove service." : ""}
-      
+
       Available tools: diagnostics, escalation
     INSTRUCTIONS
   }
@@ -73,7 +73,7 @@ sales_agent = Agents::Agent.new(
 )
 
 support_agent = Agents::Agent.new(
-  name: "Support", 
+  name: "Support",
   instructions: "Handle technical issues and product troubleshooting. Transfer sales questions to sales team."
 )
 ```
@@ -108,7 +108,7 @@ The first agent in `AgentRunner.with_agents()` becomes the default entry point:
 
 ```ruby
 # Triage agent handles all initial conversations
-runner = Agents::AgentRunner.with_agents(triage_agent, billing_agent, support_agent)
+runner = Agents::Runner.with_agents(triage_agent, billing_agent, support_agent)
 
 # Start conversation
 result = runner.run("I need help with my account")
@@ -168,9 +168,9 @@ triage_agent = Agents::Agent.new(
   name: "Triage",
   instructions: ->(context) {
     business_hours = context[:business_hours] || false
-    
+
     base_instructions = "Route users to appropriate departments."
-    
+
     if business_hours
       base_instructions + " All departments are available."
     else
@@ -189,8 +189,8 @@ Test each agent in isolation:
 ```ruby
 RSpec.describe "BillingAgent" do
   let(:agent) { create_billing_agent }
-  let(:runner) { Agents::AgentRunner.with_agents(agent) }
-  
+  let(:runner) { Agents::Runner.with_agents(agent) }
+
   it "handles payment inquiries" do
     result = runner.run("What payment methods do you accept?")
     expect(result.output).to include("credit card", "bank transfer")
@@ -205,13 +205,13 @@ Test complete workflows:
 ```ruby
 RSpec.describe "Customer Support Workflow" do
   let(:runner) { create_support_runner } # Creates triage + specialists
-  
+
   it "routes billing questions correctly" do
     result = runner.run("I have a billing question")
-    
+
     # Verify handoff occurred
     expect(result.context[:current_agent]).to eq("Billing")
-    
+
     # Test continued conversation
     followup = runner.run("What are your payment terms?", context: result.context)
     expect(followup.output).to include("payment terms")

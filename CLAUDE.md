@@ -174,7 +174,7 @@ support = Agent.new(name: "Support", instructions: "Technical support...")
 triage.register_handoffs(billing, support)
 
 # Create thread-safe runner (first agent is default entry point)
-runner = Agents::AgentRunner.with_agents(triage, billing, support)
+runner = Agents::Runner.with_agents(triage, billing, support)
 
 # Add real-time callbacks for monitoring
 runner.on_agent_thinking { |agent_name, input| puts "🧠 #{agent_name} is thinking..." }
