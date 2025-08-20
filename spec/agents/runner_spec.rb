@@ -414,5 +414,37 @@ RSpec.describe Agents::Runner do
         end
       end
     end
+
+    context "when agent has regular tools" do
+      let(:agent_with_tools) do
+        instance_double(Agents::Agent,
+                        name: "ToolAgent",
+                        model: "gpt-4o",
+                        tools: [test_tool],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: nil,
+                        get_system_prompt: "You are an agent with tools")
+      end
+
+      it "wraps regular tools in ToolWrapper" do
+        # Spy on ToolWrapper constructor
+        allow(Agents::ToolWrapper).to receive(:new).and_call_original
+
+        # Stub a simple response that doesn't use tools
+        stub_simple_chat("I have tools available")
+
+        runner.run(
+          agent_with_tools,
+          "Hello",
+          context: {},
+          registry: { "ToolAgent" => agent_with_tools },
+          max_turns: 1
+        )
+
+        # Verify ToolWrapper was called with the regular tool
+        expect(Agents::ToolWrapper).to have_received(:new).with(test_tool, anything)
+      end
+    end
   end
 end
