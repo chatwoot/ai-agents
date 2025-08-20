@@ -55,6 +55,7 @@ module Agents
     DEFAULT_MAX_TURNS = 10
 
     class MaxTurnsExceeded < StandardError; end
+    class AgentNotFoundError < StandardError; end
 
     # Create a thread-safe agent runner for multi-agent conversations.
     # The first agent becomes the default entry point for new conversations.
@@ -91,14 +92,15 @@ module Agents
       current_turn = 0
 
       # Create chat and restore conversation history
-      chat = create_chat(current_agent, context_wrapper)
+      chat = RubyLLM::Chat.new(model: current_agent.model)
+      configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
 
       loop do
         current_turn += 1
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Get response from LLM (Extended Chat handles tool execution with handoff detection)
+        # Get response from LLM (RubyLLM handles tool execution with halting based handoff detection)
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
                    context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
@@ -118,14 +120,14 @@ module Agents
           # Validate that the target agent is in our registry
           # This prevents handoffs to agents that weren't explicitly provided
           unless registry[next_agent.name]
-            puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
-            # Return the halt content as the final response
             save_conversation_state(chat, context_wrapper, current_agent)
+            error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
             return RunResult.new(
-              output: response.content,
+              output: nil,
               messages: MessageExtractor.extract_messages(chat, current_agent),
               usage: context_wrapper.usage,
-              context: context_wrapper.context
+              context: context_wrapper.context,
+              error: error
             )
           end
 
@@ -139,9 +141,8 @@ module Agents
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
-          # Create new chat for new agent with restored history
-          chat = create_chat(current_agent, context_wrapper)
-          restore_conversation_history(chat, context_wrapper)
+          # Reconfigure existing chat for new agent - preserves conversation history automatically
+          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -201,6 +202,11 @@ module Agents
 
     private
 
+    # Creates a deep copy of context data for thread safety.
+    # Preserves conversation history array structure while avoiding agent mutation.
+    #
+    # @param context [Hash] The context to copy
+    # @return [Hash] Thread-safe deep copy of the context
     def deep_copy_context(context)
       # Handle deep copying for thread safety
       context.dup.tap do |copied|
@@ -211,6 +217,11 @@ module Agents
       end
     end
 
+    # Restores conversation history from context into RubyLLM chat.
+    # Converts stored message hashes back into RubyLLM::Message objects with proper content handling.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to restore history into
+    # @param context_wrapper [RunContext] Context containing conversation history
     def restore_conversation_history(chat, context_wrapper)
       history = context_wrapper.context[:conversation_history] || []
 
@@ -228,18 +239,15 @@ module Agents
           content: content
         )
         chat.add_message(message)
-      rescue StandardError => e
-        # Continue with partial history on error
-        # TODO: Remove this, and let the error propagate up the call stack
-        puts "[Agents] Failed to restore message: #{e.message}\n#{e.backtrace.join("\n")}"
       end
-    rescue StandardError => e
-      # If history restoration completely fails, continue with empty history
-      # TODO: Remove this, and let the error propagate up the call stack
-      puts "[Agents] Failed to restore conversation history: #{e.message}"
-      context_wrapper.context[:conversation_history] = []
     end
 
+    # Saves current conversation state from RubyLLM chat back to context for persistence.
+    # Maintains conversation continuity across agent handoffs and process boundaries.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to extract state from
+    # @param context_wrapper [RunContext] Context to save state into
+    # @param current_agent [Agents::Agent] The currently active agent
     def save_conversation_state(chat, context_wrapper, current_agent)
       # Extract messages from chat
       messages = MessageExtractor.extract_messages(chat, current_agent)
@@ -254,14 +262,39 @@ module Agents
       context_wrapper.context.delete(:pending_handoff)
     end
 
-    def create_chat(agent, context_wrapper)
+    # Configures a RubyLLM chat instance with agent-specific settings.
+    # Uses RubyLLM's replace option to swap agent context while preserving conversation history during handoffs.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to configure
+    # @param agent [Agents::Agent] The agent whose configuration to apply
+    # @param context_wrapper [RunContext] Thread-safe context wrapper
+    # @param replace [Boolean] Whether to replace existing configuration (true for handoffs, false for initial setup)
+    # @return [RubyLLM::Chat] The configured chat instance
+    def configure_chat_for_agent(chat, agent, context_wrapper, replace: false)
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Create standard RubyLLM chat
-      chat = RubyLLM::Chat.new(model: agent.model)
-
       # Combine all tools - both handoff and regular tools need wrapping
+      all_tools = build_agent_tools(agent, context_wrapper)
+
+      # Switch model if different (important for handoffs between agents using different models)
+      chat.with_model(agent.model) if replace
+
+      # Configure chat with instructions, temperature, tools, and schema
+      chat.with_instructions(system_prompt, replace: replace) if system_prompt
+      chat.with_temperature(agent.temperature) if agent.temperature
+      chat.with_tools(*all_tools, replace: replace)
+      chat.with_schema(agent.response_schema) if agent.response_schema
+
+      chat
+    end
+
+    # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
+    #
+    # @param agent [Agents::Agent] The agent whose tools to wrap
+    # @param context_wrapper [RunContext] Thread-safe context wrapper for tool execution
+    # @return [Array<ToolWrapper>] Array of wrapped tools ready for RubyLLM
+    def build_agent_tools(agent, context_wrapper)
       all_tools = []
 
       # Add handoff tools
@@ -275,13 +308,7 @@ module Agents
         all_tools << ToolWrapper.new(tool, context_wrapper)
       end
 
-      # Configure chat with instructions, temperature, tools, and schema
-      chat.with_instructions(system_prompt) if system_prompt
-      chat.with_temperature(agent.temperature) if agent.temperature
-      chat.with_tools(*all_tools) if all_tools.any?
-      chat.with_schema(agent.response_schema) if agent.response_schema
-
-      chat
+      all_tools
     end
   end
 end

@@ -196,6 +196,50 @@ RSpec.describe Agents::Runner do
         expect(result.output).to eq("Hello, I'm the specialist. How can I help?")
         expect(result.context[:current_agent]).to eq("HandoffAgent")
       end
+
+      it "returns error when handoff to unregistered agent is attempted" do
+        # Only register the triage agent, not the handoff target
+        registry = { "TriageAgent" => agent_with_handoffs }
+
+        # Mock only the first tool call that triggers handoff
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-handoff",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: nil,
+                  tool_calls: [{
+                    id: "call_handoff",
+                    type: "function",
+                    function: {
+                      name: "handoff_to_handoffagent",
+                      arguments: "{}"
+                    }
+                  }]
+                },
+                finish_reason: "tool_calls"
+              }],
+              usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+
+        result = runner.run(agent_with_handoffs, "I need specialist help", registry: registry)
+
+        expect(result.failed?).to be true
+        expect(result.error).to be_a(Agents::Runner::AgentNotFoundError)
+        expect(result.error.message).to eq("Handoff failed: Agent 'HandoffAgent' not found in registry")
+        expect(result.output).to be_nil
+        expect(result.context[:current_agent]).to eq("TriageAgent")
+        expect(result.context[:pending_handoff]).to be_nil # Should clear pending handoff
+      end
     end
 
     context "when max_turns is exceeded" do
@@ -204,8 +248,9 @@ RSpec.describe Agents::Runner do
         mock_chat = instance_double(RubyLLM::Chat)
         mock_response = instance_double(RubyLLM::Message, tool_call?: true)
 
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
         allow(runner).to receive_messages(
-          create_chat: mock_chat,
+          configure_chat_for_agent: mock_chat,
           restore_conversation_history: nil,
           save_conversation_state: nil
         )
@@ -224,7 +269,7 @@ RSpec.describe Agents::Runner do
     context "when standard error occurs" do
       it "handles errors gracefully and returns error result" do
         # Mock chat creation to raise an error
-        allow(runner).to receive(:create_chat).and_raise(StandardError, "Test error")
+        allow(RubyLLM::Chat).to receive(:new).and_raise(StandardError, "Test error")
 
         result = runner.run(agent, "Error test")
 
@@ -272,8 +317,9 @@ RSpec.describe Agents::Runner do
         mock_halt = instance_double(RubyLLM::Tool::Halt, content: "Processing complete", is_a?: true)
 
         allow(mock_halt).to receive(:is_a?).with(RubyLLM::Tool::Halt).and_return(true)
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
         allow(runner).to receive_messages(
-          create_chat: mock_chat,
+          configure_chat_for_agent: mock_chat,
           restore_conversation_history: nil,
           save_conversation_state: nil
         )
@@ -366,6 +412,38 @@ RSpec.describe Agents::Runner do
           expect(result.success?).to be true
           expect(result.output).to eq({ "answer" => "6", "confidence" => 0.9 })
         end
+      end
+    end
+
+    context "when agent has regular tools" do
+      let(:agent_with_tools) do
+        instance_double(Agents::Agent,
+                        name: "ToolAgent",
+                        model: "gpt-4o",
+                        tools: [test_tool],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: nil,
+                        get_system_prompt: "You are an agent with tools")
+      end
+
+      it "wraps regular tools in ToolWrapper" do
+        # Spy on ToolWrapper constructor
+        allow(Agents::ToolWrapper).to receive(:new).and_call_original
+
+        # Stub a simple response that doesn't use tools
+        stub_simple_chat("I have tools available")
+
+        runner.run(
+          agent_with_tools,
+          "Hello",
+          context: {},
+          registry: { "ToolAgent" => agent_with_tools },
+          max_turns: 1
+        )
+
+        # Verify ToolWrapper was called with the regular tool
+        expect(Agents::ToolWrapper).to have_received(:new).with(test_tool, anything)
       end
     end
   end

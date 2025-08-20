@@ -10,20 +10,18 @@ Style/StringLiterals:
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
 
-RSpec/MultipleExpectations:
-  Max: 10
-
-RSpec/ExampleLength:
-  Max: 20
-
-RSpec/MultipleMemoizedHelpers:
-  Max: 15
-
-RSpec/SpecFilePathFormat:
-  Enabled: false
-
 Metrics/MethodLength:
   Max: 20
+Metrics/ClassLength:
+  Enabled: false
 
 RSpec/MultipleDescribes:
+  Enabled: false
+RSpec/MultipleExpectations:
+  Max: 10
+RSpec/ExampleLength:
+  Max: 20
+RSpec/MultipleMemoizedHelpers:
+  Max: 15
+RSpec/SpecFilePathFormat:
   Enabled: false
