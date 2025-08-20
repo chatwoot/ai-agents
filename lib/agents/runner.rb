@@ -99,7 +99,7 @@ module Agents
         current_turn += 1
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
-        # Get response from LLM (Extended Chat handles tool execution with handoff detection)
+        # Get response from LLM (RubyLLM handles tool execution with halting based handoff detection)
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
                    context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
@@ -201,6 +201,11 @@ module Agents
 
     private
 
+    # Creates a deep copy of context data for thread safety.
+    # Preserves conversation history array structure while avoiding agent mutation.
+    #
+    # @param context [Hash] The context to copy
+    # @return [Hash] Thread-safe deep copy of the context
     def deep_copy_context(context)
       # Handle deep copying for thread safety
       context.dup.tap do |copied|
@@ -211,6 +216,11 @@ module Agents
       end
     end
 
+    # Restores conversation history from context into RubyLLM chat.
+    # Converts stored message hashes back into RubyLLM::Message objects with proper content handling.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to restore history into
+    # @param context_wrapper [RunContext] Context containing conversation history
     def restore_conversation_history(chat, context_wrapper)
       history = context_wrapper.context[:conversation_history] || []
 
@@ -240,6 +250,12 @@ module Agents
       context_wrapper.context[:conversation_history] = []
     end
 
+    # Saves current conversation state from RubyLLM chat back to context for persistence.
+    # Maintains conversation continuity across agent handoffs and process boundaries.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to extract state from
+    # @param context_wrapper [RunContext] Context to save state into
+    # @param current_agent [Agents::Agent] The currently active agent
     def save_conversation_state(chat, context_wrapper, current_agent)
       # Extract messages from chat
       messages = MessageExtractor.extract_messages(chat, current_agent)
