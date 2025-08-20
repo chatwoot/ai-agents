@@ -265,6 +265,28 @@ RSpec.describe Agents::Runner do
       end
     end
 
+    context "when halt response occurs without handoff" do
+      it "returns halt content as final response" do
+        # Mock chat to return a halt without pending_handoff
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_halt = instance_double(RubyLLM::Tool::Halt, content: "Processing complete", is_a?: true)
+
+        allow(mock_halt).to receive(:is_a?).with(RubyLLM::Tool::Halt).and_return(true)
+        allow(runner).to receive_messages(
+          create_chat: mock_chat,
+          restore_conversation_history: nil,
+          save_conversation_state: nil
+        )
+        allow(mock_chat).to receive(:ask).and_return(mock_halt)
+
+        result = runner.run(agent, "Test halt")
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Processing complete")
+        expect(result.context).to be_a(Hash)
+      end
+    end
+
     context "when using response_schema" do
       let(:schema) do
         {
