@@ -48,4 +48,51 @@ RSpec.describe Agents::ToolContext do
       expect(tool_context.retry_count).to eq(2)
     end
   end
+
+  describe "#state" do
+    context "when state exists in context" do
+      let(:existing_state) { { customer_id: 456, customer_name: "John" } }
+      let(:context_hash) { { user_id: 123, session: "test", state: existing_state } }
+
+      it "returns the existing state hash" do
+        result = tool_context.state
+        expect(result).to eq(existing_state)
+      end
+
+      it "allows modifications to the state" do
+        tool_context.state[:new_key] = "new_value"
+        expect(tool_context.state[:new_key]).to eq("new_value")
+      end
+    end
+
+    context "when state does not exist in context" do
+      let(:context_hash) { { user_id: 123, session: "test" } }
+
+      it "initializes state as empty hash" do
+        result = tool_context.state
+        expect(result).to eq({})
+      end
+
+      it "persists the initialized state in context" do
+        tool_context.state
+        expect(context_hash[:state]).to eq({})
+      end
+
+      it "allows adding to the initialized state" do
+        tool_context.state[:customer_id] = 789
+        expect(tool_context.state[:customer_id]).to eq(789)
+        expect(context_hash[:state][:customer_id]).to eq(789)
+      end
+    end
+
+    context "when state is nil in context" do
+      let(:context_hash) { { user_id: 123, session: "test", state: nil } }
+
+      it "replaces nil with empty hash" do
+        result = tool_context.state
+        expect(result).to eq({})
+        expect(context_hash[:state]).to eq({})
+      end
+    end
+  end
 end
