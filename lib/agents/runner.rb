@@ -91,7 +91,8 @@ module Agents
       current_turn = 0
 
       # Create chat and restore conversation history
-      chat = create_chat(current_agent, context_wrapper)
+      chat = RubyLLM::Chat.new(model: current_agent.model)
+      configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
 
       loop do
@@ -139,9 +140,8 @@ module Agents
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
-          # Create new chat for new agent with restored history
-          chat = create_chat(current_agent, context_wrapper)
-          restore_conversation_history(chat, context_wrapper)
+          # Reconfigure existing chat for new agent - preserves conversation history automatically
+          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -254,14 +254,39 @@ module Agents
       context_wrapper.context.delete(:pending_handoff)
     end
 
-    def create_chat(agent, context_wrapper)
+    # Configures a RubyLLM chat instance with agent-specific settings.
+    # Uses RubyLLM's replace option to swap agent context while preserving conversation history during handoffs.
+    #
+    # @param chat [RubyLLM::Chat] The chat instance to configure
+    # @param agent [Agents::Agent] The agent whose configuration to apply
+    # @param context_wrapper [RunContext] Thread-safe context wrapper
+    # @param replace [Boolean] Whether to replace existing configuration (true for handoffs, false for initial setup)
+    # @return [RubyLLM::Chat] The configured chat instance
+    def configure_chat_for_agent(chat, agent, context_wrapper, replace: false)
       # Get system prompt (may be dynamic)
       system_prompt = agent.get_system_prompt(context_wrapper)
 
-      # Create standard RubyLLM chat
-      chat = RubyLLM::Chat.new(model: agent.model)
-
       # Combine all tools - both handoff and regular tools need wrapping
+      all_tools = build_agent_tools(agent, context_wrapper)
+
+      # Switch model if different (important for handoffs between agents using different models)
+      chat.with_model(agent.model) if replace
+
+      # Configure chat with instructions, temperature, tools, and schema
+      chat.with_instructions(system_prompt, replace: replace) if system_prompt
+      chat.with_temperature(agent.temperature) if agent.temperature
+      chat.with_tools(*all_tools, replace: replace)
+      chat.with_schema(agent.response_schema) if agent.response_schema
+
+      chat
+    end
+
+    # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
+    #
+    # @param agent [Agents::Agent] The agent whose tools to wrap
+    # @param context_wrapper [RunContext] Thread-safe context wrapper for tool execution
+    # @return [Array<ToolWrapper>] Array of wrapped tools ready for RubyLLM
+    def build_agent_tools(agent, context_wrapper)
       all_tools = []
 
       # Add handoff tools
@@ -275,13 +300,7 @@ module Agents
         all_tools << ToolWrapper.new(tool, context_wrapper)
       end
 
-      # Configure chat with instructions, temperature, tools, and schema
-      chat.with_instructions(system_prompt) if system_prompt
-      chat.with_temperature(agent.temperature) if agent.temperature
-      chat.with_tools(*all_tools) if all_tools.any?
-      chat.with_schema(agent.response_schema) if agent.response_schema
-
-      chat
+      all_tools
     end
   end
 end
