@@ -238,16 +238,7 @@ module Agents
           content: content
         )
         chat.add_message(message)
-      rescue StandardError => e
-        # Continue with partial history on error
-        # TODO: Remove this, and let the error propagate up the call stack
-        puts "[Agents] Failed to restore message: #{e.message}\n#{e.backtrace.join("\n")}"
       end
-    rescue StandardError => e
-      # If history restoration completely fails, continue with empty history
-      # TODO: Remove this, and let the error propagate up the call stack
-      puts "[Agents] Failed to restore conversation history: #{e.message}"
-      context_wrapper.context[:conversation_history] = []
     end
 
     # Saves current conversation state from RubyLLM chat back to context for persistence.
