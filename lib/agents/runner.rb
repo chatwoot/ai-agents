@@ -220,14 +220,7 @@ module Agents
         next unless msg[:content] && !MessageExtractor.content_empty?(msg[:content])
 
         # Extract text content safely - handle both string and hash content
-        content = case msg[:content]
-                  when String
-                    msg[:content]
-                  when Hash
-                    msg[:content][:text] || msg[:content]["text"] || msg[:content].to_s
-                  else
-                    msg[:content].to_s
-                  end
+        content = RubyLLM::Content.new(msg[:content])
 
         # Create a proper RubyLLM::Message and pass it to add_message
         message = RubyLLM::Message.new(
