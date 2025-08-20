@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "readline"
 require_relative "../../lib/agents"
 require_relative "agents_factory"
 
@@ -29,41 +30,59 @@ class ISPSupportDemo
     @context = {}
     @current_status = ""
 
-    puts "🏢 Welcome to ISP Customer Support!"
-    puts "Type '/help' for commands or 'exit' to quit."
+    puts green("🏢 Welcome to ISP Customer Support!")
+    puts dim_text("Type '/help' for commands or 'exit' to quit.")
     puts
   end
 
   def start
     loop do
-      print "💬 You: "
-      user_input = gets.chomp.strip
+      user_input = Readline.readline(cyan("\u{1F4AC} You: "), true)
+      next unless user_input # Handle Ctrl+D
 
+      user_input = user_input.strip
       command_result = handle_command(user_input)
       break if command_result == :exit
       next if command_result == :handled || user_input.empty?
 
       # Clear any previous status and show agent is working
       clear_status_line
-      print "🤖 Processing..."
+      print yellow("🤖 Processing...")
 
-      # Use the runner - it automatically determines the right agent from context
-      result = @runner.run(user_input, context: @context)
+      begin
+        # Use the runner - it automatically determines the right agent from context
+        result = @runner.run(user_input, context: @context)
 
-      # Update our context with the returned context from Runner
-      @context = result.context if result.respond_to?(:context) && result.context
+        # Update our context with the returned context from Runner
+        @context = result.context if result.respond_to?(:context) && result.context
 
-      # Clear status and show response
-      clear_status_line
+        # Clear status and show response with callback history
+        clear_status_line
 
-      # Handle structured output from triage agent
-      output = result.output || "[No output]"
-      if @context[:current_agent] == "Triage Agent" && output.is_a?(Hash)
-        # Display the response from structured response
-        puts "🤖 #{output["response"]}"
-        puts "\e[2m   [Intent]: #{output["intent"]}\e[0m" if output["intent"]
-      else
-        puts "🤖 #{output}"
+        # Display callback messages if any
+        if @callback_messages.any?
+          puts dim_text(@callback_messages.join("\n"))
+          @callback_messages.clear
+        end
+
+        # Handle structured output from agents
+        output = result.output || "[No output]"
+
+        if output.is_a?(Hash) && output.key?("response")
+          # Display the response from structured response
+          puts "🤖 #{output["response"]}"
+          puts dim_text("   [Intent]: #{output["intent"]}") if output["intent"]
+          puts dim_text("   [Sentiment]: #{output["sentiment"].join(", ")}") if output["sentiment"]&.any?
+        else
+          puts "🤖 #{output}"
+        end
+
+        puts # Add blank line after agent response
+      rescue StandardError => e
+        clear_status_line
+        puts red("❌ Error: #{e.message}")
+        puts dim_text("Please try again or type '/help' for assistance.")
+        puts # Add blank line after error message
       end
     end
   end
@@ -71,26 +90,36 @@ class ISPSupportDemo
   private
 
   def setup_callbacks
+    @callback_messages = []
+
     @runner.on_agent_thinking do |agent_name, _input|
-      update_status("🧠 #{agent_name} is thinking...")
+      message = "🧠 #{agent_name} is thinking..."
+      update_status(message)
+      @callback_messages << message
     end
 
     @runner.on_tool_start do |tool_name, _args|
-      update_status("🔧 Using #{tool_name}...")
+      message = "🔧 Using #{tool_name}..."
+      update_status(message)
+      @callback_messages << message
     end
 
     @runner.on_tool_complete do |tool_name, _result|
-      update_status("✅ #{tool_name} completed")
+      message = "✅ #{tool_name} completed"
+      update_status(message)
+      @callback_messages << message
     end
 
     @runner.on_agent_handoff do |from_agent, to_agent, _reason|
-      update_status("🔄 Handoff: #{from_agent} → #{to_agent}")
+      message = "🔄 Handoff: #{from_agent} → #{to_agent}"
+      update_status(message)
+      @callback_messages << message
     end
   end
 
   def update_status(message)
     clear_status_line
-    print message
+    print dim_text(message)
     $stdout.flush
   end
 
@@ -196,6 +225,27 @@ class ISPSupportDemo
     when :support then "Provides technical support and troubleshooting"
     else "Unknown agent"
     end
+  end
+
+  # ANSI color helper methods
+  def dim_text(text)
+    "\e[90m#{text}\e[0m"
+  end
+
+  def green(text)
+    "\e[32m#{text}\e[0m"
+  end
+
+  def yellow(text)
+    "\e[33m#{text}\e[0m"
+  end
+
+  def red(text)
+    "\e[31m#{text}\e[0m"
+  end
+
+  def cyan(text)
+    "\e[36m#{text}\e[0m"
   end
 end
 

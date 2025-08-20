@@ -6,6 +6,7 @@ require_relative "tools/create_lead_tool"
 require_relative "tools/create_checkout_tool"
 require_relative "tools/search_docs_tool"
 require_relative "tools/escalate_to_human_tool"
+require "ruby_llm/schema"
 
 module ISPSupport
   # Factory for creating all ISP support agents with proper handoff relationships.
@@ -56,7 +57,8 @@ module ISPSupport
         instructions: sales_instructions_with_state,
         model: "gpt-4.1-mini",
         tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new],
-        temperature: 0.8  # Higher temperature for more persuasive, varied sales language
+        temperature: 0.8, # Higher temperature for more persuasive, varied sales language
+        response_schema: sales_response_schema
       )
     end
 
@@ -70,7 +72,8 @@ module ISPSupport
           ISPSupport::SearchDocsTool.new,
           ISPSupport::EscalateToHumanTool.new
         ],
-        temperature: 0.5  # Balanced temperature for helpful but consistent technical support
+        temperature: 0.5, # Balanced temperature for helpful but consistent technical support
+        response_schema: triage_response_schema
       )
     end
 
@@ -95,22 +98,33 @@ module ISPSupport
     end
 
     def triage_response_schema
-      {
-        type: "object",
-        properties: {
-          response: {
-            type: "string",
-            description: "Your response to the customer"
-          },
-          intent: {
-            type: "string",
-            enum: %w[sales support unclear],
-            description: "The detected intent category"
-          }
-        },
-        required: %w[response intent],
-        additionalProperties: false
-      }
+      RubyLLM::Schema.create do
+        string :response, description: "Your response to the customer"
+        string :intent, enum: %w[sales support unclear], description: "The detected intent category"
+        array :sentiment, description: "Customer sentiment indicators" do
+          string enum: %w[positive neutral negative frustrated urgent confused satisfied]
+        end
+      end
+    end
+
+    def support_response_schema
+      RubyLLM::Schema.create do
+        string :response, description: "Your response to the customer"
+        string :intent, enum: %w[support], description: "The intent category (always support)"
+        array :sentiment, description: "Customer sentiment indicators" do
+          string enum: %w[positive neutral negative frustrated urgent confused satisfied]
+        end
+      end
+    end
+
+    def sales_response_schema
+      RubyLLM::Schema.create do
+        string :response, description: "Your response to the customer"
+        string :intent, enum: %w[sales], description: "The intent category (always sales)"
+        array :sentiment, description: "Customer sentiment indicators" do
+          string enum: %w[positive neutral negative frustrated urgent confused satisfied]
+        end
+      end
     end
 
     def sales_instructions
