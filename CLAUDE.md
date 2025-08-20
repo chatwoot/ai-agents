@@ -63,7 +63,6 @@ This will start a command-line interface where you can interact with the multi-a
 -   **Agent**: An AI assistant with a specific role, instructions, and tools.
 -   **Tool**: A custom function that an agent can use to perform actions (e.g., look up customer data, send an email).
 -   **Handoff**: The process of transferring a conversation from one agent to another. This is a core feature of the SDK.
--   **AgentRunner**: The thread-safe execution manager that coordinates multi-agent conversations and provides the main API.
 -   **Runner**: Internal component that manages individual conversation turns (used by AgentRunner).
 -   **Context**: A shared state object that stores conversation history and agent information, fully serializable for persistence.
 -   **Callbacks**: Event hooks for monitoring agent execution, including agent thinking, tool start/complete, and handoffs.
@@ -114,7 +113,6 @@ ruby examples/isp-support/interactive.rb
 ### Core Components
 
 - **Agents::Agent**: Individual AI agents with specific roles, instructions, and tools
-- **Agents::AgentRunner**: Thread-safe execution manager with callback support
 - **Agents::Runner**: Orchestrates multi-agent conversations with automatic handoffs
 - **Agents::Tool**: Base class for custom tools that agents can execute
 - **Agents::Context**: Shared state management across agent interactions

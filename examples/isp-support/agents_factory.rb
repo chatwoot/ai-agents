@@ -90,7 +90,7 @@ module ISPSupport
 
         Keep responses brief and professional. Use handoff tools to transfer to specialists.
 
-        Your response MUST be in the required JSON format with greeting, intent_category, needs_clarification, clarifying_question, and recommended_agent fields.
+        Your response MUST be in the required JSON format with response, clarifying_question, needs_clarification, and intent fields.
       INSTRUCTIONS
     end
 
@@ -98,30 +98,17 @@ module ISPSupport
       {
         type: "object",
         properties: {
-          greeting: {
+          response: {
             type: "string",
-            description: "A brief, friendly greeting acknowledging the customer's inquiry"
+            description: "Your response to the customer"
           },
-          intent_category: {
+          intent: {
             type: "string",
             enum: %w[sales support unclear],
-            description: "The detected category of the customer's intent"
-          },
-          needs_clarification: {
-            type: "boolean",
-            description: "Whether the intent is unclear and needs clarification"
-          },
-          clarifying_question: {
-            type: ["string", "null"],
-            description: "A question to ask if the intent is unclear (null if clear)"
-          },
-          recommended_agent: {
-            type: ["string", "null"],
-            enum: ["Sales Agent", "Support Agent", null],
-            description: "The recommended specialist agent to route to (null if unclear)"
+            description: "The detected intent category"
           }
         },
-        required: %w[greeting intent_category needs_clarification],
+        required: %w[response intent],
         additionalProperties: false
       }
     end

@@ -12,7 +12,8 @@ gem "rspec", "~> 3.12"
 
 gem "rubocop", "~> 1.21"
 gem "rubocop-rspec", "~> 3.0"
+gem "ruby_llm-schema"
 gem "simplecov", "~> 0.22", require: false
 gem "webmock", "~> 3.18", require: false
 
-gem "ruby_llm", "~> 1.5.0"
+gem "ruby_llm", "~> 1.6.3"
