@@ -26,7 +26,7 @@ The SDK provides four types of callbacks that give you visibility into different
 Callbacks are registered on the AgentRunner using chainable methods:
 
 ```ruby
-runner = Agents::AgentRunner.with_agents(triage, support)
+runner = Agents::Runner.with_agents(triage, support)
   .on_agent_thinking { |agent, input| puts "#{agent} thinking..." }
   .on_tool_start { |tool, args| puts "Using #{tool}" }
   .on_tool_complete { |tool, result| puts "#{tool} completed" }

@@ -71,12 +71,13 @@ module Agents
       @tool_description
     end
 
-    # Return an immutable descriptor for thread-safe handoff processing.
-    # The Runner will detect this descriptor and handle the handoff atomically,
-    # allowing the LLM to continue naturally without halt/restart cycles.
-    def perform(_tool_context)
-      # Return descriptor - no mutations, just intent
-      HandoffDescriptor.new(
+    # Use RubyLLM's halt mechanism to stop continuation after handoff
+    # Store handoff info in context for Runner to detect and process
+    def perform(tool_context)
+      # Store handoff information in context for Runner to detect
+      # TODO: The following is a race condition that needs to be addressed in future versions
+      # If multiple handoff tools execute concurrently, they overwrite each other's pending_handoff data.
+      tool_context.run_context.context[:pending_handoff] = {
         target_agent: @target_agent,
         message: "I'll transfer you to #{@target_agent.name} who can better assist you with this."
       )

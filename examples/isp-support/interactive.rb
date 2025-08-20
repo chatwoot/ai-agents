@@ -58,22 +58,13 @@ class ISPSupportDemo
 
       # Handle structured output from triage agent
       output = result.output || "[No output]"
-      if @context[:current_agent] == "Triage Agent" && output.start_with?("{")
-        begin
-          structured = JSON.parse(output)
-          # Display the response from structured response
-          puts "🤖 #{structured["response"]}"
-          puts "   [Intent: #{structured["intent"]}]" if structured["intent"]
-          puts "   Question: #{structured["clarifying_question"]}" if structured["clarifying_question"]
-        rescue JSON::ParserError
-          # Fall back to regular output if not valid JSON
-          puts "🤖 #{output}"
-        end
+      if @context[:current_agent] == "Triage Agent" && output.is_a?(Hash)
+        # Display the response from structured response
+        puts "🤖 #{output["response"]}"
+        puts "\e[2m   [Intent]: #{output["intent"]}\e[0m" if output["intent"]
       else
         puts "🤖 #{output}"
       end
-
-      puts
     end
   end
 

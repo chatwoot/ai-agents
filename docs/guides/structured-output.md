@@ -30,7 +30,7 @@ extraction_agent = Agents::Agent.new(
   }
 )
 
-runner = Agents::AgentRunner.with_agents(extraction_agent)
+runner = Agents::Runner.with_agents(extraction_agent)
 result = runner.run("I love the new product features, especially the API and dashboard!")
 
 # Response will be valid JSON matching the schema:
@@ -62,7 +62,7 @@ contact_agent = Agents::Agent.new(
   response_schema: ContactSchema
 )
 
-runner = Agents::AgentRunner.with_agents(contact_agent)
+runner = Agents::Runner.with_agents(contact_agent)
 result = runner.run("Hi, I'm Sarah Johnson from TechCorp. You can reach me at sarah@techcorp.com or 555-0123. I'm interested in AI and automation solutions.")
 
 # Returns structured contact data:
