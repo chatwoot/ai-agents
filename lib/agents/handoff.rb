@@ -73,6 +73,8 @@ module Agents
     # Store handoff info in context for Runner to detect and process
     def perform(tool_context)
       # Store handoff information in context for Runner to detect
+      # TODO: The following is a race condition that needs to be addressed in future versions
+      # If multiple handoff tools execute concurrently, they overwrite each other's pending_handoff data.
       tool_context.run_context.context[:pending_handoff] = {
         target_agent: @target_agent,
         timestamp: Time.now
