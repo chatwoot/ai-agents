@@ -119,14 +119,14 @@ module Agents
           # Validate that the target agent is in our registry
           # This prevents handoffs to agents that weren't explicitly provided
           unless registry[next_agent.name]
-            puts "[Agents] Warning: Handoff to unregistered agent '#{next_agent.name}', continuing with current agent"
-            # Return the halt content as the final response
             save_conversation_state(chat, context_wrapper, current_agent)
+            error = StandardError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
             return RunResult.new(
-              output: response.content,
+              output: nil,
               messages: MessageExtractor.extract_messages(chat, current_agent),
               usage: context_wrapper.usage,
-              context: context_wrapper.context
+              context: context_wrapper.context,
+              error: error
             )
           end
 
