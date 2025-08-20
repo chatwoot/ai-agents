@@ -79,8 +79,11 @@ module Agents
       # If multiple handoff tools execute concurrently, they overwrite each other's pending_handoff data.
       tool_context.run_context.context[:pending_handoff] = {
         target_agent: @target_agent,
-        message: "I'll transfer you to #{@target_agent.name} who can better assist you with this."
-      )
+        timestamp: Time.now
+      }
+
+      # Return halt to stop LLM continuation
+      halt("I'll transfer you to #{@target_agent.name} who can better assist you with this.")
     end
 
     # NOTE: RubyLLM will handle schema generation internally when needed

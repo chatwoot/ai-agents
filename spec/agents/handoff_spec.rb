@@ -23,15 +23,19 @@ RSpec.describe Agents::HandoffTool do
   end
 
   describe "#perform" do
-    it "returns HandoffDescriptor with target agent and message" do
+    it "returns halt with transfer message" do
       tool_context = instance_double(Agents::ToolContext)
+      run_context = instance_double(Agents::RunContext)
+      context_hash = {}
+
+      allow(tool_context).to receive(:run_context).and_return(run_context)
+      allow(run_context).to receive(:context).and_return(context_hash)
 
       result = handoff_tool.perform(tool_context)
 
-      expect(result).to be_a(Agents::HandoffDescriptor)
-      expect(result.target_agent).to eq(target_agent)
-      expect(result.message).to eq("I'll transfer you to Support Agent who can better assist you with this.")
-      expect(result.to_s).to eq("I'll transfer you to Support Agent who can better assist you with this.")
+      expect(result).to be_a(RubyLLM::Tool::Halt)
+      expect(result.content).to eq("I'll transfer you to Support Agent who can better assist you with this.")
+      expect(context_hash[:pending_handoff]).to include(target_agent: target_agent)
     end
   end
 
