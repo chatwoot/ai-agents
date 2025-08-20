@@ -55,6 +55,7 @@ module Agents
     DEFAULT_MAX_TURNS = 10
 
     class MaxTurnsExceeded < StandardError; end
+    class AgentNotFoundError < StandardError; end
 
     # Create a thread-safe agent runner for multi-agent conversations.
     # The first agent becomes the default entry point for new conversations.
@@ -120,7 +121,7 @@ module Agents
           # This prevents handoffs to agents that weren't explicitly provided
           unless registry[next_agent.name]
             save_conversation_state(chat, context_wrapper, current_agent)
-            error = StandardError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
+            error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
             return RunResult.new(
               output: nil,
               messages: MessageExtractor.extract_messages(chat, current_agent),

@@ -234,7 +234,7 @@ RSpec.describe Agents::Runner do
         result = runner.run(agent_with_handoffs, "I need specialist help", registry: registry)
 
         expect(result.failed?).to be true
-        expect(result.error).to be_a(StandardError)
+        expect(result.error).to be_a(Agents::Runner::AgentNotFoundError)
         expect(result.error.message).to eq("Handoff failed: Agent 'HandoffAgent' not found in registry")
         expect(result.output).to be_nil
         expect(result.context[:current_agent]).to eq("TriageAgent")
