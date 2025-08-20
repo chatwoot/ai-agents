@@ -16,4 +16,4 @@ gem "ruby_llm-schema"
 gem "simplecov", "~> 0.22", require: false
 gem "webmock", "~> 3.18", require: false
 
-gem "ruby_llm", "~> 1.6.2"
+gem "ruby_llm", "~> 1.6.3"
