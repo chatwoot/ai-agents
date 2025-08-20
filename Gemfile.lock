@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     ai-agents (0.5.0)
-      ruby_llm (~> 1.6.3)
+      ruby_llm (~> 1.6.0)
 
 GEM
   remote: https://rubygems.org/
