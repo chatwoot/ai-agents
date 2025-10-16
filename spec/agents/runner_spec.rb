@@ -103,7 +103,7 @@ RSpec.describe Agents::Runner do
         allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
         allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
-        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
         allow(mock_chat).to receive(:ask).and_return(mock_response)
 
         expect(mock_chat).to receive(:with_headers).with(:"X-Test" => "value").and_return(mock_chat)
@@ -125,7 +125,7 @@ RSpec.describe Agents::Runner do
         allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
         allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
-        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
         allow(mock_chat).to receive(:ask).and_return(mock_response)
 
         expect(mock_chat).to receive(:with_headers).with("X-Agent": "agent-value").and_return(mock_chat)
@@ -151,7 +151,7 @@ RSpec.describe Agents::Runner do
         allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
         allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
-        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
         allow(mock_chat).to receive(:ask).and_return(mock_response)
 
         expect(mock_chat).to receive(:with_headers).with(

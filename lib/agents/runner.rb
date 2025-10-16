@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "message_extractor"
-
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
   # Runner manages the conversation flow, handles tool execution through RubyLLM,
@@ -131,7 +129,7 @@ module Agents
             error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
             return RunResult.new(
               output: nil,
-              messages: MessageExtractor.extract_messages(chat, current_agent),
+              messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
               usage: context_wrapper.usage,
               context: context_wrapper.context,
               error: error
@@ -165,7 +163,7 @@ module Agents
           save_conversation_state(chat, context_wrapper, current_agent)
           return RunResult.new(
             output: response.content,
-            messages: MessageExtractor.extract_messages(chat, current_agent),
+            messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
             usage: context_wrapper.usage,
             context: context_wrapper.context
           )
@@ -181,7 +179,7 @@ module Agents
 
         return RunResult.new(
           output: response.content,
-          messages: MessageExtractor.extract_messages(chat, current_agent),
+          messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
           usage: context_wrapper.usage,
           context: context_wrapper.context
         )
@@ -192,7 +190,7 @@ module Agents
 
       RunResult.new(
         output: "Conversation ended: #{e.message}",
-        messages: chat ? MessageExtractor.extract_messages(chat, current_agent) : [],
+        messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -203,7 +201,7 @@ module Agents
 
       RunResult.new(
         output: nil,
-        messages: chat ? MessageExtractor.extract_messages(chat, current_agent) : [],
+        messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
@@ -238,7 +236,7 @@ module Agents
       history.each do |msg|
         # Only restore user and assistant messages with content
         next unless %i[user assistant].include?(msg[:role].to_sym)
-        next unless msg[:content] && !MessageExtractor.content_empty?(msg[:content])
+        next unless msg[:content] && !Helpers::MessageExtractor.content_empty?(msg[:content])
 
         # Extract text content safely - handle both string and hash content
         content = RubyLLM::Content.new(msg[:content])
@@ -260,7 +258,7 @@ module Agents
     # @param current_agent [Agents::Agent] The currently active agent
     def save_conversation_state(chat, context_wrapper, current_agent)
       # Extract messages from chat
-      messages = MessageExtractor.extract_messages(chat, current_agent)
+      messages = Helpers::MessageExtractor.extract_messages(chat, current_agent)
 
       # Update context with latest state
       context_wrapper.context[:conversation_history] = messages
