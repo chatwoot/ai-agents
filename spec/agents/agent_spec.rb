@@ -17,12 +17,15 @@ RSpec.describe Agents::Agent do
       expect(agent.tools).to eq([])
       expect(agent.handoff_agents).to eq([])
       expect(agent.temperature).to eq(0.7)
+      expect(agent.headers).to eq({})
+      expect(agent.headers).to be_frozen
     end
 
     it "creates agent with all parameters" do
       instructions = "You are a test agent"
       tools = [test_tool]
       handoff_agents = [other_agent]
+      headers = { "X-Test" => "value" }
 
       agent = described_class.new(
         name: "Test Agent",
@@ -30,7 +33,8 @@ RSpec.describe Agents::Agent do
         model: "gpt-4o",
         tools: tools,
         handoff_agents: handoff_agents,
-        temperature: 0.9
+        temperature: 0.9,
+        headers: headers
       )
 
       expect(agent.name).to eq("Test Agent")
@@ -39,6 +43,9 @@ RSpec.describe Agents::Agent do
       expect(agent.tools).to eq(tools)
       expect(agent.handoff_agents).to include(other_agent)
       expect(agent.temperature).to eq(0.9)
+      expect(agent.headers).to eq("X-Test": "value")
+      expect(agent.headers).not_to be(headers)
+      expect(agent.headers).to be_frozen
     end
 
     it "creates agent with Proc instructions" do
@@ -84,6 +91,12 @@ RSpec.describe Agents::Agent do
       agent = described_class.new(name: "Test")
 
       expect(agent.response_schema).to be_nil
+    end
+
+    it "normalizes nil headers to empty hash" do
+      agent = described_class.new(name: "Test", headers: nil)
+
+      expect(agent.headers).to eq({})
     end
   end
 
@@ -168,7 +181,8 @@ RSpec.describe Agents::Agent do
         model: "gpt-4",
         tools: [test_tool],
         handoff_agents: [other_agent],
-        temperature: 0.7
+        temperature: 0.7,
+        headers: { "X-Test" => "value" }
       )
     end
 
@@ -181,6 +195,8 @@ RSpec.describe Agents::Agent do
       expect(cloned.model).to eq("gpt-4")
       expect(cloned.tools).to eq([test_tool])
       expect(cloned.handoff_agents).to eq([other_agent])
+      expect(cloned.headers).to eq("X-Test": "value")
+      expect(cloned.headers).to be_frozen
     end
 
     it "overrides specific attributes" do
@@ -194,6 +210,7 @@ RSpec.describe Agents::Agent do
       expect(cloned.instructions).to eq("Original instructions")
       expect(cloned.tools).to eq([test_tool])
       expect(cloned.temperature).to eq(0.7)
+      expect(cloned.headers).to eq("X-Test": "value")
     end
 
     it "duplicates tools array to prevent mutation" do
@@ -227,6 +244,14 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.response_schema).to eq(new_schema)
       expect(agent.response_schema).to eq(original_schema)
+    end
+
+    it "allows overriding headers when cloning" do
+      new_headers = { "X-New" => "new" }
+      cloned = original_agent.clone(headers: new_headers)
+
+      expect(cloned.headers).to eq("X-New": "new")
+      expect(original_agent.headers).to eq("X-Test": "value")
     end
   end
 

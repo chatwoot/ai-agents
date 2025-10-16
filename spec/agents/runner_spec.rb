@@ -23,7 +23,8 @@ RSpec.describe Agents::Runner do
                     handoff_agents: [],
                     temperature: 0.7,
                     response_schema: nil,
-                    get_system_prompt: "You are a helpful assistant")
+                    get_system_prompt: "You are a helpful assistant",
+                    headers: {})
   end
 
   let(:handoff_agent) do
@@ -34,7 +35,8 @@ RSpec.describe Agents::Runner do
                     handoff_agents: [],
                     temperature: 0.7,
                     response_schema: nil,
-                    get_system_prompt: "You are a specialist")
+                    get_system_prompt: "You are a specialist",
+                    headers: {})
   end
 
   let(:test_tool) do
@@ -89,7 +91,7 @@ RSpec.describe Agents::Runner do
     end
 
     context "with custom headers" do
-      it "passes headers to RubyLLM chat" do
+      it "passes runtime headers to RubyLLM chat" do
         mock_chat = instance_double(RubyLLM::Chat)
         mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with headers")
         headers = { "X-Test" => "value" }
@@ -101,7 +103,7 @@ RSpec.describe Agents::Runner do
         allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
         allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
-        allow(MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
         allow(mock_chat).to receive(:ask).and_return(mock_response)
 
         expect(mock_chat).to receive(:with_headers).with(:"X-Test" => "value").and_return(mock_chat)
@@ -109,6 +111,58 @@ RSpec.describe Agents::Runner do
         result = runner.run(agent, "Hello", headers: headers)
 
         expect(result.output).to eq("Hello with headers")
+      end
+
+      it "applies agent default headers when runtime headers are absent" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent headers")
+
+        allow(agent).to receive(:headers).and_return({ "X-Agent" => "agent-value" })
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive(:ask).and_return(mock_response)
+
+        expect(mock_chat).to receive(:with_headers).with("X-Agent": "agent-value").and_return(mock_chat)
+
+        result = runner.run(agent, "Hello")
+
+        expect(result.output).to eq("Hello with agent headers")
+      end
+
+      it "merges headers giving runtime precedence over agent defaults" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged headers")
+        runtime_headers = {
+          "X-Shared" => "runtime",
+          "X-Runtime-Only" => "runtime-only"
+        }
+
+        allow(agent).to receive(:headers).and_return({ "X-Shared" => "agent", "X-Agent-Only" => "agent-only" })
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(Agents::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive(:ask).and_return(mock_response)
+
+        expect(mock_chat).to receive(:with_headers).with(
+          "X-Shared": "runtime",
+          "X-Agent-Only": "agent-only",
+          "X-Runtime-Only": "runtime-only"
+        ).and_return(mock_chat)
+
+        result = runner.run(agent, "Hello", headers: runtime_headers)
+
+        expect(result.output).to eq("Hello with merged headers")
       end
     end
 
@@ -200,7 +254,8 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [handoff_agent],
                         temperature: 0.7,
                         response_schema: nil,
-                        get_system_prompt: "You route users to specialists")
+                        get_system_prompt: "You route users to specialists",
+                        headers: {})
       end
 
       before do
@@ -377,7 +432,8 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [],
                         temperature: 0.7,
                         response_schema: schema,
-                        get_system_prompt: "You provide structured responses")
+                        get_system_prompt: "You provide structured responses",
+                        headers: {})
       end
 
       it "includes response_schema in API request" do
@@ -448,7 +504,8 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [],
                         temperature: 0.7,
                         response_schema: nil,
-                        get_system_prompt: "You are an agent with tools")
+                        get_system_prompt: "You are an agent with tools",
+                        headers: {})
       end
 
       it "wraps regular tools in ToolWrapper" do

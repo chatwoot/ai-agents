@@ -111,6 +111,7 @@ require_relative "agents/run_context"
 require_relative "agents/tool_context"
 require_relative "agents/tool"
 require_relative "agents/handoff"
+require_relative "agents/helpers"
 require_relative "agents/agent"
 
 # Execution components

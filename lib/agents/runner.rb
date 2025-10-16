@@ -92,10 +92,13 @@ module Agents
       context_wrapper = RunContext.new(context_copy, callbacks: callbacks)
       current_turn = 0
 
+      runtime_headers = Helpers::Headers.normalize(headers)
+      agent_headers = Helpers::Headers.normalize(current_agent.headers)
+
       # Create chat and restore conversation history
       chat = RubyLLM::Chat.new(model: current_agent.model)
-      custom_headers = headers&.respond_to?(:to_h) ? headers.to_h : headers
-      chat.with_headers(**custom_headers) if custom_headers&.any?
+      current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+      apply_headers(chat, current_headers)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
 
@@ -147,7 +150,9 @@ module Agents
 
           # Reconfigure existing chat for new agent - preserves conversation history automatically
           configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
-          chat.with_headers(**custom_headers) if custom_headers&.any?
+          agent_headers = Helpers::Headers.normalize(current_agent.headers)
+          current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+          apply_headers(chat, current_headers)
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -292,6 +297,12 @@ module Agents
       chat.with_schema(agent.response_schema) if agent.response_schema
 
       chat
+    end
+
+    def apply_headers(chat, headers)
+      return if headers.empty?
+
+      chat.with_headers(**headers)
     end
 
     # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
