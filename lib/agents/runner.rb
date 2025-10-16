@@ -129,13 +129,20 @@ module Agents
           unless registry[next_agent.name]
             save_conversation_state(chat, context_wrapper, current_agent)
             error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
-            return RunResult.new(
+
+            result = RunResult.new(
               output: nil,
               messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
               usage: context_wrapper.usage,
               context: context_wrapper.context,
               error: error
             )
+
+            # Emit agent complete and run complete events with error
+            context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
+            context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+            return result
           end
 
           # Save current conversation state before switching

@@ -624,6 +624,62 @@ RSpec.describe Agents::Runner do
         expect(handoff_idx).not_to be_nil
         expect(agent_complete_idx).to be < handoff_idx
       end
+
+      it "emits agent_complete and run_complete with error when handoff target not found" do
+        agent_with_handoff = instance_double(Agents::Agent,
+                                             name: "TriageAgent",
+                                             model: "gpt-4o",
+                                             tools: [],
+                                             handoff_agents: [handoff_agent],
+                                             temperature: 0.7,
+                                             response_schema: nil,
+                                             get_system_prompt: "You route users",
+                                             headers: {})
+
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-handoff",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: nil,
+                  tool_calls: [{
+                    id: "call_handoff",
+                    type: "function",
+                    function: { name: "handoff_to_handoffagent", arguments: "{}" }
+                  }]
+                },
+                finish_reason: "tool_calls"
+              }],
+              usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+
+        # Registry only has TriageAgent, not HandoffAgent
+        registry = { "TriageAgent" => agent_with_handoff }
+        result = runner.run(agent_with_handoff, "Help", registry: registry, callbacks: callbacks)
+
+        expect(result.failed?).to be true
+        expect(result.error).to be_a(Agents::Runner::AgentNotFoundError)
+
+        # Check agent_complete was called with error
+        agent_complete_call = callbacks_called.find { |c| c[0] == :agent_complete }
+        expect(agent_complete_call).not_to be_nil
+        expect(agent_complete_call[1]).to eq("TriageAgent")
+        expect(agent_complete_call[3]).to eq("Agents::Runner::AgentNotFoundError")
+
+        # Check run_complete was called
+        run_complete_call = callbacks_called.find { |c| c[0] == :run_complete }
+        expect(run_complete_call).not_to be_nil
+        expect(run_complete_call[1]).to eq("TriageAgent")
+      end
     end
   end
 end
