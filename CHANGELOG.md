@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-10-16
+
+### Added
+- **Custom HTTP Headers Support**: Agents can now specify custom HTTP headers for LLM requests
+  - Added `headers` parameter to `Agent#initialize` for setting agent-level default headers
+  - Runtime headers can be passed via `headers` parameter in `AgentRunner#run` method
+  - Runtime headers take precedence over agent-level headers when keys overlap
+  - Headers are automatically normalized (symbolized keys) and validated
+  - Full support for headers across agent handoffs with proper merging logic
+  - New `Agents::Helpers::Headers` module for header normalization and merging
+  - Comprehensive test coverage for header functionality
+
+### Changed
+- **Code Organization**: Refactored internal helpers into dedicated module structure
+  - Moved `MessageExtractor` to `Agents::Helpers::MessageExtractor` module
+  - Converted `MessageExtractor` from class-based to module-function pattern
+  - Created `lib/agents/helpers/` directory for helper modules
+  - All helper modules now use consistent flat naming convention (`Agents::Helpers::ModuleName`)
+
 ## [0.5.0] - 2025-08-20
 
 ### Added

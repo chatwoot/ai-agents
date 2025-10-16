@@ -2,16 +2,15 @@
 
 require "spec_helper"
 
-RSpec.describe Agents::MessageExtractor do
+RSpec.describe Agents::Helpers::MessageExtractor do
   let(:current_agent) { instance_double(Agents::Agent, name: "TestAgent") }
-  let(:extractor) { described_class.new(chat, current_agent) }
 
-  describe "#extract" do
+  describe ".extract_messages" do
     context "when chat has no messages method" do
       let(:chat) { double("chat without messages") }
 
       it "returns empty array" do
-        expect(extractor.extract).to eq([])
+        expect(described_class.extract_messages(chat, current_agent)).to eq([])
       end
     end
 
@@ -43,7 +42,7 @@ RSpec.describe Agents::MessageExtractor do
       let(:chat) { instance_double(RubyLLM::Chat, messages: [string_message, hash_message, empty_hash_message]) }
 
       it "handles Hash content without calling strip" do
-        result = extractor.extract
+        result = described_class.extract_messages(chat, current_agent)
 
         expect(result).to include(
           hash_including(
@@ -95,7 +94,7 @@ RSpec.describe Agents::MessageExtractor do
       let(:chat) { instance_double(RubyLLM::Chat, messages: [empty_string_message, whitespace_message, valid_message]) }
 
       it "filters out empty and whitespace-only content" do
-        result = extractor.extract
+        result = described_class.extract_messages(chat, current_agent)
 
         expect(result).to eq([
                                {
@@ -118,7 +117,7 @@ RSpec.describe Agents::MessageExtractor do
       let(:chat) { instance_double(RubyLLM::Chat, messages: [tool_message]) }
 
       it "extracts tool messages correctly" do
-        result = extractor.extract
+        result = described_class.extract_messages(chat, current_agent)
 
         expect(result).to eq([
                                {
@@ -151,7 +150,7 @@ RSpec.describe Agents::MessageExtractor do
       let(:chat) { instance_double(RubyLLM::Chat, messages: [assistant_with_tools]) }
 
       it "includes tool calls in assistant messages" do
-        result = extractor.extract
+        result = described_class.extract_messages(chat, current_agent)
 
         expect(result).to eq([
                                {
@@ -203,14 +202,4 @@ RSpec.describe Agents::MessageExtractor do
     end
   end
 
-  describe ".extract_messages" do
-    let(:chat) { instance_double(RubyLLM::Chat, messages: []) }
-
-    it "creates an instance and calls extract" do
-      expect(described_class).to receive(:new).with(chat, current_agent).and_call_original
-      expect_any_instance_of(described_class).to receive(:extract).and_return([])
-
-      described_class.extract_messages(chat, current_agent)
-    end
-  end
 end

@@ -111,11 +111,11 @@ require_relative "agents/run_context"
 require_relative "agents/tool_context"
 require_relative "agents/tool"
 require_relative "agents/handoff"
+require_relative "agents/helpers"
 require_relative "agents/agent"
 
 # Execution components
 require_relative "agents/tool_wrapper"
-require_relative "agents/message_extractor"
 require_relative "agents/callback_manager"
 require_relative "agents/agent_runner"
 require_relative "agents/runner"
