@@ -80,9 +80,10 @@ module Agents
     # @param context [Hash] Shared context data accessible to all tools
     # @param registry [Hash] Registry of agents for handoff resolution
     # @param max_turns [Integer] Maximum conversation turns before stopping
+    # @param headers [Hash, nil] Custom HTTP headers passed to the underlying LLM provider
     # @param callbacks [Hash] Optional callbacks for real-time event notifications
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, callbacks: {})
+    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, headers: nil, callbacks: {})
       # The starting_agent is already determined by AgentRunner based on conversation history
       current_agent = starting_agent
 
@@ -93,8 +94,11 @@ module Agents
 
       # Create chat and restore conversation history
       chat = RubyLLM::Chat.new(model: current_agent.model)
+      custom_headers = headers&.respond_to?(:to_h) ? headers.to_h : headers
+      chat.with_headers(**custom_headers) if custom_headers&.any?
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
+
 
       loop do
         current_turn += 1
@@ -143,6 +147,7 @@ module Agents
 
           # Reconfigure existing chat for new agent - preserves conversation history automatically
           configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
+          chat.with_headers(**custom_headers) if custom_headers&.any?
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent

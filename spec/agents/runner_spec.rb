@@ -88,6 +88,30 @@ RSpec.describe Agents::Runner do
       end
     end
 
+    context "with custom headers" do
+      it "passes headers to RubyLLM chat" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with headers")
+        headers = { "X-Test" => "value" }
+
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
+        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive(:ask).and_return(mock_response)
+
+        expect(mock_chat).to receive(:with_headers).with(:"X-Test" => "value").and_return(mock_chat)
+
+        result = runner.run(agent, "Hello", headers: headers)
+
+        expect(result.output).to eq("Hello with headers")
+      end
+    end
+
     context "with conversation history" do
       let(:context_with_history) do
         {

@@ -129,6 +129,7 @@ RSpec.describe Agents::AgentRunner do
           context: {},
           registry: hash_including("Triage Agent" => triage_agent),
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: nil,
           callbacks: hash_including(
             tool_start: [],
             tool_complete: [],
@@ -147,6 +148,28 @@ RSpec.describe Agents::AgentRunner do
           context: {},
           registry: anything,
           max_turns: 5,
+          headers: nil,
+          callbacks: hash_including(
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: []
+          )
+        )
+      end
+
+      it "passes custom headers to the runner" do
+        headers = { "X-Test" => "value" }
+
+        runner.run("Hello", headers: headers)
+
+        expect(mock_runner_instance).to have_received(:run).with(
+          triage_agent,
+          "Hello",
+          context: {},
+          registry: anything,
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: headers,
           callbacks: hash_including(
             tool_start: [],
             tool_complete: [],
@@ -177,6 +200,7 @@ RSpec.describe Agents::AgentRunner do
           context: context_with_history,
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: nil,
           callbacks: hash_including(
             tool_start: [],
             tool_complete: [],
@@ -206,6 +230,7 @@ RSpec.describe Agents::AgentRunner do
           context: context_with_unknown_agent,
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: nil,
           callbacks: hash_including(
             tool_start: [],
             tool_complete: [],
@@ -235,6 +260,7 @@ RSpec.describe Agents::AgentRunner do
           context: context_without_attribution,
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: nil,
           callbacks: hash_including(
             tool_start: [],
             tool_complete: [],
