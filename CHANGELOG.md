@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-10-16
+
+### Added
+- **Lifecycle Callback Hooks**: New callbacks for complete execution visibility and observability integration
+  - Added `on_run_start` callback triggered before agent execution begins with agent name, input, and run context
+  - Added `on_run_complete` callback triggered after execution ends (success or failure) with agent name, result, and run context
+  - Added `on_agent_complete` callback triggered after each agent turn with agent name, result, error (if any), and run context
+  - Run context parameter enables storing and retrieving custom data (e.g., span context, trace IDs) throughout execution
+  - Designed for integration with observability platforms (OpenTelemetry, Datadog, New Relic, etc.)
+  - All callbacks are thread-safe and non-blocking with proper error handling
+  - Updated callback documentation with integration patterns for UI feedback, logging, and metrics
+
+### Changed
+- CallbackManager now supports 7 event types (previously 4)
+- Enhanced callback system to provide complete lifecycle coverage for monitoring and tracing
+
 ## [0.6.0] - 2025-10-16
 
 ### Added
