@@ -90,6 +90,9 @@ module Agents
       context_wrapper = RunContext.new(context_copy, callbacks: callbacks)
       current_turn = 0
 
+      # Emit run start event
+      context_wrapper.callback_manager.emit_run_start(current_agent.name, input, context_wrapper)
+
       runtime_headers = Helpers::Headers.normalize(headers)
       agent_headers = Helpers::Headers.normalize(current_agent.headers)
 
@@ -99,7 +102,6 @@ module Agents
       apply_headers(chat, current_headers)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
-
 
       loop do
         current_turn += 1
@@ -139,6 +141,9 @@ module Agents
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
 
+          # Emit agent complete event before handoff
+          context_wrapper.callback_manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
+
           # Emit agent handoff event
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
@@ -161,12 +166,19 @@ module Agents
         # Handle non-handoff halts - return the halt content as final response
         if response.is_a?(RubyLLM::Tool::Halt)
           save_conversation_state(chat, context_wrapper, current_agent)
-          return RunResult.new(
+
+          result = RunResult.new(
             output: response.content,
             messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
             usage: context_wrapper.usage,
             context: context_wrapper.context
           )
+
+          # Emit agent complete and run complete events
+          context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
+          context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+          return result
         end
 
         # If tools were called, continue the loop to let them execute
@@ -177,35 +189,53 @@ module Agents
         # Save final state before returning
         save_conversation_state(chat, context_wrapper, current_agent)
 
-        return RunResult.new(
+        result = RunResult.new(
           output: response.content,
           messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
           usage: context_wrapper.usage,
           context: context_wrapper.context
         )
+
+        # Emit agent complete and run complete events
+        context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
+        context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+        return result
       end
     rescue MaxTurnsExceeded => e
       # Save state even on error
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
-      RunResult.new(
+      result = RunResult.new(
         output: "Conversation ended: #{e.message}",
         messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
       )
+
+      # Emit agent complete and run complete events with error
+      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, e, context_wrapper)
+      context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+      result
     rescue StandardError => e
       # Save state even on error
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
-      RunResult.new(
+      result = RunResult.new(
         output: nil,
         messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: e,
         context: context_wrapper.context
       )
+
+      # Emit agent complete and run complete events with error
+      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, e, context_wrapper)
+      context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+      result
     end
 
     private

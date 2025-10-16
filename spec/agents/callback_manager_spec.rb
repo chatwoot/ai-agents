@@ -70,12 +70,34 @@ RSpec.describe Agents::CallbackManager do
   describe "typed emit methods" do
     let(:callback) { instance_double(Proc) }
     let(:manager) do
-      described_class.new(tool_start: [callback], tool_complete: [callback], agent_thinking: [callback],
-                          agent_handoff: [callback])
+      described_class.new(
+        run_start: [callback],
+        run_complete: [callback],
+        agent_complete: [callback],
+        tool_start: [callback],
+        tool_complete: [callback],
+        agent_thinking: [callback],
+        agent_handoff: [callback]
+      )
     end
 
     before do
       allow(callback).to receive(:call)
+    end
+
+    it "has emit_run_start method" do
+      manager.emit_run_start("agent_name", "input", "context")
+      expect(callback).to have_received(:call).with("agent_name", "input", "context")
+    end
+
+    it "has emit_run_complete method" do
+      manager.emit_run_complete("agent_name", "result", "context")
+      expect(callback).to have_received(:call).with("agent_name", "result", "context")
+    end
+
+    it "has emit_agent_complete method" do
+      manager.emit_agent_complete("agent_name", "result", "error", "context")
+      expect(callback).to have_received(:call).with("agent_name", "result", "error", "context")
     end
 
     it "has emit_tool_start method" do
