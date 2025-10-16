@@ -52,7 +52,37 @@ result = runner.run(
 )
 ```
 
-> Note: When both agent-level and runtime headers are provided, **runtime headers take precedence**:
+### Header precedence
+
+When both agent-level and runtime headers are provided, **runtime headers take precedence**:
+
+```ruby
+agent = Agents::Agent.new(
+  name: "Assistant",
+  instructions: "You are a helpful assistant",
+  headers: {
+    "X-Environment" => "staging",
+    "X-Agent-ID" => "agent-001"
+  }
+)
+
+runner = Agents::Runner.with_agents(agent)
+
+result = runner.run(
+  "Hello!",
+  headers: {
+    "X-Environment" => "production",  # Overrides agent's staging value
+    "X-Request-ID" => "req-123"       # Additional header
+  }
+)
+
+# Final headers sent to LLM API:
+# {
+#   "X-Environment" => "production",  # Runtime value wins
+#   "X-Agent-ID" => "agent-001",      # From agent
+#   "X-Request-ID" => "req-123"       # From runtime
+# }
+```
 
 ## See Also
 
