@@ -3,6 +3,7 @@
 
 require "json"
 require "readline"
+require "base64"
 require_relative "../../lib/agents"
 require_relative "agents_factory"
 
@@ -12,6 +13,25 @@ class ISPSupportDemo
     # Configure the Agents SDK with API key
     Agents.configure do |config|
       config.openai_api_key = ENV["OPENAI_API_KEY"]
+
+      # Tracing configuration from Langfuse environment variables
+      if ENV["LANGFUSE_PUBLIC_KEY"] && ENV["LANGFUSE_SECRET_KEY"]
+        config.enable_tracing = true
+        langfuse_host = ENV.fetch("LANGFUSE_HOST", "https://cloud.langfuse.com")
+        config.tracing_endpoint = "#{langfuse_host}/api/public/otel/v1/traces"
+
+        # Create Basic auth header from Langfuse credentials
+        auth_string = "#{ENV['LANGFUSE_PUBLIC_KEY']}:#{ENV['LANGFUSE_SECRET_KEY']}"
+        config.tracing_headers = {
+          "Authorization" => "Basic #{Base64.strict_encode64(auth_string)}"
+        }
+      else
+        config.enable_tracing = false
+      end
+
+      config.app_name = ENV.fetch("APP_NAME", "ISP-Support-Demo")
+      config.app_version = ENV.fetch("APP_VERSION", "1.0.0")
+      config.environment = ENV.fetch("ENVIRONMENT", "development")
     end
 
     # Create agents
@@ -30,8 +50,14 @@ class ISPSupportDemo
     @context = {}
     @current_status = ""
 
+    # Hardcoded session ID for tracing (for testing)
+    @session_id = "demo_session_#{Time.now.to_i}"
+
     puts green("🏢 Welcome to ISP Customer Support!")
     puts dim_text("Type '/help' for commands or 'exit' to quit.")
+    if Agents.configuration.enable_tracing
+      puts dim_text("🔍 Tracing enabled - Session: #{@session_id}")
+    end
     puts
   end
 
@@ -50,8 +76,19 @@ class ISPSupportDemo
       print yellow("🤖 Processing...")
 
       begin
-        # Use the runner - it automatically determines the right agent from context
-        result = @runner.run(user_input, context: @context)
+        # Wrap in trace context
+        result = Agents.with_trace(
+          user_id: "demo_user",
+          session_id: @session_id,
+          tags: ["isp_support", "interactive"],
+          metadata: {
+            channel: "cli",
+            demo: "true"
+          }
+        ) do
+          # Use the runner - it automatically determines the right agent from context
+          @runner.run(user_input, context: @context)
+        end
 
         # Update our context with the returned context from Runner
         @context = result.context if result.respond_to?(:context) && result.context
