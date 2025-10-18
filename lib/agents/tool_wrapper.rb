@@ -49,13 +49,25 @@ module Agents
 
       @context_wrapper.callback_manager.emit_tool_start(@tool.name, args)
 
-      begin
-        result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
-        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result)
-        result
-      rescue StandardError => e
-        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}")
-        raise
+      # Wrap tool execution in tracing span
+      Tracing.tool_span(@tool.name, arguments: args) do |span|
+        begin
+          result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
+          @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result)
+
+          # Add result to span (truncated for large results)
+          span.set_attribute("tool.output", truncate_for_span(result))
+
+          result
+        rescue StandardError => e
+          @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}")
+
+          # Record exception in span
+          span.record_exception(e)
+          span.set_status(OpenTelemetry::Trace::Status.error(e.message)) if defined?(OpenTelemetry::Trace::Status)
+
+          raise
+        end
       end
     end
 
@@ -76,6 +88,14 @@ module Agents
     # Make this work with RubyLLM's tool calling
     def to_s
       name
+    end
+
+    private
+
+    # Truncate result for span attribute (max 1000 chars)
+    def truncate_for_span(result)
+      result_str = result.to_s
+      result_str.length > 1000 ? "#{result_str[0..996]}..." : result_str
     end
   end
 end

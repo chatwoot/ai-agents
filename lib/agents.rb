@@ -31,11 +31,34 @@ module Agents
     def configure
       yield(configuration) if block_given?
       configure_ruby_llm!
+      configure_tracing!
       configuration
     end
 
     def configuration
       @configuration ||= Configuration.new
+    end
+
+    # Set trace context for all operations within the block.
+    # See Agents::Tracing.with_trace for details.
+    def with_trace(**attrs, &block)
+      Tracing.with_trace(**attrs, &block)
+    end
+
+    # Create a custom span within the current trace.
+    # See Agents::Tracing.in_span for details.
+    def in_span(name, **attrs, &block)
+      Tracing.in_span(name, **attrs, &block)
+    end
+
+    # Get the current OpenTelemetry span
+    def current_span
+      Tracing.current_span
+    end
+
+    # Get the current trace context
+    def current_trace_context
+      Tracing.current_trace_context
     end
 
     private
@@ -45,6 +68,10 @@ module Agents
         configure_providers(config)
         configure_general_settings(config)
       end
+    end
+
+    def configure_tracing!
+      Tracing.setup(configuration)
     end
 
     def configure_providers(config)
@@ -89,10 +116,20 @@ module Agents
     # General configuration
     attr_accessor :request_timeout, :default_model, :debug
 
+    # Tracing configuration
+    attr_accessor :enable_tracing, :tracing_endpoint, :tracing_headers
+    attr_accessor :app_name, :app_version, :environment
+
     def initialize
       @default_model = "gpt-4o-mini"
       @request_timeout = 120
       @debug = false
+      @enable_tracing = false
+      @tracing_endpoint = nil
+      @tracing_headers = {}
+      @app_name = "ai-agents"
+      @app_version = nil
+      @environment = "production"
     end
 
     # Check if at least one provider is configured
@@ -113,6 +150,10 @@ require_relative "agents/tool"
 require_relative "agents/handoff"
 require_relative "agents/helpers"
 require_relative "agents/agent"
+
+# Tracing components
+require_relative "agents/trace_context"
+require_relative "agents/tracing"
 
 # Execution components
 require_relative "agents/tool_wrapper"

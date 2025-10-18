@@ -93,14 +93,39 @@ module Agents
       # Emit run start event
       context_wrapper.callback_manager.emit_run_start(current_agent.name, input, context_wrapper)
 
+      # Wrap entire execution in agent span if tracing is enabled
+      execute_with_tracing(current_agent, input, context_wrapper, registry, max_turns, headers)
+    end
+
+    private
+
+    # Main execution method wrapped in tracing span
+    def execute_with_tracing(starting_agent, input, context_wrapper, registry, max_turns, headers)
+      current_agent = starting_agent
+
+      # Create span for agent execution
+      Tracing.agent_span(current_agent.name, model: current_agent.model) do |span|
+        execute_agent_loop(current_agent, input, context_wrapper, registry, max_turns, headers, span)
+      end
+    rescue MaxTurnsExceeded => e
+      handle_max_turns_error(e, nil, context_wrapper, starting_agent)
+    rescue StandardError => e
+      handle_standard_error(e, nil, context_wrapper, starting_agent)
+    end
+
+    # Main agent execution loop
+    def execute_agent_loop(starting_agent, input, context_wrapper, registry, max_turns, headers, span)
+      current_agent = starting_agent
+      current_turn = 0
+
       runtime_headers = Helpers::Headers.normalize(headers)
-      agent_headers = Helpers::Headers.normalize(current_agent.headers)
+      agent_headers = Helpers::Headers.normalize(starting_agent.headers)
 
       # Create chat and restore conversation history
-      chat = RubyLLM::Chat.new(model: current_agent.model)
+      chat = RubyLLM::Chat.new(model: starting_agent.model)
       current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
       apply_headers(chat, current_headers)
-      configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
+      configure_chat_for_agent(chat, starting_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
 
       loop do
@@ -154,98 +179,188 @@ module Agents
           # Emit agent handoff event
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
+          # Record handoff in current span
+          span.add_event("agent.handoff", {
+                           "handoff.from_agent" => current_agent.name,
+                           "handoff.to_agent" => next_agent.name,
+                           "handoff.reason" => "handoff"
+                         })
+
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
-          # Reconfigure existing chat for new agent - preserves conversation history automatically
-          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
-          agent_headers = Helpers::Headers.normalize(current_agent.headers)
-          current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
-          apply_headers(chat, current_headers)
+          # Create new span for the handoff agent
+          return Tracing.agent_span(current_agent.name, model: current_agent.model) do |new_span|
+            # Reconfigure existing chat for new agent - preserves conversation history automatically
+            configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
+            agent_headers = Helpers::Headers.normalize(current_agent.headers)
+            current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+            apply_headers(chat, current_headers)
 
-          # Force the new agent to respond to the conversation context
-          # This ensures the user gets a response from the new agent
-          input = nil
-          next
+            # Continue execution with new agent in new span
+            continue_agent_loop(chat, current_agent, context_wrapper, registry, max_turns, headers,
+                                runtime_headers, current_turn, new_span)
+          end
         end
 
-        # Handle non-handoff halts - return the halt content as final response
-        if response.is_a?(RubyLLM::Tool::Halt)
-          save_conversation_state(chat, context_wrapper, current_agent)
+        # Handle non-handoff halts
+        return finalize_result(chat, context_wrapper, current_agent, response.content) if response.is_a?(RubyLLM::Tool::Halt)
 
-          result = RunResult.new(
-            output: response.content,
-            messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
-            usage: context_wrapper.usage,
-            context: context_wrapper.context
-          )
-
-          # Emit agent complete and run complete events
-          context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
-          context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
-
-          return result
-        end
-
-        # If tools were called, continue the loop to let them execute
+        # Continue if tools were called
         next if response.tool_call?
 
-        # If no tools were called, we have our final response
-
-        # Save final state before returning
-        save_conversation_state(chat, context_wrapper, current_agent)
-
-        result = RunResult.new(
-          output: response.content,
-          messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
-          usage: context_wrapper.usage,
-          context: context_wrapper.context
-        )
-
-        # Emit agent complete and run complete events
-        context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
-        context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
-
-        return result
+        # Final response
+        return finalize_result(chat, context_wrapper, current_agent, response.content)
       end
     rescue MaxTurnsExceeded => e
-      # Save state even on error
-      save_conversation_state(chat, context_wrapper, current_agent) if chat
+      handle_max_turns_error(e, chat, context_wrapper, current_agent)
+    rescue StandardError => e
+      handle_standard_error(e, chat, context_wrapper, current_agent)
+    end
+
+    # Continue agent execution loop after handoff (runs in new span)
+    def continue_agent_loop(chat, current_agent, context_wrapper, registry, max_turns, headers,
+                            runtime_headers, current_turn, span)
+      loop do
+        current_turn += 1
+        raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
+
+        # Force the new agent to respond to the conversation context
+        context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)")
+        response = chat.complete
+
+        # Check for handoff
+        if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
+          handoff_info = context_wrapper.context.delete(:pending_handoff)
+          next_agent = handoff_info[:target_agent]
+
+          unless registry[next_agent.name]
+            save_conversation_state(chat, context_wrapper, current_agent)
+            error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
+            result = create_error_result(chat, context_wrapper, current_agent, error)
+            context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
+            context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+            return result
+          end
+
+          save_conversation_state(chat, context_wrapper, current_agent)
+          context_wrapper.callback_manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
+          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
+
+          # Record handoff event
+          span.add_event("agent.handoff", {
+                           "handoff.from_agent" => current_agent.name,
+                           "handoff.to_agent" => next_agent.name,
+                           "handoff.reason" => "handoff"
+                         })
+
+          current_agent = next_agent
+          context_wrapper.context[:current_agent] = next_agent.name
+
+          # Create new span for handoff and continue
+          return Tracing.agent_span(current_agent.name, model: current_agent.model) do |new_span|
+            configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
+            agent_headers = Helpers::Headers.normalize(current_agent.headers)
+            current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+            apply_headers(chat, current_headers)
+            continue_agent_loop(chat, current_agent, context_wrapper, registry, max_turns, headers,
+                                runtime_headers, current_turn, new_span)
+          end
+        end
+
+        # Handle non-handoff halts
+        if response.is_a?(RubyLLM::Tool::Halt)
+          return finalize_result(chat, context_wrapper, current_agent, response.content)
+        end
+
+        # Continue if tools were called
+        next if response.tool_call?
+
+        # Final response
+        return finalize_result(chat, context_wrapper, current_agent, response.content)
+      end
+    rescue MaxTurnsExceeded => e
+      handle_max_turns_error(e, chat, context_wrapper, current_agent)
+    rescue StandardError => e
+      handle_standard_error(e, chat, context_wrapper, current_agent)
+    end
+
+    # Finalize successful result
+    def finalize_result(chat, context_wrapper, current_agent, output)
+      save_conversation_state(chat, context_wrapper, current_agent)
 
       result = RunResult.new(
-        output: "Conversation ended: #{e.message}",
-        messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
+        output: output,
+        messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
         usage: context_wrapper.usage,
-        error: e,
         context: context_wrapper.context
       )
 
-      # Emit agent complete and run complete events with error
-      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, e, context_wrapper)
+      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
       context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
 
+      # Add usage metadata to span
+      if Tracing.enabled?
+        Tracing.current_span&.set_attribute("gen_ai.usage.input_tokens", context_wrapper.usage[:input_tokens])
+        Tracing.current_span&.set_attribute("gen_ai.usage.output_tokens", context_wrapper.usage[:output_tokens])
+      end
+
       result
-    rescue StandardError => e
-      # Save state even on error
+    end
+
+    # Create error result
+    def create_error_result(chat, context_wrapper, current_agent, error)
+      RunResult.new(
+        output: nil,
+        messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
+        usage: context_wrapper.usage,
+        context: context_wrapper.context,
+        error: error
+      )
+    end
+
+    # Handle MaxTurnsExceeded error
+    def handle_max_turns_error(error, chat, context_wrapper, current_agent)
+      save_conversation_state(chat, context_wrapper, current_agent) if chat
+
+      result = RunResult.new(
+        output: "Conversation ended: #{error.message}",
+        messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
+        usage: context_wrapper.usage,
+        error: error,
+        context: context_wrapper.context
+      )
+
+      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
+      context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+      # Record error in span
+      Tracing.current_span&.record_exception(error) if Tracing.enabled?
+
+      result
+    end
+
+    # Handle standard errors
+    def handle_standard_error(error, chat, context_wrapper, current_agent)
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
       result = RunResult.new(
         output: nil,
         messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
-        error: e,
+        error: error,
         context: context_wrapper.context
       )
 
-      # Emit agent complete and run complete events with error
-      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, e, context_wrapper)
+      context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
       context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
+
+      # Record error in span
+      Tracing.current_span&.record_exception(error) if Tracing.enabled?
 
       result
     end
-
-    private
 
     # Creates a deep copy of context data for thread safety.
     # Preserves conversation history array structure while avoiding agent mutation.

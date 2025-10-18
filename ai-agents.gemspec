@@ -33,6 +33,11 @@ Gem::Specification.new do |spec|
   # Core dependencies
   spec.add_dependency "ruby_llm", "~> 1.8.2"
 
+  # OpenTelemetry dependencies for tracing
+  spec.add_dependency "opentelemetry-api", "~> 1.5"
+  spec.add_dependency "opentelemetry-sdk", "~> 1.5"
+  spec.add_dependency "opentelemetry-exporter-otlp", "~> 0.30"
+
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html
 end
