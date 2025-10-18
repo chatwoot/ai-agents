@@ -64,7 +64,7 @@ module Agents
 
           # Record exception in span
           span.record_exception(e)
-          span.set_status(OpenTelemetry::Trace::Status.error(e.message)) if defined?(OpenTelemetry::Trace::Status)
+          span.status = OpenTelemetry::Trace::Status.error(e.message) if defined?(OpenTelemetry::Trace::Status)
 
           raise
         end

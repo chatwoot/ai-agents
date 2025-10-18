@@ -206,7 +206,7 @@ module Agents
 
       def add_event(_name, _attributes = {}); end
 
-      def set_status(_status); end
+      def status=(_status); end
 
       def record_exception(_exception); end
     end

@@ -274,8 +274,8 @@ RSpec.describe Agents::Tracing do
       expect { noop_span.add_event("event_name") }.not_to raise_error
     end
 
-    it "provides no-op set_status" do
-      expect { noop_span.set_status("status") }.not_to raise_error
+    it "provides no-op status=" do
+      expect { noop_span.status = "status" }.not_to raise_error
     end
 
     it "provides no-op record_exception" do
