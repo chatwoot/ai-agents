@@ -131,6 +131,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -150,6 +153,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: 5,
           headers: nil,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -171,6 +177,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: headers,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -202,6 +211,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -232,6 +244,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -262,6 +277,9 @@ RSpec.describe Agents::AgentRunner do
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
           callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
@@ -475,6 +493,30 @@ RSpec.describe Agents::AgentRunner do
         expect(runner.instance_variable_get(:@callbacks)[:agent_handoff]).to include(callback)
       end
 
+      it "registers run_start callbacks" do
+        callback = proc { |agent, input, _context| "run started: #{agent} - #{input}" }
+        result_runner = runner.on_run_start(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:run_start]).to include(callback)
+      end
+
+      it "registers run_complete callbacks" do
+        callback = proc { |agent, _result, _context| "run completed: #{agent}" }
+        result_runner = runner.on_run_complete(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:run_complete]).to include(callback)
+      end
+
+      it "registers agent_complete callbacks" do
+        callback = proc { |agent, _result, _error, _context| "agent completed: #{agent}" }
+        result_runner = runner.on_agent_complete(&callback)
+
+        expect(result_runner).to eq(runner)
+        expect(runner.instance_variable_get(:@callbacks)[:agent_complete]).to include(callback)
+      end
+
       it "supports method chaining" do
         result_runner = runner
                         .on_tool_start { |_tool, _args| puts "Tool started" }
@@ -517,7 +559,10 @@ RSpec.describe Agents::AgentRunner do
               tool_start: [tool_callback],
               agent_thinking: [agent_callback],
               tool_complete: [],
-              agent_handoff: []
+              agent_handoff: [],
+              run_start: [],
+              run_complete: [],
+              agent_complete: []
             )
           )
         )
@@ -531,6 +576,9 @@ RSpec.describe Agents::AgentRunner do
           anything,
           hash_including(
             callbacks: {
+              run_start: [],
+              run_complete: [],
+              agent_complete: [],
               tool_start: [],
               tool_complete: [],
               agent_thinking: [],

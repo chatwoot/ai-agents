@@ -44,6 +44,9 @@ module Agents
 
       # Initialize callback storage - use thread-safe arrays
       @callbacks = {
+        run_start: [],
+        run_complete: [],
+        agent_complete: [],
         tool_start: [],
         tool_complete: [],
         agent_thinking: [],
@@ -122,6 +125,42 @@ module Agents
       return self unless block
 
       @callbacks_mutex.synchronize { @callbacks[:agent_handoff] << block }
+      self
+    end
+
+    # Register a callback for run start events.
+    # Called before agent execution begins.
+    #
+    # @param block [Proc] Callback block that receives (agent, input, run_context)
+    # @return [self] For method chaining
+    def on_run_start(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:run_start] << block }
+      self
+    end
+
+    # Register a callback for run complete events.
+    # Called after agent execution ends (success or error).
+    #
+    # @param block [Proc] Callback block that receives (agent, result, run_context)
+    # @return [self] For method chaining
+    def on_run_complete(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:run_complete] << block }
+      self
+    end
+
+    # Register a callback for agent complete events.
+    # Called after each agent turn finishes.
+    #
+    # @param block [Proc] Callback block that receives (agent_name, result, error, run_context)
+    # @return [self] For method chaining
+    def on_agent_complete(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:agent_complete] << block }
       self
     end
 

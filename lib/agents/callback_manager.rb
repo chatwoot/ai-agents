@@ -13,6 +13,9 @@ module Agents
   class CallbackManager
     # Supported callback event types
     EVENT_TYPES = %i[
+      run_start
+      run_complete
+      agent_complete
       tool_start
       tool_complete
       agent_thinking

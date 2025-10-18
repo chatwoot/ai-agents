@@ -97,16 +97,12 @@ RSpec.describe Agents::Runner do
         headers = { "X-Test" => "value" }
 
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
         allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive(:ask).and_return(mock_response)
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
 
-        expect(mock_chat).to receive(:with_headers).with(:"X-Test" => "value").and_return(mock_chat)
+        expect(mock_chat).to receive(:with_headers).with("X-Test": "value").and_return(mock_chat)
 
         result = runner.run(agent, "Hello", headers: headers)
 
@@ -119,14 +115,10 @@ RSpec.describe Agents::Runner do
 
         allow(agent).to receive(:headers).and_return({ "X-Agent" => "agent-value" })
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
         allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive(:ask).and_return(mock_response)
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
 
         expect(mock_chat).to receive(:with_headers).with("X-Agent": "agent-value").and_return(mock_chat)
 
@@ -145,14 +137,10 @@ RSpec.describe Agents::Runner do
 
         allow(agent).to receive(:headers).and_return({ "X-Shared" => "agent", "X-Agent-Only" => "agent-only" })
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_instructions).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_temperature).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_tools).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_schema).and_return(mock_chat)
-        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
         allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive(:ask).and_return(mock_response)
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
 
         expect(mock_chat).to receive(:with_headers).with(
           "X-Shared": "runtime",
@@ -525,6 +513,172 @@ RSpec.describe Agents::Runner do
 
         # Verify ToolWrapper was called with the regular tool
         expect(Agents::ToolWrapper).to have_received(:new).with(test_tool, anything)
+      end
+    end
+
+    context "lifecycle callbacks" do
+      let(:runner) { described_class.new }
+      let(:callbacks_called) { [] }
+      let(:callbacks) do
+        {
+          run_start: [proc { |agent, input, ctx| callbacks_called << [:run_start, agent, input, ctx.class.name] }],
+          run_complete: [proc { |agent, result, ctx|
+            callbacks_called << [:run_complete, agent, result.class.name, ctx.class.name]
+          }],
+          agent_complete: [proc { |agent, result, error, ctx|
+            callbacks_called << [:agent_complete, agent, result&.class&.name, error&.class&.name, ctx.class.name]
+          }],
+          agent_thinking: [proc { |agent, input| callbacks_called << [:agent_thinking, agent, input] }],
+          tool_start: [proc { |tool, args| callbacks_called << [:tool_start, tool, args] }],
+          tool_complete: [proc { |tool, result| callbacks_called << [:tool_complete, tool, result] }],
+          agent_handoff: [proc { |from, to, reason| callbacks_called << [:agent_handoff, from, to, reason] }]
+        }
+      end
+
+      it "emits run_start and run_complete for successful execution" do
+        stub_simple_chat("Hello!")
+
+        result = runner.run(agent, "Test", callbacks: callbacks)
+
+        expect(result.success?).to be true
+        expect(callbacks_called).to include(
+          [:run_start, "TestAgent", "Test", "Agents::RunContext"]
+        )
+        expect(callbacks_called).to include(
+          [:run_complete, "TestAgent", "Agents::RunResult", "Agents::RunContext"]
+        )
+      end
+
+      it "emits agent_complete with nil error for successful execution" do
+        stub_simple_chat("Success")
+
+        runner.run(agent, "Test", callbacks: callbacks)
+
+        agent_complete_call = callbacks_called.find { |c| c[0] == :agent_complete }
+        expect(agent_complete_call).not_to be_nil
+        expect(agent_complete_call[1]).to eq("TestAgent")
+        expect(agent_complete_call[2]).to eq("Agents::RunResult")
+        expect(agent_complete_call[3]).to be_nil # No error
+        expect(agent_complete_call[4]).to eq("Agents::RunContext")
+      end
+
+      it "emits callbacks in correct order" do
+        stub_simple_chat("Response")
+
+        runner.run(agent, "Test", callbacks: callbacks)
+
+        # Extract just the callback types in order
+        callback_types = callbacks_called.map(&:first)
+
+        # Verify run_start comes first
+        expect(callback_types.first).to eq(:run_start)
+
+        # Verify run_complete and agent_complete come last
+        expect(callback_types[-2..]).to contain_exactly(:agent_complete, :run_complete)
+      end
+
+      it "emits agent_complete and run_complete with error on failure" do
+        allow(RubyLLM::Chat).to receive(:new).and_raise(StandardError, "Test error")
+
+        result = runner.run(agent, "Test", callbacks: callbacks)
+
+        expect(result.failed?).to be true
+
+        # Check agent_complete was called with error
+        agent_complete_call = callbacks_called.find { |c| c[0] == :agent_complete }
+        expect(agent_complete_call).not_to be_nil
+        expect(agent_complete_call[3]).to eq("StandardError")
+
+        # Check run_complete was still called
+        run_complete_call = callbacks_called.find { |c| c[0] == :run_complete }
+        expect(run_complete_call).not_to be_nil
+      end
+
+      it "emits agent_complete before handoff" do
+        agent_with_handoff = instance_double(Agents::Agent,
+                                             name: "TriageAgent",
+                                             model: "gpt-4o",
+                                             tools: [],
+                                             handoff_agents: [handoff_agent],
+                                             temperature: 0.7,
+                                             response_schema: nil,
+                                             get_system_prompt: "You route users",
+                                             headers: {})
+
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "Specialist here"
+        )
+
+        registry = { "TriageAgent" => agent_with_handoff, "HandoffAgent" => handoff_agent }
+        runner.run(agent_with_handoff, "Help", registry: registry, callbacks: callbacks)
+
+        callback_types = callbacks_called.map(&:first)
+
+        # Find indices
+        agent_complete_idx = callback_types.index(:agent_complete)
+        handoff_idx = callback_types.index(:agent_handoff)
+
+        # agent_complete should come before agent_handoff
+        expect(agent_complete_idx).not_to be_nil
+        expect(handoff_idx).not_to be_nil
+        expect(agent_complete_idx).to be < handoff_idx
+      end
+
+      it "emits agent_complete and run_complete with error when handoff target not found" do
+        agent_with_handoff = instance_double(Agents::Agent,
+                                             name: "TriageAgent",
+                                             model: "gpt-4o",
+                                             tools: [],
+                                             handoff_agents: [handoff_agent],
+                                             temperature: 0.7,
+                                             response_schema: nil,
+                                             get_system_prompt: "You route users",
+                                             headers: {})
+
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-handoff",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: nil,
+                  tool_calls: [{
+                    id: "call_handoff",
+                    type: "function",
+                    function: { name: "handoff_to_handoffagent", arguments: "{}" }
+                  }]
+                },
+                finish_reason: "tool_calls"
+              }],
+              usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+
+        # Registry only has TriageAgent, not HandoffAgent
+        registry = { "TriageAgent" => agent_with_handoff }
+        result = runner.run(agent_with_handoff, "Help", registry: registry, callbacks: callbacks)
+
+        expect(result.failed?).to be true
+        expect(result.error).to be_a(Agents::Runner::AgentNotFoundError)
+
+        # Check agent_complete was called with error
+        agent_complete_call = callbacks_called.find { |c| c[0] == :agent_complete }
+        expect(agent_complete_call).not_to be_nil
+        expect(agent_complete_call[1]).to eq("TriageAgent")
+        expect(agent_complete_call[3]).to eq("Agents::Runner::AgentNotFoundError")
+
+        # Check run_complete was called
+        run_complete_call = callbacks_called.find { |c| c[0] == :run_complete }
+        expect(run_complete_call).not_to be_nil
+        expect(run_complete_call[1]).to eq("TriageAgent")
       end
     end
   end
