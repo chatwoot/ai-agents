@@ -302,8 +302,8 @@ module Agents
 
       # Add usage metadata to span
       if Tracing.enabled?
-        Tracing.current_span&.set_attribute("gen_ai.usage.input_tokens", context_wrapper.usage[:input_tokens])
-        Tracing.current_span&.set_attribute("gen_ai.usage.output_tokens", context_wrapper.usage[:output_tokens])
+        Tracing.current_span&.set_attribute("gen_ai.usage.input_tokens", context_wrapper.usage.input_tokens)
+        Tracing.current_span&.set_attribute("gen_ai.usage.output_tokens", context_wrapper.usage.output_tokens)
       end
 
       result
