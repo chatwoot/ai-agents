@@ -154,7 +154,6 @@ module Agents
           unless registry[next_agent.name]
             save_conversation_state(chat, context_wrapper, current_agent)
             error = AgentNotFoundError.new("Handoff failed: Agent '#{next_agent.name}' not found in registry")
-
             result = RunResult.new(
               output: nil,
               messages: Helpers::MessageExtractor.extract_messages(chat, current_agent),
@@ -166,7 +165,6 @@ module Agents
             # Emit agent complete and run complete events with error
             context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
             context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
-
             return result
           end
 
@@ -180,7 +178,7 @@ module Agents
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
           # Record handoff in current span
-          span.add_event("agent.handoff", {
+          span.add_event("agent.handoff", attributes: {
                            "handoff.from_agent" => current_agent.name,
                            "handoff.to_agent" => next_agent.name,
                            "handoff.reason" => "handoff"
@@ -249,7 +247,7 @@ module Agents
           context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
 
           # Record handoff event
-          span.add_event("agent.handoff", {
+          span.add_event("agent.handoff", attributes: {
                            "handoff.from_agent" => current_agent.name,
                            "handoff.to_agent" => next_agent.name,
                            "handoff.reason" => "handoff"
