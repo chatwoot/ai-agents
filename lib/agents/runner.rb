@@ -93,6 +93,9 @@ module Agents
       # Emit run start event
       context_wrapper.callback_manager.emit_run_start(current_agent.name, input, context_wrapper)
 
+      # Set trace-level input if we're in a trace context
+      Tracing.current_span&.set_attribute("langfuse.trace.input", input) if Tracing.enabled?
+
       # Wrap entire execution in agent span if tracing is enabled
       execute_with_tracing(current_agent, input, context_wrapper, registry, max_turns, headers)
     end
@@ -105,6 +108,9 @@ module Agents
 
       # Create span for agent execution
       Tracing.agent_span(current_agent.name, model: current_agent.model) do |span|
+        # Record input for Langfuse
+        span.set_attribute("langfuse.observation.input", input) if Tracing.enabled?
+
         execute_agent_loop(current_agent, input, context_wrapper, registry, max_turns, headers, span)
       end
     rescue MaxTurnsExceeded => e
@@ -190,6 +196,9 @@ module Agents
 
           # Create new span for the handoff agent
           return Tracing.agent_span(current_agent.name, model: current_agent.model) do |new_span|
+            # Record input context for the handoff agent
+            new_span.set_attribute("langfuse.observation.input", "(handoff continuation)") if Tracing.enabled?
+
             # Reconfigure existing chat for new agent - preserves conversation history automatically
             configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
             agent_headers = Helpers::Headers.normalize(current_agent.headers)
@@ -258,6 +267,9 @@ module Agents
 
           # Create new span for handoff and continue
           return Tracing.agent_span(current_agent.name, model: current_agent.model) do |new_span|
+            # Record input context for the handoff agent
+            new_span.set_attribute("langfuse.observation.input", "(handoff continuation)") if Tracing.enabled?
+
             configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
             agent_headers = Helpers::Headers.normalize(current_agent.headers)
             current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
@@ -298,10 +310,14 @@ module Agents
       context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, nil, context_wrapper)
       context_wrapper.callback_manager.emit_run_complete(current_agent.name, result, context_wrapper)
 
-      # Add usage metadata to span
+      # Add usage and output metadata to span
       if Tracing.enabled?
         Tracing.current_span&.set_attribute("gen_ai.usage.input_tokens", context_wrapper.usage.input_tokens)
         Tracing.current_span&.set_attribute("gen_ai.usage.output_tokens", context_wrapper.usage.output_tokens)
+        Tracing.current_span&.set_attribute("langfuse.observation.output", output.to_s) if output
+
+        # Set trace-level output on the root span (need to traverse up to root)
+        set_trace_output(output)
       end
 
       result
@@ -473,6 +489,25 @@ module Agents
       end
 
       all_tools
+    end
+
+    # Set trace-level output on the root span
+    # This traverses up the span context to find the root trace span
+    def set_trace_output(output)
+      return unless output
+
+      # Get all spans in the current context by checking the tracer
+      # For now, set it on current span - OpenTelemetry will propagate to root
+      root_span = find_root_span
+      root_span&.set_attribute("langfuse.trace.output", output.to_s)
+    end
+
+    # Find the root span in the current trace context
+    def find_root_span
+      # In OpenTelemetry, we need to find the root span
+      # For simplicity, we'll set it on the current span and rely on context propagation
+      # The first span created by with_trace will be the root
+      Tracing.root_span
     end
   end
 end

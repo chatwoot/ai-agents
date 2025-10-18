@@ -79,6 +79,12 @@ module Agents
         OpenTelemetry::Trace.current_span
       end
 
+      # Get the root span of the current trace (stored when with_trace is called)
+      # @return [OpenTelemetry::Trace::Span, nil]
+      def root_span
+        trace_context_stack.first&.instance_variable_get(:@root_span) || current_span
+      end
+
       # Set trace context for all operations within the block.
       # Contexts can be nested and will be merged intelligently.
       #
@@ -112,7 +118,9 @@ module Agents
         span_name = merged_context.trace_name || "agent.conversation"
         attributes = merged_context.to_otel_attributes
 
-        tracer.in_span(span_name, attributes: attributes) do
+        tracer.in_span(span_name, attributes: attributes) do |span|
+          # Store root span reference in the trace context
+          merged_context.instance_variable_set(:@root_span, span)
           yield
         end
       ensure
