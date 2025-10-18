@@ -41,6 +41,25 @@ RSpec.describe Agents::Tracing do
         expect(described_class.enabled?).to be false
       end
     end
+
+    context "when reconfiguring" do
+      let(:disabled_config) do
+        instance_double(
+          Agents::Configuration,
+          enable_tracing: false
+        )
+      end
+
+      it "disables tracing when reconfigured with enable_tracing: false" do
+        # First enable tracing
+        described_class.setup(config)
+        expect(described_class.enabled?).to be true
+
+        # Then disable it
+        described_class.setup(disabled_config)
+        expect(described_class.enabled?).to be false
+      end
+    end
   end
 
   describe ".with_trace" do

@@ -26,10 +26,15 @@ module Agents
     class << self
       # Initialize OpenTelemetry SDK with OTLP exporter.
       # Called automatically during Agents.configure if tracing is enabled.
+      # If tracing is disabled, tears down any existing tracing infrastructure.
       #
       # @param config [Agents::Configuration] The configuration object
       def setup(config)
-        return unless config.enable_tracing
+        unless config.enable_tracing
+          # Explicitly disable tracing if it was previously enabled
+          teardown if @enabled
+          return
+        end
 
         # Configure the OTLP exporter
         exporter = OpenTelemetry::Exporter::OTLP::Exporter.new(
@@ -187,12 +192,20 @@ module Agents
       # Reset tracing state (mainly for testing)
       # @private
       def reset!
+        teardown
+      end
+
+      private
+
+      # Tear down tracing infrastructure
+      # Clears internal state but does not shutdown the OpenTelemetry tracer provider
+      # (which is a global singleton and cannot be reinitialized in the same process).
+      # @private
+      def teardown
         @tracer = nil
         @enabled = false
         Thread.current[:agents_trace_context_stack] = nil
       end
-
-      private
 
       # Thread-local storage for trace context stack
       def trace_context_stack
