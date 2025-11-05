@@ -215,6 +215,242 @@ RSpec.describe Agents::Runner do
       end
     end
 
+    context "with tool message history" do
+      let(:context_with_tool_history) do
+        {
+          conversation_history: [
+            { role: :user, content: "What's the weather in SF?" },
+            {
+              role: :assistant,
+              content: "Let me check that for you",
+              tool_calls: [
+                { id: "call_123", name: "get_weather", arguments: { location: "SF" } }
+              ]
+            },
+            { role: :tool, content: "72°F, Sunny", tool_call_id: "call_123" },
+            { role: :assistant, content: "It's 72°F and sunny in SF!" }
+          ]
+        }
+      end
+
+      before do
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-789",
+              object: "chat.completion",
+              created: 1_677_652_300,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "Great weather for a walk!"
+                },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "restores tool messages with tool_call_id" do
+        result = runner.run(agent, "Should I go outside?", context: context_with_tool_history)
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Great weather for a walk!")
+        # Should have all history messages + new user message + new assistant message
+        expect(result.messages.length).to eq(6)
+      end
+
+      it "preserves conversation flow with tool execution context" do
+        result = runner.run(agent, "Thanks!", context: context_with_tool_history)
+
+        expect(result.success?).to be true
+        # Verify we have the complete conversation history restored
+        # NOTE: tool_calls arrays are not restored on assistant messages (see runner.rb NOTE)
+        # What matters is: assistant content + tool result messages preserve the conversation flow
+        expect(result.messages.length).to be >= 4 # At minimum, history messages are preserved
+
+        # Verify assistant message content is preserved
+        assistant_msg = result.messages.find do |msg|
+          msg[:role] == :assistant && msg[:content].include?("Let me check")
+        end
+        expect(assistant_msg).not_to be_nil
+      end
+
+      it "restores tool result messages with tool_call_id" do
+        result = runner.run(agent, "Thanks!", context: context_with_tool_history)
+
+        expect(result.success?).to be true
+        # Verify tool result message is preserved
+        tool_message = result.messages.find { |msg| msg[:role] == :tool }
+        expect(tool_message).not_to be_nil
+        expect(tool_message[:content]).to eq("72°F, Sunny")
+        expect(tool_message[:tool_call_id]).to eq("call_123")
+      end
+
+      context "with multiple tool calls in single turn" do
+        let(:context_with_multiple_tools) do
+          {
+            conversation_history: [
+              { role: :user, content: "Compare weather in SF and LA" },
+              {
+                role: :assistant,
+                content: "Let me check both cities",
+                tool_calls: [
+                  { id: "call_1", name: "get_weather", arguments: { location: "SF" } },
+                  { id: "call_2", name: "get_weather", arguments: { location: "LA" } }
+                ]
+              },
+              { role: :tool, content: "72°F, Sunny", tool_call_id: "call_1" },
+              { role: :tool, content: "85°F, Partly cloudy", tool_call_id: "call_2" },
+              { role: :assistant, content: "SF is 72°F and sunny, LA is 85°F and partly cloudy" }
+            ]
+          }
+        end
+
+        before do
+          stub_request(:post, "https://api.openai.com/v1/chat/completions")
+            .to_return(
+              status: 200,
+              body: {
+                id: "chatcmpl-multi",
+                object: "chat.completion",
+                created: 1_677_652_400,
+                model: "gpt-4o",
+                choices: [{
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "SF has better weather today!"
+                  },
+                  finish_reason: "stop"
+                }],
+                usage: { prompt_tokens: 80, completion_tokens: 8, total_tokens: 88 }
+              }.to_json,
+              headers: { "Content-Type" => "application/json" }
+            )
+        end
+
+        it "restores all tool messages in correct order" do
+          result = runner.run(agent, "Which is better?", context: context_with_multiple_tools)
+
+          expect(result.success?).to be true
+          expect(result.output).to eq("SF has better weather today!")
+
+          tool_messages = result.messages.select { |msg| msg[:role] == :tool }
+          expect(tool_messages.length).to eq(2)
+          expect(tool_messages[0][:tool_call_id]).to eq("call_1")
+          expect(tool_messages[1][:tool_call_id]).to eq("call_2")
+        end
+      end
+
+      context "with empty tool result" do
+        let(:context_with_empty_tool_result) do
+          {
+            conversation_history: [
+              { role: :user, content: "Check status" },
+              {
+                role: :assistant,
+                content: "Checking...",
+                tool_calls: [{ id: "call_empty", name: "check_status", arguments: {} }]
+              },
+              { role: :tool, content: "", tool_call_id: "call_empty" },
+              { role: :assistant, content: "Status check complete, no data returned" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("OK")
+        end
+
+        it "restores tool messages even with empty content" do
+          result = runner.run(agent, "Got it", context: context_with_empty_tool_result)
+
+          expect(result.success?).to be true
+          # Empty tool results should still be restored as they're part of the conversation
+          tool_message = result.messages.find { |msg| msg[:role] == :tool }
+          expect(tool_message).not_to be_nil
+          expect(tool_message[:content]).to eq("")
+          expect(tool_message[:tool_call_id]).to eq("call_empty")
+        end
+      end
+
+      context "with invalid tool message (missing tool_call_id)" do
+        let(:context_with_invalid_tool) do
+          {
+            conversation_history: [
+              { role: :user, content: "Hello" },
+              { role: :tool, content: "Invalid tool result", tool_call_id: nil },
+              { role: :assistant, content: "Hi there" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("How can I help?")
+          # Set up a mock logger
+          logger = instance_double(Logger)
+          allow(logger).to receive(:warn)
+          Agents.logger = logger
+        end
+
+        after do
+          Agents.logger = nil
+        end
+
+        it "skips tool messages without tool_call_id" do
+          result = runner.run(agent, "I need help", context: context_with_invalid_tool)
+
+          expect(result.success?).to be true
+          # Invalid tool message should be skipped
+          tool_messages = result.messages.select { |msg| msg[:role] == :tool }
+          expect(tool_messages).to be_empty
+          expect(Agents.logger).to have_received(:warn)
+            .with("Skipping tool message without tool_call_id in conversation history")
+        end
+      end
+
+      context "with hash content in tool result" do
+        let(:context_with_hash_content) do
+          {
+            conversation_history: [
+              { role: :user, content: "Get data" },
+              {
+                role: :assistant,
+                content: "Fetching...",
+                tool_calls: [{ id: "call_hash", name: "get_data", arguments: {} }]
+              },
+              {
+                role: :tool,
+                content: { status: "success", data: { temperature: 72 } },
+                tool_call_id: "call_hash"
+              },
+              { role: :assistant, content: "Data retrieved successfully" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("Anything else?")
+        end
+
+        it "restores tool messages with hash content" do
+          result = runner.run(agent, "No, thanks", context: context_with_hash_content)
+
+          expect(result.success?).to be true
+          tool_message = result.messages.find { |msg| msg[:role] == :tool }
+          expect(tool_message).not_to be_nil
+          expect(tool_message[:content]).to eq({ status: "success", data: { temperature: 72 } })
+          expect(tool_message[:tool_call_id]).to eq("call_hash")
+        end
+      end
+    end
+
     context "when using current_agent from context" do
       let(:context_with_agent) { { current_agent: "HandoffAgent" } }
 

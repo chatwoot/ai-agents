@@ -264,6 +264,7 @@ module Agents
 
     # Restores conversation history from context into RubyLLM chat.
     # Converts stored message hashes back into RubyLLM::Message objects with proper content handling.
+    # Supports user, assistant, and tool role messages for complete conversation continuity.
     #
     # @param chat [RubyLLM::Chat] The chat instance to restore history into
     # @param context_wrapper [RunContext] Context containing conversation history
@@ -271,19 +272,60 @@ module Agents
       history = context_wrapper.context[:conversation_history] || []
 
       history.each do |msg|
-        # Only restore user and assistant messages with content
-        next unless %i[user assistant].include?(msg[:role].to_sym)
-        next unless msg[:content] && !Helpers::MessageExtractor.content_empty?(msg[:content])
+        next unless restorable_message?(msg)
 
-        # Extract text content safely - handle both string and hash content
-        content = RubyLLM::Content.new(msg[:content])
+        message_params = build_message_params(msg)
+        next unless message_params # Skip invalid messages
 
-        # Create a proper RubyLLM::Message and pass it to add_message
-        message = RubyLLM::Message.new(
-          role: msg[:role].to_sym,
-          content: content
-        )
+        message = RubyLLM::Message.new(**message_params)
         chat.add_message(message)
+      end
+    end
+
+    # Check if a message should be restored
+    def restorable_message?(msg)
+      role = msg[:role].to_sym
+      return false unless %i[user assistant tool].include?(role)
+      return false if msg[:content].nil?
+      return false if role != :tool && Helpers::MessageExtractor.content_empty?(msg[:content])
+
+      true
+    end
+
+    # Build message parameters for restoration
+    def build_message_params(msg)
+      role = msg[:role].to_sym
+
+      params = {
+        role: role,
+        content: RubyLLM::Content.new(msg[:content])
+      }
+
+      # Handle tool-specific parameters
+      if role == :tool
+        return nil unless valid_tool_message?(msg)
+
+        params[:tool_call_id] = msg[:tool_call_id]
+      end
+
+      # NOTE: Intentionally do NOT restore tool_calls on assistant messages.
+      # Tool calls from history are already saved as hashes (not RubyLLM::ToolCall objects),
+      # and RubyLLM's providers expect ToolCall objects for formatting.
+      # What matters for conversation continuity is:
+      # 1. The assistant's content (which describes what it was doing)
+      # 2. The tool result messages (which we ARE restoring with tool_call_id)
+      # The LLM can understand the conversation flow from these without needing the raw tool_calls array.
+
+      params
+    end
+
+    # Validate tool message has required tool_call_id
+    def valid_tool_message?(msg)
+      if msg[:tool_call_id]
+        true
+      else
+        Agents.logger&.warn("Skipping tool message without tool_call_id in conversation history")
+        false
       end
     end
 

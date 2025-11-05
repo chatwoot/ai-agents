@@ -69,7 +69,12 @@ module Agents
           if msg.tool_call? && msg.tool_calls
             # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
             # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
-            message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
+            # But restored messages may already have tool_calls as an array
+            message[:tool_calls] = if msg.tool_calls.is_a?(Hash)
+                                     msg.tool_calls.values.map(&:to_h)
+                                   else
+                                     msg.tool_calls # Already an array from restored context
+                                   end
           end
         end
 
