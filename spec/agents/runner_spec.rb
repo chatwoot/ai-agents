@@ -449,6 +449,59 @@ RSpec.describe Agents::Runner do
           expect(tool_message[:tool_call_id]).to eq("call_hash")
         end
       end
+
+      it "does not restore tool_calls on assistant messages" do
+        # Regression test: tool_calls are intentionally not restored on assistant messages
+        # because LLM providers expect ToolCall objects, not plain hashes/arrays.
+        # See runner.rb:311-317 for design rationale.
+
+        # Track what gets added to the chat during restoration
+        restored_messages = []
+        mock_chat = instance_double(RubyLLM::Chat)
+
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message) do |msg|
+          restored_messages << {
+            role: msg.role,
+            content: msg.content.to_s,
+            tool_calls: msg.tool_calls,
+            tool_call: msg.respond_to?(:tool_call?) ? msg.tool_call? : nil
+          }
+        end
+
+        # Mock other required methods
+        allow(mock_chat).to receive_messages(
+          with_instructions: mock_chat,
+          with_temperature: mock_chat,
+          with_tools: mock_chat,
+          with_schema: mock_chat,
+          with_model: mock_chat,
+          messages: [],
+          ask: instance_double(RubyLLM::Message,
+                               tool_call?: false,
+                               content: "Confirmed",
+                               is_a?: false)
+        )
+
+        # Run with history containing tool_calls
+        runner.run(agent, "Verify", context: context_with_tool_history)
+
+        # Find the restored assistant message that had tool_calls in history
+        assistant_msg = restored_messages.find do |m|
+          m[:role] == :assistant && m[:content].include?("Let me check")
+        end
+
+        # Verify expected behavior: content is restored but tool_calls are not
+        expect(assistant_msg).not_to be_nil
+        expect(assistant_msg[:content]).to eq("Let me check that for you")
+        expect(assistant_msg[:tool_calls]).to be_nil
+        expect(assistant_msg[:tool_call]).to be(false)
+
+        # Tool messages should still be restored normally
+        tool_msg = restored_messages.find { |m| m[:role] == :tool }
+        expect(tool_msg).not_to be_nil
+        expect(tool_msg[:content]).to eq("72°F, Sunny")
+      end
     end
 
     context "when using current_agent from context" do
