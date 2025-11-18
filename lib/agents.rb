@@ -38,6 +38,31 @@ module Agents
       @configuration ||= Configuration.new
     end
 
+    # Refresh the model registry from configured providers
+    # @param remote_only [Boolean] If true, only refresh from remote providers (excludes local providers like Ollama)
+    # @return [void]
+    def refresh_models!(remote_only: false)
+      RubyLLM.models.refresh!(remote_only: remote_only)
+    end
+
+    # Save the current model registry to disk
+    # @return [void]
+    # @raise [RuntimeError] If model_registry_file is not configured
+    def save_models!
+      raise "model_registry_file not configured" unless configuration.model_registry_file
+
+      RubyLLM.models.save_to_json
+    end
+
+    # Refresh and save the model registry in one operation
+    # @param remote_only [Boolean] If true, only refresh from remote providers (excludes local providers like Ollama)
+    # @return [void]
+    # @raise [RuntimeError] If model_registry_file is not configured
+    def refresh_and_save_models!(remote_only: false)
+      refresh_models!(remote_only: remote_only)
+      save_models!
+    end
+
     private
 
     def configure_ruby_llm!
@@ -72,6 +97,7 @@ module Agents
       config.default_model = configuration.default_model
       config.log_level = configuration.debug == true ? :debug : :info
       apply_if_present(config, :request_timeout)
+      apply_if_present(config, :model_registry_file)
     end
 
     def apply_if_present(config, key)
@@ -87,7 +113,7 @@ module Agents
                   :bedrock_api_key, :bedrock_secret_key, :bedrock_region, :bedrock_session_token
 
     # General configuration
-    attr_accessor :request_timeout, :default_model, :debug
+    attr_accessor :request_timeout, :default_model, :debug, :model_registry_file
 
     def initialize
       @default_model = "gpt-4o-mini"

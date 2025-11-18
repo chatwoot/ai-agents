@@ -46,8 +46,8 @@ RSpec.describe Agents do
         attr_writer :openai_api_key, :openai_api_base, :openai_organization_id, :openai_project_id,
                     :anthropic_api_key, :gemini_api_key, :deepseek_api_key, :openrouter_api_key,
                     :ollama_api_base, :bedrock_api_key, :bedrock_secret_key, :bedrock_region,
-                    :bedrock_session_token, :default_model, :log_level, :request_timeout
-        attr_reader :log_level
+                    :bedrock_session_token, :default_model, :log_level, :request_timeout, :model_registry_file
+        attr_reader :log_level, :model_registry_file
       end.new
     end
 
@@ -137,6 +137,114 @@ RSpec.describe Agents do
 
       expect(RubyLLM).to have_received(:configure)
     end
+
+    it "configures RubyLLM with model_registry_file" do
+      allow(RubyLLM).to receive(:configure).and_yield(mock_ruby_llm_config)
+
+      described_class.configure do |config|
+        config.model_registry_file = "/path/to/models.json"
+      end
+
+      expect(mock_ruby_llm_config.model_registry_file).to eq("/path/to/models.json")
+    end
+  end
+
+  describe ".refresh_models!" do
+    let(:mock_models) { instance_double(RubyLLM::Models) }
+
+    before do
+      allow(RubyLLM).to receive(:models).and_return(mock_models)
+      allow(mock_models).to receive(:refresh!)
+    end
+
+    it "calls RubyLLM.models.refresh!" do
+      described_class.refresh_models!
+
+      expect(mock_models).to have_received(:refresh!).with(remote_only: false)
+    end
+
+    context "with remote_only: true" do
+      it "passes remote_only parameter to RubyLLM" do
+        described_class.refresh_models!(remote_only: true)
+
+        expect(mock_models).to have_received(:refresh!).with(remote_only: true)
+      end
+    end
+  end
+
+  describe ".save_models!" do
+    let(:mock_models) { instance_double(RubyLLM::Models) }
+
+    before do
+      allow(RubyLLM).to receive(:models).and_return(mock_models)
+      allow(mock_models).to receive(:save_to_json)
+      # Reset configuration for testing
+      described_class.instance_variable_set(:@configuration, nil)
+    end
+
+    context "when model_registry_file is not configured" do
+      it "raises an error" do
+        expect { described_class.save_models! }.to raise_error(RuntimeError, "model_registry_file not configured")
+      end
+    end
+
+    context "when model_registry_file is configured" do
+      it "calls RubyLLM.models.save_to_json" do
+        described_class.configure do |config|
+          config.model_registry_file = "/path/to/models.json"
+        end
+
+        described_class.save_models!
+
+        expect(mock_models).to have_received(:save_to_json)
+      end
+    end
+  end
+
+  describe ".refresh_and_save_models!" do
+    let(:mock_models) { instance_double(RubyLLM::Models) }
+
+    before do
+      allow(RubyLLM).to receive(:models).and_return(mock_models)
+      allow(mock_models).to receive(:refresh!)
+      allow(mock_models).to receive(:save_to_json)
+      # Reset configuration for testing
+      described_class.instance_variable_set(:@configuration, nil)
+    end
+
+    context "when model_registry_file is configured" do
+      it "calls both refresh! and save_to_json" do
+        described_class.configure do |config|
+          config.model_registry_file = "/path/to/models.json"
+        end
+
+        described_class.refresh_and_save_models!
+
+        expect(mock_models).to have_received(:refresh!).with(remote_only: false)
+        expect(mock_models).to have_received(:save_to_json)
+      end
+
+      context "with remote_only: true" do
+        it "passes remote_only parameter" do
+          described_class.configure do |config|
+            config.model_registry_file = "/path/to/models.json"
+          end
+
+          described_class.refresh_and_save_models!(remote_only: true)
+
+          expect(mock_models).to have_received(:refresh!).with(remote_only: true)
+          expect(mock_models).to have_received(:save_to_json)
+        end
+      end
+    end
+
+    context "when model_registry_file is not configured" do
+      it "raises an error during save" do
+        expect do
+          described_class.refresh_and_save_models!
+        end.to raise_error(RuntimeError, "model_registry_file not configured")
+      end
+    end
   end
 end
 
@@ -164,6 +272,10 @@ RSpec.describe Agents::Configuration do
       expect(config.bedrock_secret_key).to be_nil
       expect(config.bedrock_region).to be_nil
       expect(config.bedrock_session_token).to be_nil
+    end
+
+    it "initializes model_registry_file as nil" do
+      expect(config.model_registry_file).to be_nil
     end
   end
 
@@ -238,6 +350,11 @@ RSpec.describe Agents::Configuration do
       expect(config.bedrock_secret_key).to eq("test-bedrock-secret")
       expect(config.bedrock_region).to eq("us-east-1")
       expect(config.bedrock_session_token).to eq("test-session-token")
+    end
+
+    it "allows setting and getting model_registry_file" do
+      config.model_registry_file = "/path/to/models.json"
+      expect(config.model_registry_file).to eq("/path/to/models.json")
     end
   end
 
