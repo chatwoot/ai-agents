@@ -286,7 +286,6 @@ module Agents
     def restorable_message?(msg)
       role = msg[:role].to_sym
       return false unless %i[user assistant tool].include?(role)
-      return false if msg[:content].nil?
       return false if role != :tool && Helpers::MessageExtractor.content_empty?(msg[:content])
 
       true
