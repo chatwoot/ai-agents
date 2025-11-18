@@ -73,6 +73,16 @@ module Agents
       @tool.parameters
     end
 
+    # RubyLLM calls this to get parameter schema (required in RubyLLM 1.9+)
+    def params_schema
+      @tool.params_schema if @tool.respond_to?(:params_schema)
+    end
+
+    # RubyLLM calls this to get provider-specific parameters (required in RubyLLM 1.9+)
+    def provider_params
+      @tool.provider_params if @tool.respond_to?(:provider_params)
+    end
+
     # Make this work with RubyLLM's tool calling
     def to_s
       name
