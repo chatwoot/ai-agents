@@ -27,6 +27,94 @@ Agents.configure do |config|
   config.anthropic_api_key = Rails.application.credentials.anthropic_api_key
   config.default_model = 'gpt-4o-mini'
   config.debug = Rails.env.development?
+
+  # Optional: Configure model registry for staying up-to-date with latest models
+  config.model_registry_file = Rails.root.join('config', 'models.json')
+end
+```
+
+### Model Registry Configuration
+
+The SDK uses [RubyLLM's model registry](https://rubyllm.com/models/) to maintain an up-to-date list of available models from your configured providers. This is particularly useful when new models are released.
+
+#### Automatic Model Refresh on Application Start
+
+To ensure your application always has access to the latest models, you can refresh the registry on initialization:
+
+```ruby
+# config/initializers/ai_agents.rb
+Agents.configure do |config|
+  config.openai_api_key = Rails.application.credentials.openai_api_key
+  config.anthropic_api_key = Rails.application.credentials.anthropic_api_key
+  config.model_registry_file = Rails.root.join('config', 'models.json')
+end
+
+# Refresh models on application start
+# Only refresh in production/staging to avoid unnecessary API calls in development
+if Rails.env.production? || Rails.env.staging?
+  begin
+    Agents.refresh_and_save_models!(remote_only: true)
+    Rails.logger.info "AI Agents: Model registry refreshed successfully"
+  rescue StandardError => e
+    Rails.logger.warn "AI Agents: Failed to refresh model registry - #{e.message}"
+    # Application continues with existing model registry
+  end
+end
+```
+
+**Note:** Using `remote_only: true` excludes local providers like Ollama from the refresh, which is typically what you want for production environments.
+
+#### Manual Model Refresh
+
+You can also refresh models manually via a Rails console or rake task:
+
+```ruby
+# In Rails console
+Agents.refresh_and_save_models!(remote_only: true)
+
+# Or via a rake task
+# lib/tasks/agents.rake
+namespace :agents do
+  desc "Refresh AI model registry"
+  task refresh_models: :environment do
+    puts "Refreshing AI model registry..."
+    Agents.refresh_and_save_models!(remote_only: true)
+    puts "Model registry updated successfully!"
+  rescue StandardError => e
+    puts "Error refreshing model registry: #{e.message}"
+    exit 1
+  end
+end
+
+# Run with: rails agents:refresh_models
+```
+
+#### Development vs Production Considerations
+
+**Development:**
+- Consider skipping automatic refresh to reduce startup time
+- The gem includes a default model registry that works for most use cases
+- Manually refresh when you need to test new models
+
+**Production:**
+- Enable automatic refresh on deployment or application restart
+- Cache the registry in Redis for faster access across instances
+- Monitor refresh failures and fall back to cached registry
+
+```ruby
+# Example: Cache model registry in Redis
+if Rails.env.production?
+  begin
+    cached_timestamp = Rails.cache.read('agents:model_registry_timestamp')
+
+    # Refresh if cache is older than 24 hours
+    if cached_timestamp.nil? || cached_timestamp < 24.hours.ago
+      Agents.refresh_and_save_models!(remote_only: true)
+      Rails.cache.write('agents:model_registry_timestamp', Time.current)
+    end
+  rescue StandardError => e
+    Rails.logger.warn "Model registry refresh failed: #{e.message}"
+  end
 end
 ```
 

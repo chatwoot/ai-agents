@@ -206,8 +206,37 @@ Agents.configure do |config|
 
   # Debugging
   config.debug = true
+
+  # Model Registry (optional - for staying up-to-date with latest models)
+  config.model_registry_file = Rails.root.join('config', 'models.json')
 end
 ```
+
+### Keeping Models Up-to-Date
+
+The SDK uses [RubyLLM's model registry](https://rubyllm.com/models/) to stay aware of available models. To refresh the registry with the latest models from your providers:
+
+```ruby
+# Manually refresh and save models
+Agents.refresh_and_save_models!(remote_only: true)
+```
+
+In Rails applications, you can automatically refresh models on initialization:
+
+```ruby
+# config/initializers/ai_agents.rb
+Agents.configure do |config|
+  config.openai_api_key = Rails.application.credentials.openai_api_key
+  config.model_registry_file = Rails.root.join('config', 'models.json')
+end
+
+# Refresh models on application start (only in production/staging)
+if Rails.env.production? || Rails.env.staging?
+  Agents.refresh_and_save_models!(remote_only: true)
+end
+```
+
+This ensures your application always has access to the latest models without updating the gem.
 
 ## 🤝 Contributing
 
