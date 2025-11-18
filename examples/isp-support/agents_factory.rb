@@ -44,7 +44,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Triage Agent",
         instructions: triage_instructions,
-        model: "gpt-5.1",
+        model: "gpt-5",
         tools: [],
         temperature: 0.3, # Lower temperature for consistent routing decisions
         response_schema: triage_response_schema
@@ -55,7 +55,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Sales Agent",
         instructions: sales_instructions_with_state,
-        model: "gpt-5.1",
+        model: "gpt-5",
         tools: [ISPSupport::CreateLeadTool.new, ISPSupport::CreateCheckoutTool.new],
         temperature: 0.8, # Higher temperature for more persuasive, varied sales language
         response_schema: sales_response_schema
@@ -66,7 +66,7 @@ module ISPSupport
       Agents::Agent.new(
         name: "Support Agent",
         instructions: support_instructions,
-        model: "gpt-5.1",
+        model: "gpt-5",
         tools: [
           ISPSupport::CrmLookupTool.new,
           ISPSupport::SearchDocsTool.new,
