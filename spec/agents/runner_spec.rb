@@ -450,10 +450,11 @@ RSpec.describe Agents::Runner do
         end
       end
 
-      it "does not restore tool_calls on assistant messages" do
-        # Regression test: tool_calls are intentionally not restored on assistant messages
-        # because LLM providers expect ToolCall objects, not plain hashes/arrays.
-        # See runner.rb:311-317 for design rationale.
+      it "restores tool_calls on assistant messages" do
+        # As of commit 1cfe99e, tool_calls ARE restored on assistant messages
+        # because OpenAI/Anthropic APIs require tool result messages to be
+        # preceded by assistant messages with matching tool_calls.
+        # See runner.rb:310-321 for implementation.
 
         # Track what gets added to the chat during restoration
         restored_messages = []
@@ -491,11 +492,13 @@ RSpec.describe Agents::Runner do
           m[:role] == :assistant && m[:content].include?("Let me check")
         end
 
-        # Verify expected behavior: content is restored but tool_calls are not
+        # Verify expected behavior: both content AND tool_calls are restored
         expect(assistant_msg).not_to be_nil
         expect(assistant_msg[:content]).to eq("Let me check that for you")
-        expect(assistant_msg[:tool_calls]).to be_nil
-        expect(assistant_msg[:tool_call]).to be(false)
+        expect(assistant_msg[:tool_calls]).to be_a(Hash)
+        expect(assistant_msg[:tool_calls]).not_to be_empty
+        expect(assistant_msg[:tool_calls]["call_123"]).not_to be_nil
+        expect(assistant_msg[:tool_calls]["call_123"].id).to eq("call_123")
 
         # Tool messages should still be restored normally
         tool_msg = restored_messages.find { |m| m[:role] == :tool }

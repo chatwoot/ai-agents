@@ -69,8 +69,6 @@ module Agents
           if msg.tool_call? && msg.tool_calls
             # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
             # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
-            # Note: tool_calls are only present on fresh messages from the LLM, never on restored messages
-            # (see runner.rb:311-317 for why we don't restore tool_calls)
             message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
           end
         end
