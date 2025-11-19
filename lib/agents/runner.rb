@@ -300,20 +300,21 @@ module Agents
         content: RubyLLM::Content.new(msg[:content])
       }
 
-      # Handle tool-specific parameters
+      # Handle tool-specific parameters (Tool Results)
       if role == :tool
         return nil unless valid_tool_message?(msg)
 
         params[:tool_call_id] = msg[:tool_call_id]
       end
 
-      # NOTE: Intentionally do NOT restore tool_calls on assistant messages.
-      # Tool calls from history are already saved as hashes (not RubyLLM::ToolCall objects),
-      # and RubyLLM's providers expect ToolCall objects for formatting.
-      # What matters for conversation continuity is:
-      # 1. The assistant's content (which describes what it was doing)
-      # 2. The tool result messages (which we ARE restoring with tool_call_id)
-      # The LLM can understand the conversation flow from these without needing the raw tool_calls array.
+      # FIX: Restore tool_calls on assistant messages
+      # This is required by OpenAI/Anthropic API contracts to link
+      # subsequent tool result messages back to this request.
+      if role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
+        # Convert stored hashes back into the format RubyLLM expects
+        # We verify the array is not empty to avoid API errors
+        params[:tool_calls] = msg[:tool_calls]
+      end
 
       params
     end
