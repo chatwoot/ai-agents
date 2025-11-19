@@ -450,6 +450,40 @@ RSpec.describe Agents::Runner do
         end
       end
 
+      context "with assistant tool calls that have empty content" do
+        let(:context_with_tool_only_assistant) do
+          {
+            conversation_history: [
+              { role: :user, content: "Trigger a tool" },
+              {
+                role: :assistant,
+                content: "",
+                tool_calls: [{ id: "call_blank", name: "do_something", arguments: {} }]
+              },
+              { role: :tool, content: "Done", tool_call_id: "call_blank" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("All set")
+        end
+
+        it "restores assistant tool call messages even without text" do
+          result = runner.run(agent, "Thanks", context: context_with_tool_only_assistant)
+
+          expect(result.success?).to be true
+
+          assistant_with_tools = result.messages.find do |msg|
+            msg[:role] == :assistant && msg[:tool_calls]&.any?
+          end
+
+          expect(assistant_with_tools).not_to be_nil
+          expect(assistant_with_tools[:content]).to eq("")
+          expect(assistant_with_tools[:tool_calls].first[:id]).to eq("call_blank")
+        end
+      end
+
       it "restores tool_calls on assistant messages" do
         # As of commit 1cfe99e, tool_calls ARE restored on assistant messages
         # because OpenAI/Anthropic APIs require tool result messages to be

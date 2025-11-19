@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "ostruct"
+require "set"
 
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
@@ -272,15 +273,27 @@ module Agents
     # @param context_wrapper [RunContext] Context containing conversation history
     def restore_conversation_history(chat, context_wrapper)
       history = context_wrapper.context[:conversation_history] || []
+      valid_tool_call_ids = Set.new
 
       history.each do |msg|
         next unless restorable_message?(msg)
+
+        if msg[:role].to_sym == :tool &&
+           msg[:tool_call_id] &&
+           !valid_tool_call_ids.include?(msg[:tool_call_id])
+          Agents.logger&.warn("Skipping tool message without matching assistant tool_call_id #{msg[:tool_call_id]}")
+          next
+        end
 
         message_params = build_message_params(msg)
         next unless message_params # Skip invalid messages
 
         message = RubyLLM::Message.new(**message_params)
         chat.add_message(message)
+
+        if message.role == :assistant && message_params[:tool_calls]
+          valid_tool_call_ids.merge(message_params[:tool_calls].keys)
+        end
       end
     end
 
@@ -288,7 +301,11 @@ module Agents
     def restorable_message?(msg)
       role = msg[:role].to_sym
       return false unless %i[user assistant tool].include?(role)
-      return false if role != :tool && Helpers::MessageExtractor.content_empty?(msg[:content])
+
+      # Allow assistant messages that only contain tool calls (no text content)
+      tool_calls_present = role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
+      return false if role != :tool && !tool_calls_present &&
+                      Helpers::MessageExtractor.content_empty?(msg[:content])
 
       true
     end
@@ -297,9 +314,13 @@ module Agents
     def build_message_params(msg)
       role = msg[:role].to_sym
 
+      content_value = msg[:content]
+      # Assistant tool-call messages may have empty text, but still need placeholder content
+      content_value = "" if content_value.nil? && role == :assistant && msg[:tool_calls]&.any?
+
       params = {
         role: role,
-        content: RubyLLM::Content.new(msg[:content])
+        content: RubyLLM::Content.new(content_value)
       }
 
       # Handle tool-specific parameters (Tool Results)
