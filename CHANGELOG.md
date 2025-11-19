@@ -10,10 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Tool Message Restoration Bug**: Fixed bug where tool messages were not restored from conversation history
 
-### Changed
-- **MessageExtractor Enhancement**: Improved handling of `tool_calls` to support both Hash (from RubyLLM) and Array (from restored context) formats
-- **Runner Refactoring**: Extracted helper methods (`restorable_message?`, `build_message_params`, `valid_tool_message?`) to reduce complexity
-
 ## [0.7.0] - 2025-10-16
 
 ### Added
