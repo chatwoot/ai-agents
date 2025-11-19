@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "ostruct"
+
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
   # Runner manages the conversation flow, handles tool execution through RubyLLM,
@@ -311,9 +313,12 @@ module Agents
       # This is required by OpenAI/Anthropic API contracts to link
       # subsequent tool result messages back to this request.
       if role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
-        # Convert stored hashes back into the format RubyLLM expects
-        # We verify the array is not empty to avoid API errors
-        params[:tool_calls] = msg[:tool_calls]
+        # Convert stored array of hashes back into the Hash format RubyLLM expects
+        # RubyLLM stores tool_calls as: { call_id => ToolCall_object, ... }
+        # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
+        params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
+          hash[tc[:id]] = OpenStruct.new(tc)
+        end
       end
 
       params
