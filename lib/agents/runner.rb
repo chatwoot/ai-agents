@@ -338,7 +338,8 @@ module Agents
         # RubyLLM stores tool_calls as: { call_id => ToolCall_object, ... }
         # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
         params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
-          hash[tc[:id]] = OpenStruct.new(tc)
+          tool_call_id = tc[:id] || tc["id"]
+          hash[tool_call_id] = OpenStruct.new(tc)
         end
       end
 

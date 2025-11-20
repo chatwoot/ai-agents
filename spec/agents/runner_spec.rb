@@ -348,6 +348,45 @@ RSpec.describe Agents::Runner do
         end
       end
 
+      context "with tool_calls stored using string keys" do
+        let(:context_with_string_tool_calls) do
+          {
+            conversation_history: [
+              { role: :user, content: "What's the weather in SF?" },
+              {
+                role: :assistant,
+                content: "Let me check that for you",
+                tool_calls: [
+                  { "id" => "call_123", "name" => "get_weather", "arguments" => { "location" => "SF" } }
+                ]
+              },
+              { role: :tool, content: "72°F, Sunny", tool_call_id: "call_123" },
+              { role: :assistant, content: "It's 72°F and sunny in SF!" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("Clear skies ahead!")
+        end
+
+        it "restores tool_calls and tool results when tool_call ids are string keyed" do
+          result = runner.run(agent, "Anything else?", context: context_with_string_tool_calls)
+
+          expect(result.success?).to be true
+
+          tool_message = result.messages.find { |msg| msg[:role] == :tool }
+          expect(tool_message).not_to be_nil
+          expect(tool_message[:tool_call_id]).to eq("call_123")
+
+          assistant_with_tools = result.messages.find do |msg|
+            msg[:role] == :assistant && msg[:tool_calls]&.any?
+          end
+          expect(assistant_with_tools).not_to be_nil
+          expect(assistant_with_tools[:tool_calls].first[:id]).to eq("call_123")
+        end
+      end
+
       context "with empty tool result" do
         let(:context_with_empty_tool_result) do
           {
