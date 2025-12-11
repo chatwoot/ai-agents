@@ -100,9 +100,25 @@ module Agents
       # @example Adding usage from an LLM response
       #   usage.add(llm_response.usage)
       def add(usage)
-        @input_tokens += usage.input_tokens || 0
-        @output_tokens += usage.output_tokens || 0
-        @total_tokens += usage.total_tokens || 0
+        return unless usage
+
+        input = extract_metric(usage, :input_tokens)
+        output = extract_metric(usage, :output_tokens)
+        total = extract_metric(usage, :total_tokens) || (input || 0) + (output || 0)
+
+        @input_tokens += input || 0
+        @output_tokens += output || 0
+        @total_tokens += total || 0
+      end
+
+      private
+
+      def extract_metric(usage, key)
+        if usage.respond_to?(key)
+          usage.public_send(key)
+        elsif usage.is_a?(Hash)
+          usage[key] || usage[key.to_s]
+        end
       end
     end
   end
