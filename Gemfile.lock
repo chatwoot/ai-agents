@@ -137,7 +137,6 @@ DEPENDENCIES
   rspec (~> 3.12)
   rubocop (~> 1.21)
   rubocop-rspec (~> 3.0)
-  ruby_llm (~> 1.8.2)
   ruby_llm-schema
   simplecov (~> 0.22)
   webmock (~> 3.18)
