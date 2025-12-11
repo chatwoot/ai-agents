@@ -73,6 +73,15 @@ module Agents
       @tool.parameters
     end
 
+    # Expose params schema for RubyLLM providers that expect it
+    def params_schema
+      @tool.respond_to?(:params_schema) ? @tool.params_schema : nil
+    end
+
+    def provider_params
+      @tool.respond_to?(:provider_params) ? @tool.provider_params : {}
+    end
+
     # Make this work with RubyLLM's tool calling
     def to_s
       name
