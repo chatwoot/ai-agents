@@ -94,31 +94,21 @@ module Agents
       end
 
       # Add usage metrics from an LLM response to the running totals.
-      # Safely handles nil values in the usage object.
+      # Only tracks usage for responses that have token data (e.g., RubyLLM::Message).
+      # Safely skips responses without token methods (e.g., RubyLLM::Tool::Halt).
       #
-      # @param usage [Object] An object responding to input_tokens, output_tokens, and total_tokens
+      # @param response [RubyLLM::Message] A RubyLLM::Message object with token usage data
       # @example Adding usage from an LLM response
-      #   usage.add(llm_response.usage)
-      def add(usage)
-        return unless usage
+      #   usage.add(llm_response)
+      def add(response)
+        return unless response.respond_to?(:input_tokens)
 
-        input = extract_metric(usage, :input_tokens)
-        output = extract_metric(usage, :output_tokens)
-        total = extract_metric(usage, :total_tokens) || (input || 0) + (output || 0)
+        input = response.input_tokens || 0
+        output = response.output_tokens || 0
 
-        @input_tokens += input || 0
-        @output_tokens += output || 0
-        @total_tokens += total || 0
-      end
-
-      private
-
-      def extract_metric(usage, key)
-        if usage.respond_to?(key)
-          usage.public_send(key)
-        elsif usage.is_a?(Hash)
-          usage[key] || usage[key.to_s]
-        end
+        @input_tokens += input
+        @output_tokens += output
+        @total_tokens += input + output
       end
     end
   end

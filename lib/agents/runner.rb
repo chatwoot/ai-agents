@@ -344,11 +344,7 @@ module Agents
     def track_usage(response, context_wrapper)
       return unless context_wrapper&.usage
 
-      if response.respond_to?(:input_tokens) || response.respond_to?(:output_tokens) || response.respond_to?(:total_tokens)
-        context_wrapper.usage.add(response)
-      elsif response.respond_to?(:usage)
-        context_wrapper.usage.add(response.usage)
-      end
+      context_wrapper.usage.add(response)
     end
 
     # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
