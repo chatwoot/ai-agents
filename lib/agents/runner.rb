@@ -118,6 +118,7 @@ module Agents
                    chat.complete
                  end
         response = result
+        track_usage(response, context_wrapper)
 
         # Check for handoff via RubyLLM's halt mechanism
         if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
@@ -338,6 +339,12 @@ module Agents
       return if headers.empty?
 
       chat.with_headers(**headers)
+    end
+
+    def track_usage(response, context_wrapper)
+      return unless context_wrapper&.usage
+
+      context_wrapper.usage.add(response)
     end
 
     # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
