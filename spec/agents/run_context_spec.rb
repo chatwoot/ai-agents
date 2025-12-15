@@ -123,12 +123,12 @@ RSpec.describe Agents::RunContext::Usage do
       end
 
       it "handles partial nil values" do
-        partial_usage = usage_struct.new(50, nil, 75)
+        partial_usage = usage_struct.new(50, nil, nil)
 
         usage.add(partial_usage)
         expect(usage.input_tokens).to eq(50)
         expect(usage.output_tokens).to eq(0)
-        expect(usage.total_tokens).to eq(75)
+        expect(usage.total_tokens).to eq(50)
       end
     end
   end

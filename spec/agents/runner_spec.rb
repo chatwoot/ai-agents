@@ -93,7 +93,8 @@ RSpec.describe Agents::Runner do
     context "with custom headers" do
       it "passes runtime headers to RubyLLM chat" do
         mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with headers")
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with headers",
+                                                          input_tokens: 10, output_tokens: 5)
         headers = { "X-Test" => "value" }
 
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
@@ -111,7 +112,8 @@ RSpec.describe Agents::Runner do
 
       it "applies agent default headers when runtime headers are absent" do
         mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent headers")
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent headers",
+                                                          input_tokens: 10, output_tokens: 5)
 
         allow(agent).to receive(:headers).and_return({ "X-Agent" => "agent-value" })
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
@@ -129,7 +131,8 @@ RSpec.describe Agents::Runner do
 
       it "merges headers giving runtime precedence over agent defaults" do
         mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged headers")
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged headers",
+                                                          input_tokens: 10, output_tokens: 5)
         runtime_headers = {
           "X-Shared" => "runtime",
           "X-Runtime-Only" => "runtime-only"
@@ -678,7 +681,8 @@ RSpec.describe Agents::Runner do
       it "raises MaxTurnsExceeded and returns error result" do
         # Mock chat to always return tool_call? = true, causing infinite loop
         mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: true)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: true,
+                                                          input_tokens: 10, output_tokens: 5)
 
         allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
         allow(runner).to receive_messages(
