@@ -8,7 +8,7 @@ RSpec.describe "Live agent handoff", :live_llm do
   let(:model) { live_model }
 
   before do
-    configure_live_llm(model: ENV.fetch("OPENAI_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
+    configure_live_llm
   end
 
   it "hands off to the target agent and continues the conversation" do

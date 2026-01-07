@@ -25,7 +25,7 @@ RSpec.describe "Live LLM tool call", :live_llm do
   let(:model) { live_model }
 
   before do
-    configure_live_llm(model: ENV.fetch("OPENAI_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
+    configure_live_llm
   end
 
   it "invokes a simple tool and returns its result" do

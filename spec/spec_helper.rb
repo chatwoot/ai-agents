@@ -3,6 +3,19 @@
 require "simplecov"
 
 live_llm_requested = ENV["RUN_LIVE_LLM"] || ARGV.any? { |arg| arg.include?("live_llm") }
+live_llm_provider = ENV.fetch("LIVE_LLM_PROVIDER", "openai").downcase
+live_llm_api_key_env = case live_llm_provider
+                       when "openai"
+                         "OPENAI_API_KEY"
+                       when "anthropic"
+                         "ANTHROPIC_API_KEY"
+                       when "gemini"
+                         "GEMINI_API_KEY"
+                       else
+                         "OPENAI_API_KEY"
+                       end
+live_llm_api_key_present = !ENV[live_llm_api_key_env].to_s.strip.empty?
+live_llm_enabled = ENV["RUN_LIVE_LLM"] && live_llm_api_key_present
 
 SimpleCov.start do
   add_filter "/spec/"
@@ -35,14 +48,14 @@ RSpec.configure do |config|
 
   # Only run live LLM specs (tagged :live_llm) when explicitly enabled with credentials.
   # Prevents accidental real API calls in local/PR runs.
-  unless ENV["RUN_LIVE_LLM"] && ENV["OPENAI_API_KEY"]
+  unless live_llm_enabled
     config.filter_run_excluding :live_llm
   end
 
   # Even if someone force-includes the tag, guard at runtime to avoid config errors.
   config.before(:each, :live_llm) do
-    unless ENV["RUN_LIVE_LLM"] && ENV["OPENAI_API_KEY"]
-      skip "Live LLM specs require RUN_LIVE_LLM=true and OPENAI_API_KEY set"
+    unless live_llm_enabled
+      skip "Live LLM specs require RUN_LIVE_LLM=true and #{live_llm_api_key_env} set"
     end
   end
 

@@ -14,10 +14,18 @@ jobs:
     # Only run on default branch pushes or explicit manual dispatch
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        provider: [openai, anthropic, gemini]
     env:
       RUN_LIVE_LLM: "true"
+      LIVE_LLM_PROVIDER: ${{ matrix.provider }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +37,24 @@ jobs:
 
       - name: Verify secrets
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY is not configured; live LLM smoke tests skipped." >&2
+          case "$LIVE_LLM_PROVIDER" in
+            openai)
+              required_key="OPENAI_API_KEY"
+              ;;
+            anthropic)
+              required_key="ANTHROPIC_API_KEY"
+              ;;
+            gemini)
+              required_key="GEMINI_API_KEY"
+              ;;
+            *)
+              echo "Unsupported LIVE_LLM_PROVIDER: $LIVE_LLM_PROVIDER" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${!required_key}" ]; then
+            echo "$required_key is not configured; live LLM smoke tests skipped." >&2
             exit 1
           fi
 
