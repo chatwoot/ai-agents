@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "ostruct"
 require "set"
 
 module Agents
@@ -340,7 +339,13 @@ module Agents
         # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
         params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
           tool_call_id = tc[:id] || tc["id"]
-          hash[tool_call_id] = OpenStruct.new(tc)
+          next unless tool_call_id
+
+          hash[tool_call_id] = RubyLLM::ToolCall.new(
+            id: tool_call_id,
+            name: tc[:name] || tc["name"],
+            arguments: tc[:arguments] || tc["arguments"] || {}
+          )
         end
       end
 
