@@ -168,6 +168,46 @@ RSpec.describe Agents::Helpers::MessageExtractor do
                              ])
       end
     end
+
+    context "when assistant tool calls have no text content" do
+      let(:tool_call) do
+        instance_double(RubyLLM::ToolCall,
+                        to_h: {
+                          id: "call_456",
+                          name: "test_tool",
+                          arguments: { foo: "bar" }
+                        })
+      end
+
+      let(:assistant_with_tool_only) do
+        instance_double(RubyLLM::Message,
+                        role: :assistant,
+                        content: nil,
+                        tool_call?: true,
+                        tool_calls: { "call_456" => tool_call })
+      end
+
+      let(:chat) { instance_double(RubyLLM::Chat, messages: [assistant_with_tool_only]) }
+
+      it "preserves the message and tool calls with empty string content" do
+        result = described_class.extract_messages(chat, current_agent)
+
+        expect(result).to eq([
+                               {
+                                 role: :assistant,
+                                 content: "",
+                                 agent_name: "TestAgent",
+                                 tool_calls: [
+                                   {
+                                     id: "call_456",
+                                     name: "test_tool",
+                                     arguments: { foo: "bar" }
+                                   }
+                                 ]
+                               }
+                             ])
+      end
+    end
   end
 
   describe ".content_empty?" do

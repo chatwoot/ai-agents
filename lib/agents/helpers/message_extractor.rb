@@ -54,28 +54,35 @@ module Agents
       end
 
       def extract_user_or_assistant_message(msg, current_agent)
-        return nil unless msg.content && !content_empty?(msg.content)
+        content_present = message_content?(msg)
+        tool_calls_present = assistant_tool_calls?(msg)
+        return nil unless content_present || tool_calls_present
 
         message = {
           role: msg.role,
-          content: msg.content
+          content: content_present ? msg.content : ""
         }
 
-        if msg.role == :assistant
-          # Add agent attribution for conversation continuity
-          message[:agent_name] = current_agent.name if current_agent
+        return message unless msg.role == :assistant
 
-          # Add tool calls if present
-          if msg.tool_call? && msg.tool_calls
-            # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
-            # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
-            message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
-          end
+        message[:agent_name] = current_agent.name if current_agent
+
+        if tool_calls_present
+          # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
+          # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
+          message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
         end
 
         message
       end
-      private_class_method :extract_user_or_assistant_message
+
+      def message_content?(msg)
+        msg.content && !content_empty?(msg.content)
+      end
+
+      def assistant_tool_calls?(msg)
+        msg.role == :assistant && msg.tool_call? && msg.tool_calls && !msg.tool_calls.empty?
+      end
 
       def extract_tool_message(msg)
         return nil unless msg.tool_result?
@@ -86,7 +93,9 @@ module Agents
           tool_call_id: msg.tool_call_id
         }
       end
-      private_class_method :extract_tool_message
+
+      private_class_method :extract_user_or_assistant_message, :message_content?, :assistant_tool_calls?,
+                           :extract_tool_message
     end
   end
 end

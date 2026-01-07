@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 module Agents
   # The execution engine that orchestrates conversations between users and agents.
   # Runner manages the conversation flow, handles tool execution through RubyLLM,
@@ -265,26 +267,98 @@ module Agents
 
     # Restores conversation history from context into RubyLLM chat.
     # Converts stored message hashes back into RubyLLM::Message objects with proper content handling.
+    # Supports user, assistant, and tool role messages for complete conversation continuity.
     #
     # @param chat [RubyLLM::Chat] The chat instance to restore history into
     # @param context_wrapper [RunContext] Context containing conversation history
     def restore_conversation_history(chat, context_wrapper)
       history = context_wrapper.context[:conversation_history] || []
+      valid_tool_call_ids = Set.new
 
       history.each do |msg|
-        # Only restore user and assistant messages with content
-        next unless %i[user assistant].include?(msg[:role].to_sym)
-        next unless msg[:content] && !Helpers::MessageExtractor.content_empty?(msg[:content])
+        next unless restorable_message?(msg)
 
-        # Extract text content safely - handle both string and hash content
-        content = RubyLLM::Content.new(msg[:content])
+        if msg[:role].to_sym == :tool &&
+           msg[:tool_call_id] &&
+           !valid_tool_call_ids.include?(msg[:tool_call_id])
+          Agents.logger&.warn("Skipping tool message without matching assistant tool_call_id #{msg[:tool_call_id]}")
+          next
+        end
 
-        # Create a proper RubyLLM::Message and pass it to add_message
-        message = RubyLLM::Message.new(
-          role: msg[:role].to_sym,
-          content: content
-        )
+        message_params = build_message_params(msg)
+        next unless message_params # Skip invalid messages
+
+        message = RubyLLM::Message.new(**message_params)
         chat.add_message(message)
+
+        if message.role == :assistant && message_params[:tool_calls]
+          valid_tool_call_ids.merge(message_params[:tool_calls].keys)
+        end
+      end
+    end
+
+    # Check if a message should be restored
+    def restorable_message?(msg)
+      role = msg[:role].to_sym
+      return false unless %i[user assistant tool].include?(role)
+
+      # Allow assistant messages that only contain tool calls (no text content)
+      tool_calls_present = role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
+      return false if role != :tool && !tool_calls_present &&
+                      Helpers::MessageExtractor.content_empty?(msg[:content])
+
+      true
+    end
+
+    # Build message parameters for restoration
+    def build_message_params(msg)
+      role = msg[:role].to_sym
+
+      content_value = msg[:content]
+      # Assistant tool-call messages may have empty text, but still need placeholder content
+      content_value = "" if content_value.nil? && role == :assistant && msg[:tool_calls]&.any?
+
+      params = {
+        role: role,
+        content: RubyLLM::Content.new(content_value)
+      }
+
+      # Handle tool-specific parameters (Tool Results)
+      if role == :tool
+        return nil unless valid_tool_message?(msg)
+
+        params[:tool_call_id] = msg[:tool_call_id]
+      end
+
+      # FIX: Restore tool_calls on assistant messages
+      # This is required by OpenAI/Anthropic API contracts to link
+      # subsequent tool result messages back to this request.
+      if role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
+        # Convert stored array of hashes back into the Hash format RubyLLM expects
+        # RubyLLM stores tool_calls as: { call_id => ToolCall_object, ... }
+        # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
+        params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
+          tool_call_id = tc[:id] || tc["id"]
+          next unless tool_call_id
+
+          hash[tool_call_id] = RubyLLM::ToolCall.new(
+            id: tool_call_id,
+            name: tc[:name] || tc["name"],
+            arguments: tc[:arguments] || tc["arguments"] || {}
+          )
+        end
+      end
+
+      params
+    end
+
+    # Validate tool message has required tool_call_id
+    def valid_tool_message?(msg)
+      if msg[:tool_call_id]
+        true
+      else
+        Agents.logger&.warn("Skipping tool message without tool_call_id in conversation history")
+        false
       end
     end
 
