@@ -574,12 +574,76 @@ RSpec.describe Agents::Runner do
         expect(assistant_msg[:tool_calls]).to be_a(Hash)
         expect(assistant_msg[:tool_calls]).not_to be_empty
         expect(assistant_msg[:tool_calls]["call_123"]).not_to be_nil
+        expect(assistant_msg[:tool_calls]["call_123"]).to be_a(RubyLLM::ToolCall)
         expect(assistant_msg[:tool_calls]["call_123"].id).to eq("call_123")
 
         # Tool messages should still be restored normally
         tool_msg = restored_messages.find { |m| m[:role] == :tool }
         expect(tool_msg).not_to be_nil
         expect(tool_msg[:content]).to eq("72°F, Sunny")
+      end
+
+      context "with tool_calls missing ids" do
+        let(:context_with_missing_tool_call_id) do
+          {
+            conversation_history: [
+              { role: :user, content: "Use a tool" },
+              {
+                role: :assistant,
+                content: "Calling tool",
+                tool_calls: [{ name: "add_numbers", arguments: { a: 1, b: 2 } }]
+              },
+              { role: :tool, content: "3", tool_call_id: "call_missing" }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("OK")
+        end
+
+        it "skips tool_calls without ids and ignores unmatched tool messages" do
+          result = runner.run(agent, "Continue", context: context_with_missing_tool_call_id)
+
+          expect(result.success?).to be true
+          assistant_msg = result.messages.find { |msg| msg[:role] == :assistant }
+          expect(assistant_msg[:tool_calls]).to be_nil
+
+          tool_messages = result.messages.select { |msg| msg[:role] == :tool }
+          expect(tool_messages).to be_empty
+        end
+      end
+
+      context "with out-of-order tool history" do
+        let(:context_with_out_of_order_tool_history) do
+          {
+            conversation_history: [
+              { role: :user, content: "Check status" },
+              { role: :tool, content: "OK", tool_call_id: "call_early" },
+              {
+                role: :assistant,
+                content: "Calling tool now",
+                tool_calls: [{ id: "call_early", name: "check_status", arguments: {} }]
+              }
+            ]
+          }
+        end
+
+        before do
+          stub_simple_chat("Done")
+        end
+
+        it "skips tool results that appear before their tool_calls" do
+          # Current behavior: drop out-of-order tool results because we only accept tool messages
+          # after the matching assistant tool_call has been restored. Alternative options:
+          # 1) pre-scan history to collect tool_call_ids, or
+          # 2) buffer tool results until their tool_call appears later.
+          result = runner.run(agent, "Continue", context: context_with_out_of_order_tool_history)
+
+          expect(result.success?).to be true
+          tool_messages = result.messages.select { |msg| msg[:role] == :tool }
+          expect(tool_messages).to be_empty
+        end
       end
     end
 
