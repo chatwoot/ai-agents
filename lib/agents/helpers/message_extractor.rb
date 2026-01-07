@@ -75,17 +75,14 @@ module Agents
 
         message
       end
-      private_class_method :extract_user_or_assistant_message
 
       def message_content?(msg)
         msg.content && !content_empty?(msg.content)
       end
-      private_class_method :message_content?
 
       def assistant_tool_calls?(msg)
         msg.role == :assistant && msg.tool_call? && msg.tool_calls && !msg.tool_calls.empty?
       end
-      private_class_method :assistant_tool_calls?
 
       def extract_tool_message(msg)
         return nil unless msg.tool_result?
@@ -96,7 +93,9 @@ module Agents
           tool_call_id: msg.tool_call_id
         }
       end
-      private_class_method :extract_tool_message
+
+      private_class_method :extract_user_or_assistant_message, :message_content?, :assistant_tool_calls?,
+                           :extract_tool_message
     end
   end
 end
