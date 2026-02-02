@@ -240,58 +240,26 @@ For detailed callback documentation, see `docs/concepts/callbacks.md`.
 
 ## OpenTelemetry Instrumentation
 
-The SDK includes optional OpenTelemetry instrumentation that produces spans compatible with Langfuse and other OTel backends. The gem only emits spans — consumers must configure the OTel exporter and provide a tracer.
+The SDK includes optional OpenTelemetry instrumentation (`lib/agents/instrumentation/`) that produces spans compatible with Langfuse and other OTel backends via `Agents::Instrumentation.install(runner, tracer:, ...)`.
 
-### Instrumentation Files
+### Rules for Instrumentation Code
 
-```
-lib/agents/
-├── instrumentation.rb                    # Public API: Instrumentation.install(runner, tracer:, ...)
-└── instrumentation/
-    ├── constants.rb                      # OTel attribute name constants (Langfuse property mapping)
-    └── tracing_callbacks.rb              # Span lifecycle management (TracingCallbacks class)
-```
+1. **Double-counting prevention**: NEVER set `gen_ai.request.model` on container spans (`agents.run`, `agents.tool.*`). Only `agents.llm_call` GENERATION spans get this attribute. Langfuse sums costs from every span with this attribute — setting it on both parent and child causes double counting.
 
-### Key Design Decisions
+2. **Langfuse needs BOTH trace-level and observation-level I/O**: Always set both `langfuse.trace.input`/`langfuse.trace.output` AND `langfuse.observation.input`/`langfuse.observation.output` on the root span. Trace-level shows at the top of the page; observation-level shows when you click the span in the sidebar. Missing one causes null/undefined display.
 
-1. **Double-counting prevention**: Only `agents.llm_call` spans carry `gen_ai.request.model`. This causes Langfuse to classify them as GENERATION and sum costs there. Container spans (`agents.run`, `agents.tool.*`) intentionally omit this attribute to avoid double counting.
+3. **Never set attributes to empty strings**: Langfuse renders empty string attributes as "undefined". If a value is empty/nil, do NOT set the attribute at all. Use guards like `unless output.empty?`.
 
-2. **Optional dependency**: `opentelemetry-api` is NOT a gem dependency. The `Instrumentation.install` method uses `require` with `rescue LoadError` — instrumentation is a no-op when OTel isn't installed.
+4. **Hash/Array content must use `.to_json`, not `.to_s`**: When `response.content` is a Hash (from `response_schema` structured output), Ruby's `.to_s` produces `{"key" => "value"}` which is unreadable. Always check `content.is_a?(Hash) || content.is_a?(Array)` and use `.to_json`.
 
-3. **Context-based tracing state**: Tracing state lives in `context_wrapper.context[:__otel_tracing]` (per-execution, thread-safe). Contains `root_span`, `root_context`, `current_llm_span`, `current_tool_span`.
+5. **LLM span input = `chat.messages[0...-1]` as JSON**: Use `format_chat_messages(chat)` which returns the full chat history (excluding the current response) as a JSON array of `{role, content}` messages. This naturally includes tool results since they are part of `chat.messages`. Do NOT concatenate tool results into a flat string — keep the structured role separation.
 
-4. **Arity-safe callbacks**: `CallbackManager#emit` slices args for strict-arity lambdas (`.arity >= 0`), passes all args to procs/blocks (`.arity < 0`). This ensures backwards compatibility when new args like `context_wrapper` are appended to callback signatures.
+6. **Don't use `.delete` for shared tracing state**: If a value in `context[:__otel_tracing]` needs to be read by multiple callbacks, use `tracing[:key]` not `tracing.delete(:key)`. Delete is a destructive side-effect that breaks subsequent reads.
 
-### Callback → Span Mapping
+7. **Per-call LLM spans via `on_end_message`**: Individual GENERATION spans are created by hooking into RubyLLM's `chat.on_end_message` (registered in `on_chat_created`). Each span is created and immediately finished. There is no `current_llm_span` in tracing state — only `current_tool_span` needs single-slot tracking.
 
-| Callback | Span | Langfuse Type | Has gen_ai.request.model? |
-|----------|------|---------------|--------------------------|
-| `on_run_start` | Opens `agents.run` root span | SPAN | No |
-| `on_agent_thinking` | Opens `agents.llm_call` child span | (pending) | (set on close) |
-| `on_llm_call_complete` | Closes LLM span with model + tokens | GENERATION | Yes |
-| `on_tool_start` | Opens `agents.tool.<name>` child span | TOOL | No |
-| `on_tool_complete` | Closes tool span with output | — | — |
-| `on_agent_handoff` | Adds event to root span | Event | No |
-| `on_run_complete` | Closes root span (+ dangling cleanup) | — | — |
+8. **Conversation history deduplication**: `Runner#last_message_matches?` checks if the last restored message already matches the current input. If so, uses `chat.complete` instead of `chat.ask(input)` to avoid sending the user message twice.
 
-### Known Issue: Single LLM Span for Tool-Call Cycles
+### Reference: Chatwoot Instrumentation
 
-When `chat.ask` internally loops (LLM → tool → LLM), the current instrumentation produces one `agents.llm_call` span covering the entire cycle because `on_agent_thinking` fires before `chat.ask` and `on_llm_call_complete` fires after it returns. The fix is to hook into RubyLLM's per-call callbacks (`on_new_message`, `on_end_message`) to get individual spans for each actual LLM API call.
-
-### Consumer Usage
-
-```ruby
-require 'agents/instrumentation'
-
-tracer = OpenTelemetry.tracer_provider.tracer('my_app')
-runner = Agents::Runner.with_agents(triage, billing, support)
-
-Agents::Instrumentation.install(runner,
-  tracer: tracer,
-  span_attributes: { 'langfuse.trace.tags' => '["v2"]' },
-  attribute_provider: ->(ctx) {
-    { 'langfuse.user.id' => account_id.to_s,
-      'langfuse.session.id' => "#{account_id}_#{conversation_id}" }
-  }
-)
-```
+The Chatwoot codebase at `~/work/chatwoot` has a working reference implementation in `lib/integrations/llm_instrumentation_spans.rb` and `lib/integrations/llm_instrumentation.rb`. Key patterns: `messages.to_json` for observation input, `message.content.to_s` for output, `chat.messages[0...-1]` for history.
