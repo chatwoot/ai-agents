@@ -104,6 +104,8 @@ module Agents
       apply_headers(chat, current_headers)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
+      input_already_in_history = last_message_matches?(chat, input)
+      context_wrapper.callback_manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper)
 
       loop do
         current_turn += 1
@@ -113,7 +115,9 @@ module Agents
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
                    context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input, context_wrapper)
-                   chat.ask(input)
+                   # If conversation history already ends with this user message (e.g. passed
+                   # in via context from an external system), use complete to avoid duplicating it.
+                   input_already_in_history ? chat.complete : chat.ask(input)
                  else
                    # Emit agent thinking event for continuation
                    context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)",
@@ -173,6 +177,9 @@ module Agents
           agent_headers = Helpers::Headers.normalize(current_agent.headers)
           current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
           apply_headers(chat, current_headers)
+          context_wrapper.callback_manager.emit_chat_created(
+            chat, current_agent.name, current_agent.model, context_wrapper
+          )
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -414,6 +421,16 @@ module Agents
       chat.with_schema(agent.response_schema) if agent.response_schema
 
       chat
+    end
+
+    # Check if the last message in the chat already matches the user's input.
+    # This happens when an external system (e.g. Chatwoot) includes the current
+    # user message in the conversation history passed via context.
+    def last_message_matches?(chat, input)
+      return false unless input && chat.respond_to?(:messages)
+
+      last_msg = chat.messages.last
+      last_msg && last_msg.role == :user && last_msg.content.to_s == input.to_s
     end
 
     def apply_headers(chat, headers)

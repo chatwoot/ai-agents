@@ -51,7 +51,8 @@ module Agents
         tool_complete: [],
         agent_thinking: [],
         agent_handoff: [],
-        llm_call_complete: []
+        llm_call_complete: [],
+        chat_created: []
       }
     end
 
@@ -174,6 +175,19 @@ module Agents
       return self unless block
 
       @callbacks_mutex.synchronize { @callbacks[:llm_call_complete] << block }
+      self
+    end
+
+    # Register a callback for chat created events.
+    # Called when a RubyLLM Chat object is created or reconfigured after handoff.
+    # Useful for registering per-message hooks (e.g. on_end_message) on the chat.
+    #
+    # @param block [Proc] Callback block that receives (chat, agent_name, model, context_wrapper)
+    # @return [self] For method chaining
+    def on_chat_created(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:chat_created] << block }
       self
     end
 

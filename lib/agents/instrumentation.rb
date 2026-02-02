@@ -50,15 +50,19 @@ module Agents
       runner
     end
 
+    # Callback event types that are forwarded from the runner to TracingCallbacks.
+    TRACED_EVENTS = %i[
+      run_start agent_thinking llm_call_complete
+      tool_start tool_complete agent_handoff
+      run_complete chat_created
+    ].freeze
+    private_constant :TRACED_EVENTS
+
     # Register all tracing callback handlers on the runner.
     def self.register_callbacks(runner, callbacks)
-      runner.on_run_start { |*args| callbacks.on_run_start(*args) }
-      runner.on_agent_thinking { |*args| callbacks.on_agent_thinking(*args) }
-      runner.on_llm_call_complete { |*args| callbacks.on_llm_call_complete(*args) }
-      runner.on_tool_start { |*args| callbacks.on_tool_start(*args) }
-      runner.on_tool_complete { |*args| callbacks.on_tool_complete(*args) }
-      runner.on_agent_handoff { |*args| callbacks.on_agent_handoff(*args) }
-      runner.on_run_complete { |*args| callbacks.on_run_complete(*args) }
+      TRACED_EVENTS.each do |event|
+        runner.public_send(:"on_#{event}") { |*args| callbacks.public_send(:"on_#{event}", *args) }
+      end
     end
     private_class_method :register_callbacks
 

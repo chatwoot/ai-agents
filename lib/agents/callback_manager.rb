@@ -21,6 +21,7 @@ module Agents
       agent_thinking
       agent_handoff
       llm_call_complete
+      chat_created
     ].freeze
 
     def initialize(callbacks = {})
