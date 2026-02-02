@@ -237,3 +237,61 @@ The SDK includes a comprehensive callback system for monitoring agent execution 
 Callbacks are thread-safe and non-blocking. If a callback raises an exception, it won't interrupt agent execution. The system uses a centralized CallbackManager for efficient event handling.
 
 For detailed callback documentation, see `docs/concepts/callbacks.md`.
+
+## OpenTelemetry Instrumentation
+
+The SDK includes optional OpenTelemetry instrumentation that produces spans compatible with Langfuse and other OTel backends. The gem only emits spans — consumers must configure the OTel exporter and provide a tracer.
+
+### Instrumentation Files
+
+```
+lib/agents/
+├── instrumentation.rb                    # Public API: Instrumentation.install(runner, tracer:, ...)
+└── instrumentation/
+    ├── constants.rb                      # OTel attribute name constants (Langfuse property mapping)
+    └── tracing_callbacks.rb              # Span lifecycle management (TracingCallbacks class)
+```
+
+### Key Design Decisions
+
+1. **Double-counting prevention**: Only `agents.llm_call` spans carry `gen_ai.request.model`. This causes Langfuse to classify them as GENERATION and sum costs there. Container spans (`agents.run`, `agents.tool.*`) intentionally omit this attribute to avoid double counting.
+
+2. **Optional dependency**: `opentelemetry-api` is NOT a gem dependency. The `Instrumentation.install` method uses `require` with `rescue LoadError` — instrumentation is a no-op when OTel isn't installed.
+
+3. **Context-based tracing state**: Tracing state lives in `context_wrapper.context[:__otel_tracing]` (per-execution, thread-safe). Contains `root_span`, `root_context`, `current_llm_span`, `current_tool_span`.
+
+4. **Arity-safe callbacks**: `CallbackManager#emit` slices args for strict-arity lambdas (`.arity >= 0`), passes all args to procs/blocks (`.arity < 0`). This ensures backwards compatibility when new args like `context_wrapper` are appended to callback signatures.
+
+### Callback → Span Mapping
+
+| Callback | Span | Langfuse Type | Has gen_ai.request.model? |
+|----------|------|---------------|--------------------------|
+| `on_run_start` | Opens `agents.run` root span | SPAN | No |
+| `on_agent_thinking` | Opens `agents.llm_call` child span | (pending) | (set on close) |
+| `on_llm_call_complete` | Closes LLM span with model + tokens | GENERATION | Yes |
+| `on_tool_start` | Opens `agents.tool.<name>` child span | TOOL | No |
+| `on_tool_complete` | Closes tool span with output | — | — |
+| `on_agent_handoff` | Adds event to root span | Event | No |
+| `on_run_complete` | Closes root span (+ dangling cleanup) | — | — |
+
+### Known Issue: Single LLM Span for Tool-Call Cycles
+
+When `chat.ask` internally loops (LLM → tool → LLM), the current instrumentation produces one `agents.llm_call` span covering the entire cycle because `on_agent_thinking` fires before `chat.ask` and `on_llm_call_complete` fires after it returns. The fix is to hook into RubyLLM's per-call callbacks (`on_new_message`, `on_end_message`) to get individual spans for each actual LLM API call.
+
+### Consumer Usage
+
+```ruby
+require 'agents/instrumentation'
+
+tracer = OpenTelemetry.tracer_provider.tracer('my_app')
+runner = Agents::Runner.with_agents(triage, billing, support)
+
+Agents::Instrumentation.install(runner,
+  tracer: tracer,
+  span_attributes: { 'langfuse.trace.tags' => '["v2"]' },
+  attribute_provider: ->(ctx) {
+    { 'langfuse.user.id' => account_id.to_s,
+      'langfuse.session.id' => "#{account_id}_#{conversation_id}" }
+  }
+)
+```
