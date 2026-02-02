@@ -64,13 +64,19 @@ module Agents
 
     private
 
-    # Returns args sliced to match the callback's arity when it has strict arity
-    # (i.e. lambdas). Procs/blocks have negative arity and receive all args.
+    # Returns args sliced to fit the callback's accepted parameter count.
+    #
+    # Non-lambda procs/blocks silently ignore extra args, so they always get all args.
+    # Lambdas enforce strict argument counts and will raise ArgumentError on extras —
+    # even lambdas with optional params (e.g. ->(a, b, c = nil) {}) have a max.
+    # We inspect #parameters to compute the max and slice accordingly.
+    # Lambdas with a *rest parameter accept unlimited args, so we pass everything.
     def arity_safe_args(callback, args)
-      arity = callback.arity
-      return args if arity.negative? # Proc/block — accepts variable args
+      return args unless callback.lambda?
+      return args if callback.parameters.any? { |type, _| type == :rest }
 
-      args.first(arity)
+      max = callback.parameters.count { |type, _| %i[req opt].include?(type) }
+      args.first(max)
     end
   end
 end

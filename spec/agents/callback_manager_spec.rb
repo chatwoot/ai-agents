@@ -27,8 +27,8 @@ RSpec.describe Agents::CallbackManager do
 
   describe "#emit" do
     it "calls all callbacks for the event type" do
-      callback1 = instance_double(Proc, arity: -1)
-      callback2 = instance_double(Proc, arity: -1)
+      callback1 = instance_double(Proc, lambda?: false)
+      callback2 = instance_double(Proc, lambda?: false)
       callbacks = { tool_start: [callback1, callback2] }
       manager = described_class.new(callbacks)
 
@@ -56,7 +56,7 @@ RSpec.describe Agents::CallbackManager do
 
     it "continues executing remaining callbacks after one fails" do
       failing_callback = proc { raise StandardError, "Callback error" }
-      success_callback = instance_double(Proc, arity: -1)
+      success_callback = instance_double(Proc, lambda?: false)
       callbacks = { tool_start: [failing_callback, success_callback] }
       manager = described_class.new(callbacks)
 
@@ -68,7 +68,7 @@ RSpec.describe Agents::CallbackManager do
   end
 
   describe "typed emit methods" do
-    let(:callback) { instance_double(Proc, arity: -1) }
+    let(:callback) { instance_double(Proc, lambda?: false) }
     let(:manager) do
       described_class.new(
         run_start: [callback],
@@ -166,6 +166,27 @@ RSpec.describe Agents::CallbackManager do
 
       expect(lambda_args).to eq(["my_tool", { key: "val" }])
       expect(proc_args).to eq(["my_tool", { key: "val" }, "context"])
+    end
+
+    it "slices args for lambdas with optional parameters" do
+      received_args = nil
+      # Lambda with 2 required + 1 optional: accepts 2..3 args, NOT 4
+      optional_lambda = ->(tool_name, args, extra = nil) { received_args = [tool_name, args, extra] }
+      manager = described_class.new(tool_start: [optional_lambda])
+
+      manager.emit(:tool_start, "my_tool", { key: "val" }, "context", "extra_ignored")
+
+      expect(received_args).to eq(["my_tool", { key: "val" }, "context"])
+    end
+
+    it "passes all args to lambdas with rest parameter" do
+      received_args = nil
+      splat_lambda = ->(tool_name, *rest) { received_args = [tool_name, rest] }
+      manager = described_class.new(tool_start: [splat_lambda])
+
+      manager.emit(:tool_start, "my_tool", { key: "val" }, "context", "extra")
+
+      expect(received_args).to eq(["my_tool", [{ key: "val" }, "context", "extra"]])
     end
   end
 
