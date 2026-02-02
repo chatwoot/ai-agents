@@ -78,7 +78,8 @@ RSpec.describe Agents::CallbackManager do
         tool_complete: [callback],
         agent_thinking: [callback],
         agent_handoff: [callback],
-        llm_call_complete: [callback]
+        llm_call_complete: [callback],
+        chat_created: [callback]
       )
     end
 
@@ -124,6 +125,11 @@ RSpec.describe Agents::CallbackManager do
     it "has emit_llm_call_complete method" do
       manager.emit_llm_call_complete("agent_name", "gpt-4o", "response", "context")
       expect(callback).to have_received(:call).with("agent_name", "gpt-4o", "response", "context")
+    end
+
+    it "has emit_chat_created method" do
+      manager.emit_chat_created("chat", "agent_name", "gpt-4o", "context")
+      expect(callback).to have_received(:call).with("chat", "agent_name", "gpt-4o", "context")
     end
   end
 

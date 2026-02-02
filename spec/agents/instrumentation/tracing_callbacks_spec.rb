@@ -55,6 +55,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         "agents.run",
         attributes: hash_including(
           "langfuse.trace.input" => "Hello",
+          "langfuse.observation.input" => "Hello",
           "agent.name" => "TestAgent"
         )
       )
@@ -67,7 +68,6 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       tracing = context_wrapper.context[:__otel_tracing]
       expect(tracing[:root_span]).to eq(root_span)
-      expect(tracing[:current_llm_span]).to be_nil
       expect(tracing[:current_tool_span]).to be_nil
     end
 
@@ -123,24 +123,16 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
     end
 
-    it "opens a child LLM span" do
-      allow(tracer).to receive(:start_span).and_return(llm_span)
+    it "stores input in tracing state for the next LLM span" do
+      callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
 
-      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
-
-      expect(tracer).to have_received(:start_span).with(
-        "agents.llm_call",
-        with_parent: context_wrapper.context[:__otel_tracing][:root_context],
-        attributes: hash_including("langfuse.observation.input" => "Hello")
-      )
+      expect(context_wrapper.context[:__otel_tracing][:pending_llm_input]).to eq("What is your refund policy?")
     end
 
-    it "stores the LLM span in tracing state" do
-      allow(tracer).to receive(:start_span).and_return(llm_span)
-
+    it "does not create any new spans" do
       callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
 
-      expect(context_wrapper.context[:__otel_tracing][:current_llm_span]).to eq(llm_span)
+      expect(tracer).to have_received(:start_span).once # Only root span
     end
 
     context "without prior run_start" do
@@ -152,63 +144,233 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
   end
 
   describe "#on_llm_call_complete" do
-    let(:response) do
+    it "is a no-op (LLM spans are now created via on_chat_created hooks)" do
+      allow(tracer).to receive(:start_span).and_return(root_span)
+      callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+
+      response = instance_double(RubyLLM::Message,
+                                 input_tokens: 150,
+                                 output_tokens: 50,
+                                 content: "I can help with that")
+
+      # Should not interact with any span
+      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
+
+      expect(tracer).to have_received(:start_span).once # Only root span
+    end
+  end
+
+  describe "#on_chat_created" do
+    let(:chat) { instance_double(RubyLLM::Chat) }
+    let(:system_message) { instance_double(RubyLLM::Message, role: :system, content: "You are a helpful assistant") }
+    let(:user_message) { instance_double(RubyLLM::Message, role: :user, content: "What is your refund policy?") }
+
+    let(:assistant_message) do
       instance_double(RubyLLM::Message,
+                      role: :assistant,
                       input_tokens: 150,
                       output_tokens: 50,
-                      content: "I can help with that")
+                      content: "I can help with that",
+                      tool_call?: false,
+                      tool_calls: {})
     end
 
     before do
-      allow(tracer).to receive(:start_span).and_return(root_span, llm_span)
+      allow(tracer).to receive(:start_span).and_return(root_span)
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
-      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
+      # Chat messages: everything up to and including the current response
+      allow(chat).to receive(:messages).and_return([system_message, user_message, assistant_message])
+      allow(chat).to receive(:on_end_message).and_yield(assistant_message)
     end
 
-    it "sets gen_ai.request.model on the LLM span" do
-      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
+    it "registers an on_end_message hook on the chat" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
 
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      expect(chat).to have_received(:on_end_message)
+    end
+
+    it "sets observation input as JSON array of chat messages excluding the response" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      expected_input = [
+        { role: "system", content: "You are a helpful assistant" },
+        { role: "user", content: "What is your refund policy?" }
+      ].to_json
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.llm_call",
+        with_parent: context_wrapper.context[:__otel_tracing][:root_context],
+        attributes: hash_including("langfuse.observation.input" => expected_input)
+      )
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.model", "gpt-4o")
+      expect(llm_span).to have_received(:finish)
     end
 
-    it "sets input and output token counts" do
-      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
+    it "includes tool results in input when tools ran between LLM calls" do
+      tool_call_msg = instance_double(RubyLLM::Message, role: :assistant, content: nil,
+                                                         input_tokens: 100, output_tokens: 20,
+                                                         tool_call?: true,
+                                                         tool_calls: { "c1" => instance_double(RubyLLM::ToolCall,
+                                                                                               name: "faq_lookup",
+                                                                                               arguments: { query: "refund" }) })
+      tool_result_msg = instance_double(RubyLLM::Message, role: :tool, content: "Refund policy: 30 days")
+
+      # Track which messages the chat has at each point
+      messages_call = 0
+      allow(chat).to receive(:messages) do
+        messages_call += 1
+        if messages_call == 1
+          [system_message, user_message, tool_call_msg]
+        else
+          [system_message, user_message, tool_call_msg, tool_result_msg, assistant_message]
+        end
+      end
+
+      allow(chat).to receive(:on_end_message) do |&block|
+        block.call(tool_call_msg)
+        block.call(assistant_message)
+      end
+
+      # Capture the attributes from each start_span call
+      span_inputs = []
+      allow(tracer).to receive(:start_span) do |name, **opts|
+        span_inputs << opts.dig(:attributes, "langfuse.observation.input") if name == "agents.llm_call"
+        llm_span
+      end
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      # First LLM span input: just system + user (before tool results)
+      first_input = [
+        { role: "system", content: "You are a helpful assistant" },
+        { role: "user", content: "What is your refund policy?" }
+      ].to_json
+
+      # Second LLM span input: includes tool call + tool result
+      second_input = [
+        { role: "system", content: "You are a helpful assistant" },
+        { role: "user", content: "What is your refund policy?" },
+        { role: "assistant", content: "" },
+        { role: "tool", content: "Refund policy: 30 days" }
+      ].to_json
+
+      expect(span_inputs).to eq([first_input, second_input])
+    end
+
+    it "sets token usage attributes on the LLM span" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.usage.input_tokens", 150)
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.usage.output_tokens", 50)
     end
 
-    it "sets observation output" do
-      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
+    it "sets observation output on the LLM span" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
       expect(llm_span).to have_received(:set_attribute).with("langfuse.observation.output", "I can help with that")
     end
 
-    it "finishes the LLM span" do
-      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
-
-      expect(llm_span).to have_received(:finish)
-    end
-
-    it "clears current_llm_span from tracing state" do
-      callbacks.on_llm_call_complete("TestAgent", "gpt-4o", response, context_wrapper)
-
-      expect(context_wrapper.context[:__otel_tracing][:current_llm_span]).to be_nil
-    end
-
-    context "when response lacks token methods" do
-      let(:halt_response) { instance_double(RubyLLM::Tool::Halt, content: "halted") }
-
-      before do
-        allow(halt_response).to receive(:respond_to?).and_return(false)
-        allow(halt_response).to receive(:respond_to?).with(:content).and_return(true)
+    context "with tool-call-only assistant message (no text content)" do
+      let(:tool_call) do
+        instance_double(RubyLLM::ToolCall, name: "faq_lookup", arguments: { query: "refund" })
+      end
+      let(:tool_call_message) do
+        instance_double(RubyLLM::Message,
+                        role: :assistant,
+                        input_tokens: 100,
+                        output_tokens: 20,
+                        content: nil,
+                        tool_call?: true,
+                        tool_calls: { "call_123" => tool_call })
       end
 
-      it "skips token attributes gracefully" do
-        callbacks.on_llm_call_complete("TestAgent", "gpt-4o", halt_response, context_wrapper)
+      before do
+        allow(chat).to receive(:messages).and_return([system_message, user_message, tool_call_message])
+        allow(chat).to receive(:on_end_message).and_yield(tool_call_message)
+      end
 
-        expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.usage.input_tokens", anything)
-        expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.usage.output_tokens", anything)
+      it "formats tool calls as output when content is nil" do
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expect(llm_span).to have_received(:set_attribute).with(
+          "langfuse.observation.output",
+          "Tool calls: faq_lookup({query: \"refund\"})"
+        )
+      end
+    end
+
+    context "with empty content and no tool calls" do
+      let(:empty_message) do
+        instance_double(RubyLLM::Message,
+                        role: :assistant,
+                        input_tokens: 100,
+                        output_tokens: 0,
+                        content: nil,
+                        tool_call?: false,
+                        tool_calls: {})
+      end
+
+      before do
+        allow(chat).to receive(:messages).and_return([system_message, user_message, empty_message])
+        allow(chat).to receive(:on_end_message).and_yield(empty_message)
+      end
+
+      it "does not set observation output when output text is empty" do
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expect(llm_span).not_to have_received(:set_attribute).with("langfuse.observation.output", anything)
+      end
+    end
+
+    context "with tool result messages" do
+      let(:tool_message) do
+        instance_double(RubyLLM::Message, role: :tool)
+      end
+
+      before do
+        allow(chat).to receive(:on_end_message).and_yield(tool_message)
+      end
+
+      it "does not create LLM spans for tool messages" do
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        # Only root span should have been created (no LLM span for tool messages)
+        expect(tracer).to have_received(:start_span).once
+      end
+    end
+
+    context "without model" do
+      it "skips setting model attribute when model is nil" do
+        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", nil, context_wrapper)
+
+        expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.request.model", anything)
+      end
+    end
+
+    context "without prior run_start" do
+      it "does not register hook when no tracing state exists" do
+        fresh_context = instance_double(Agents::RunContext, context: {})
+        allow(chat).to receive(:on_end_message)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
+
+        expect(chat).not_to have_received(:on_end_message)
       end
     end
   end
@@ -310,6 +472,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
 
       expect(root_span).to have_received(:set_attribute).with("langfuse.trace.output", "Final answer")
+      expect(root_span).to have_received(:set_attribute).with("langfuse.observation.output", "Final answer")
     end
 
     it "finishes the root span" do
@@ -328,39 +491,10 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
   describe "#on_run_complete with dangling spans" do
     let(:run_result) { instance_double(Agents::RunResult, output: "error result") }
 
-    before do
-      allow(tracer).to receive(:start_span).and_return(root_span, llm_span)
-      callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
-      # Simulate: on_agent_thinking opens LLM span, then chat.ask raises
-      # so on_llm_call_complete is never called
-      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
-    end
-
-    it "closes dangling LLM span before closing root span" do
-      callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
-
-      expect(llm_span).to have_received(:finish)
-      expect(root_span).to have_received(:finish)
-    end
-
-    it "clears dangling LLM span from tracing state" do
-      # Before on_run_complete, the LLM span should still be open
-      expect(context_wrapper.context[:__otel_tracing][:current_llm_span]).to eq(llm_span)
-
-      callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
-
-      expect(context_wrapper.context[:__otel_tracing]).to be_nil
-    end
-
     context "with dangling tool span" do
       before do
-        # Close the LLM span normally, then open a tool span that never closes
-        callbacks.on_llm_call_complete("TestAgent", "gpt-4o",
-                                       instance_double(RubyLLM::Message, input_tokens: 10,
-                                                                         output_tokens: 5,
-                                                                         content: "ok"),
-                                       context_wrapper)
-        allow(tracer).to receive(:start_span).and_return(tool_span)
+        allow(tracer).to receive(:start_span).and_return(root_span, tool_span)
+        callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
         callbacks.on_tool_start("failing_tool", { key: "val" }, context_wrapper)
       end
 
@@ -369,6 +503,14 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
         expect(tool_span).to have_received(:finish)
         expect(root_span).to have_received(:finish)
+      end
+
+      it "clears dangling tool span from tracing state" do
+        expect(context_wrapper.context[:__otel_tracing][:current_tool_span]).to eq(tool_span)
+
+        callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
+
+        expect(context_wrapper.context[:__otel_tracing]).to be_nil
       end
     end
   end

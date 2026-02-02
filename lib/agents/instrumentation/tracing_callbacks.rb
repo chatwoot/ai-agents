@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Agents
   module Instrumentation
     # Manages OpenTelemetry span lifecycle for agent execution.
@@ -53,41 +55,36 @@ module Agents
         store_tracing_state(context_wrapper,
                             root_span: root_span,
                             root_context: root_context,
-                            current_llm_span: nil,
                             current_tool_span: nil)
       end
 
       # Called when an agent begins thinking (about to make an LLM call).
-      # Opens an `agents.llm_call` child span. Model and tokens are set on close.
+      # Captures the input text so the on_end_message hook can attach it to the
+      # first LLM GENERATION span of this turn.
       def on_agent_thinking(_agent_name, input, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        attributes = { ATTR_LANGFUSE_OBS_INPUT => input.to_s }
-        llm_span = @tracer.start_span(
-          SPAN_LLM_CALL,
-          with_parent: tracing[:root_context],
-          attributes: attributes
-        )
-
-        tracing[:current_llm_span] = llm_span
+        tracing[:pending_llm_input] = input.to_s
       end
 
-      # Called after an LLM call completes. Closes the LLM span as a GENERATION
-      # by setting gen_ai.request.model and token usage attributes.
-      def on_llm_call_complete(_agent_name, model, response, context_wrapper)
+      # Called after an LLM call completes.
+      # Previously closed the LLM span here, but per-call spans are now handled
+      # by the on_end_message hook registered in on_chat_created.
+      # This method is kept as a no-op because non-tracing consumers still use
+      # the on_llm_call_complete event.
+      def on_llm_call_complete(_agent_name, _model, _response, _context_wrapper); end
+
+      # Called when a RubyLLM Chat object is created or reconfigured after handoff.
+      # Registers an on_end_message hook to create individual GENERATION spans
+      # for each assistant message (each actual LLM API call).
+      def on_chat_created(chat, agent_name, model, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        llm_span = tracing[:current_llm_span]
-        return unless llm_span
-
-        # Set model — this is what makes Langfuse classify it as GENERATION
-        llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
-        set_llm_response_attributes(llm_span, response)
-
-        llm_span.finish
-        tracing[:current_llm_span] = nil
+        chat.on_end_message do |message|
+          handle_end_message(chat, agent_name, model, message, context_wrapper)
+        end
       end
 
       # Called when a tool begins execution. Opens an `agents.tool.<name>` child span.
@@ -152,7 +149,11 @@ module Agents
         root_span = tracing[:root_span]
         return unless root_span
 
-        root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, result.output.to_s) if result.respond_to?(:output)
+        if result.respond_to?(:output)
+          output_text = serialize_output(result.output)
+          root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, output_text)
+          root_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output_text)
+        end
 
         root_span.finish
         cleanup_tracing_state(context_wrapper)
@@ -160,16 +161,36 @@ module Agents
 
       private
 
+      # Creates and immediately finishes a GENERATION span for each assistant message.
+      # Called by the on_end_message hook registered on the RubyLLM Chat object.
+      # Tool result messages are ignored since tool spans are handled by ToolWrapper callbacks.
+      #
+      # Input is the full chat history (excluding the current response) as a JSON array
+      # of {role, content} messages. This naturally includes tool results when they are
+      # part of the conversation, matching how the LLM actually sees its context.
+      def handle_end_message(chat, _agent_name, model, message, context_wrapper)
+        return unless message.respond_to?(:role) && message.role == :assistant
+
+        tracing = tracing_state(context_wrapper)
+        return unless tracing
+
+        input = format_chat_messages(chat)
+        attrs = {}
+        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
+        llm_span = @tracer.start_span(SPAN_LLM_CALL, with_parent: tracing[:root_context], attributes: attrs)
+
+        llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
+        set_llm_response_attributes(llm_span, message)
+
+        llm_span.finish
+      end
+
       # Close any child spans that were opened but never finished (e.g. due to exceptions).
       def finish_dangling_spans(tracing)
-        if tracing[:current_tool_span]
-          tracing[:current_tool_span].finish
-          tracing[:current_tool_span] = nil
-        end
-        return unless tracing[:current_llm_span]
+        return unless tracing[:current_tool_span]
 
-        tracing[:current_llm_span].finish
-        tracing[:current_llm_span] = nil
+        tracing[:current_tool_span].finish
+        tracing[:current_tool_span] = nil
       end
 
       def set_llm_response_attributes(span, response)
@@ -179,12 +200,56 @@ module Agents
         if response.respond_to?(:output_tokens) && response.output_tokens
           span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.output_tokens)
         end
-        span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, response.content.to_s) if response.respond_to?(:content)
+        output = llm_output_text(response)
+        span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
+      end
+
+      # Extract meaningful output text from an LLM response.
+      # When the assistant message is a tool-call-only message (no text content),
+      # format the tool calls as the output so Langfuse shows something useful.
+      # When content is a Hash or Array (structured output from response_schema),
+      # serialize as JSON for readable display in Langfuse.
+      def llm_output_text(response)
+        return format_tool_calls(response) unless response.respond_to?(:content)
+
+        content = response.content
+        return format_tool_calls(response) if content.nil?
+
+        text = content.is_a?(Hash) || content.is_a?(Array) ? content.to_json : content.to_s
+        return format_tool_calls(response) if text.empty?
+
+        text
+      end
+
+      # Format chat messages as a JSON array of {role, content} hashes, excluding
+      # the last message (the current assistant response). This mirrors what was
+      # actually sent to the LLM — including system prompt, user messages, prior
+      # assistant messages, and tool results — so each generation span shows its
+      # full input context with proper role separation.
+      def format_chat_messages(chat)
+        return nil unless chat.respond_to?(:messages)
+
+        messages = chat.messages
+        return nil if messages.nil? || messages.empty?
+
+        messages[0...-1].map { |m| { role: m.role.to_s, content: m.content.to_s } }.to_json
+      end
+
+      def serialize_output(value)
+        value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
+      end
+
+      def format_tool_calls(response)
+        return "" unless response.respond_to?(:tool_calls) && response.tool_calls&.any?
+
+        calls = response.tool_calls.values.map { |tc| "#{tc.name}(#{tc.arguments})" }
+        "Tool calls: #{calls.join(", ")}"
       end
 
       def build_root_attributes(agent_name, input, context_wrapper)
         attributes = @span_attributes.dup
         attributes[ATTR_LANGFUSE_TRACE_INPUT] = input.to_s
+        attributes[ATTR_LANGFUSE_OBS_INPUT] = input.to_s
         attributes["agent.name"] = agent_name
 
         # Merge dynamic attributes from provider
