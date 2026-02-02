@@ -44,6 +44,7 @@ module Agents
         @trace_name = trace_name
         @llm_span_name = "#{trace_name}.generation"
         @tool_span_name = "#{trace_name}.tool.%s"
+        @agent_span_name = "#{trace_name}.agent.%s"
         @handoff_event_name = "#{trace_name}.handoff"
         @span_attributes = span_attributes
         @attribute_provider = attribute_provider
@@ -60,17 +61,26 @@ module Agents
         store_tracing_state(context_wrapper,
                             root_span: root_span,
                             root_context: root_context,
-                            current_tool_span: nil)
+                            current_tool_span: nil,
+                            current_agent_name: nil,
+                            current_agent_span: nil,
+                            current_agent_context: nil)
       end
 
       # Called when an agent begins thinking (about to make an LLM call).
       # Captures the input text so the on_end_message hook can attach it to the
       # first LLM GENERATION span of this turn.
-      def on_agent_thinking(_agent_name, input, context_wrapper)
+      # Also opens an agent container span on first call or when the agent changes
+      # (after a handoff), so that LLM and tool spans nest under the correct agent.
+      def on_agent_thinking(agent_name, input, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
         tracing[:pending_llm_input] = input.to_s
+
+        return if tracing[:current_agent_name] == agent_name
+
+        start_agent_span(tracing, agent_name)
       end
 
       # Called after an LLM call completes.
@@ -79,6 +89,15 @@ module Agents
       # This method is kept as a no-op because non-tracing consumers still use
       # the on_llm_call_complete event.
       def on_llm_call_complete(_agent_name, _model, _response, _context_wrapper); end
+
+      # Called when an agent finishes its turn (after all LLM calls and tool executions).
+      # Closes the current agent container span so subsequent agents get their own span.
+      def on_agent_complete(_agent_name, _result, _error, context_wrapper)
+        tracing = tracing_state(context_wrapper)
+        return unless tracing
+
+        finish_agent_span(tracing)
+      end
 
       # Called when a RubyLLM Chat object is created or reconfigured after handoff.
       # Registers an on_end_message hook to create individual GENERATION spans
@@ -104,9 +123,10 @@ module Agents
           ATTR_LANGFUSE_OBS_INPUT => args.to_s
         }
 
+        parent = handoff_tool?(tool_name) ? tracing[:root_context] : parent_context(tracing)
         tool_span = @tracer.start_span(
           span_name,
-          with_parent: tracing[:root_context],
+          with_parent: parent,
           attributes: attributes
         )
 
@@ -182,7 +202,7 @@ module Agents
         input = format_chat_messages(chat)
         attrs = {}
         attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
-        llm_span = @tracer.start_span(@llm_span_name, with_parent: tracing[:root_context], attributes: attrs)
+        llm_span = @tracer.start_span(@llm_span_name, with_parent: parent_context(tracing), attributes: attrs)
 
         llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
         set_llm_response_attributes(llm_span, message)
@@ -192,10 +212,11 @@ module Agents
 
       # Close any child spans that were opened but never finished (e.g. due to exceptions).
       def finish_dangling_spans(tracing)
-        return unless tracing[:current_tool_span]
-
-        tracing[:current_tool_span].finish
-        tracing[:current_tool_span] = nil
+        if tracing[:current_tool_span]
+          tracing[:current_tool_span].finish
+          tracing[:current_tool_span] = nil
+        end
+        finish_agent_span(tracing)
       end
 
       def set_llm_response_attributes(span, response)
@@ -249,6 +270,37 @@ module Agents
 
         calls = response.tool_calls.values.map { |tc| "#{tc.name}(#{tc.arguments})" }
         "Tool calls: #{calls.join(", ")}"
+      end
+
+      def start_agent_span(tracing, agent_name)
+        finish_agent_span(tracing) # close previous agent span if missed
+
+        span_name = format(@agent_span_name, agent_name)
+        agent_span = @tracer.start_span(span_name,
+                                        with_parent: tracing[:root_context],
+                                        attributes: { "agent.name" => agent_name })
+        agent_context = OpenTelemetry::Trace.context_with_span(agent_span)
+
+        tracing[:current_agent_name] = agent_name
+        tracing[:current_agent_span] = agent_span
+        tracing[:current_agent_context] = agent_context
+      end
+
+      def finish_agent_span(tracing)
+        return unless tracing[:current_agent_span]
+
+        tracing[:current_agent_span].finish
+        tracing[:current_agent_name] = nil
+        tracing[:current_agent_span] = nil
+        tracing[:current_agent_context] = nil
+      end
+
+      def parent_context(tracing)
+        tracing[:current_agent_context] || tracing[:root_context]
+      end
+
+      def handoff_tool?(tool_name)
+        tool_name.to_s.start_with?("handoff_to_")
       end
 
       def build_root_attributes(agent_name, input, context_wrapper)

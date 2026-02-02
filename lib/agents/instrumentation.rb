@@ -62,7 +62,7 @@ module Agents
     TRACED_EVENTS = %i[
       run_start agent_thinking llm_call_complete
       tool_start tool_complete agent_handoff
-      run_complete chat_created
+      run_complete chat_created agent_complete
     ].freeze
     private_constant :TRACED_EVENTS
 

@@ -30,7 +30,9 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
   let(:root_span) { instance_double(OpenTelemetry::Trace::Span) }
   let(:llm_span) { instance_double(OpenTelemetry::Trace::Span) }
   let(:tool_span) { instance_double(OpenTelemetry::Trace::Span) }
+  let(:agent_span) { instance_double(OpenTelemetry::Trace::Span) }
   let(:root_context) { instance_double(OpenTelemetry::Context) }
+  let(:agent_context) { instance_double(OpenTelemetry::Context) }
   let(:tracer) { instance_double(OpenTelemetry::Trace::Tracer) }
 
   let(:context_wrapper) do
@@ -43,6 +45,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     allow(root_span).to receive_messages(set_attribute: nil, add_event: nil, finish: nil)
     allow(llm_span).to receive_messages(set_attribute: nil, finish: nil)
     allow(tool_span).to receive_messages(set_attribute: nil, finish: nil)
+    allow(agent_span).to receive_messages(set_attribute: nil, finish: nil)
   end
 
   describe "#on_run_start" do
@@ -69,6 +72,9 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       tracing = context_wrapper.context[:__otel_tracing]
       expect(tracing[:root_span]).to eq(root_span)
       expect(tracing[:current_tool_span]).to be_nil
+      expect(tracing[:current_agent_name]).to be_nil
+      expect(tracing[:current_agent_span]).to be_nil
+      expect(tracing[:current_agent_context]).to be_nil
     end
 
     it "does NOT set gen_ai.request.model on the root span" do
@@ -136,6 +142,18 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
           attributes: hash_including("handoff.from" => "Triage", "handoff.to" => "Billing")
         )
       end
+
+      it "derives agent span name from trace_name" do
+        allow(tracer).to receive(:start_span).and_return(agent_span)
+
+        custom_callbacks.on_agent_thinking("Triage", "Hello", context_wrapper)
+
+        expect(tracer).to have_received(:start_span).with(
+          "llm.captain_v2.agent.Triage",
+          with_parent: anything,
+          attributes: hash_including("agent.name" => "Triage")
+        )
+      end
     end
 
     context "with attribute_provider" do
@@ -180,21 +198,98 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     end
 
     it "stores input in tracing state for the next LLM span" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+
       callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
 
       expect(context_wrapper.context[:__otel_tracing][:pending_llm_input]).to eq("What is your refund policy?")
     end
 
-    it "does not create any new spans" do
+    it "opens an agent span as child of root on first call" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+
       callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
 
-      expect(tracer).to have_received(:start_span).once # Only root span
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.agent.TestAgent",
+        with_parent: context_wrapper.context[:__otel_tracing][:root_context],
+        attributes: { "agent.name" => "TestAgent" }
+      )
+    end
+
+    it "stores agent span state in tracing" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
+
+      tracing = context_wrapper.context[:__otel_tracing]
+      expect(tracing[:current_agent_name]).to eq("TestAgent")
+      expect(tracing[:current_agent_span]).to eq(agent_span)
+      expect(tracing[:current_agent_context]).not_to be_nil
+    end
+
+    it "does not open a new agent span for the same agent name" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("TestAgent", "Follow up", context_wrapper)
+
+      # root_span + 1 agent span = 2 total start_span calls
+      expect(tracer).to have_received(:start_span).twice
+    end
+
+    it "opens a new agent span when agent name changes and closes previous" do
+      agent_span2 = instance_double(OpenTelemetry::Trace::Span)
+      allow(agent_span2).to receive_messages(set_attribute: nil, finish: nil)
+      allow(tracer).to receive(:start_span).and_return(agent_span, agent_span2)
+
+      callbacks.on_agent_thinking("Triage", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("Billing", "Billing question", context_wrapper)
+
+      expect(agent_span).to have_received(:finish)
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.agent.Billing",
+        with_parent: anything,
+        attributes: { "agent.name" => "Billing" }
+      )
+      expect(context_wrapper.context[:__otel_tracing][:current_agent_name]).to eq("Billing")
+      expect(context_wrapper.context[:__otel_tracing][:current_agent_span]).to eq(agent_span2)
     end
 
     context "without prior run_start" do
       it "does nothing when no tracing state exists" do
         fresh_context = instance_double(Agents::RunContext, context: {})
         expect { callbacks.on_agent_thinking("TestAgent", "Hello", fresh_context) }.not_to raise_error
+      end
+    end
+  end
+
+  describe "#on_agent_complete" do
+    before do
+      allow(tracer).to receive(:start_span).and_return(root_span, agent_span)
+      callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
+    end
+
+    it "closes current agent span" do
+      callbacks.on_agent_complete("TestAgent", nil, nil, context_wrapper)
+
+      expect(agent_span).to have_received(:finish)
+    end
+
+    it "clears agent state from tracing" do
+      callbacks.on_agent_complete("TestAgent", nil, nil, context_wrapper)
+
+      tracing = context_wrapper.context[:__otel_tracing]
+      expect(tracing[:current_agent_name]).to be_nil
+      expect(tracing[:current_agent_span]).to be_nil
+      expect(tracing[:current_agent_context]).to be_nil
+    end
+
+    context "without tracing state" do
+      it "does nothing when no tracing state exists" do
+        fresh_context = instance_double(Agents::RunContext, context: {})
+        expect { callbacks.on_agent_complete("TestAgent", nil, nil, fresh_context) }.not_to raise_error
       end
     end
   end
@@ -232,7 +327,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     end
 
     before do
-      allow(tracer).to receive(:start_span).and_return(root_span)
+      allow(tracer).to receive(:start_span).and_return(root_span, agent_span)
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
       callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
       # Chat messages: everything up to and including the current response
@@ -248,6 +343,37 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(chat).to have_received(:on_end_message)
     end
 
+    it "parents LLM spans under agent context" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      agent_ctx = context_wrapper.context[:__otel_tracing][:current_agent_context]
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.generation",
+        with_parent: agent_ctx,
+        attributes: anything
+      )
+    end
+
+    it "falls back to root context when no agent span" do
+      # Clear agent span state to simulate no agent span
+      tracing = context_wrapper.context[:__otel_tracing]
+      tracing[:current_agent_name] = nil
+      tracing[:current_agent_span] = nil
+      tracing[:current_agent_context] = nil
+
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.generation",
+        with_parent: tracing[:root_context],
+        attributes: anything
+      )
+    end
+
     it "sets observation input as JSON array of chat messages excluding the response" do
       allow(tracer).to receive(:start_span).and_return(llm_span)
 
@@ -260,7 +386,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
-        with_parent: context_wrapper.context[:__otel_tracing][:root_context],
+        with_parent: anything,
         attributes: hash_including("langfuse.observation.input" => expected_input)
       )
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.model", "gpt-4o")
@@ -403,8 +529,8 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       it "does not create LLM spans for tool messages" do
         callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
-        # Only root span should have been created (no LLM span for tool messages)
-        expect(tracer).to have_received(:start_span).once
+        # root span + agent span = 2, no LLM span for tool messages
+        expect(tracer).to have_received(:start_span).twice
       end
     end
 
@@ -433,18 +559,33 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
   describe "#on_tool_start" do
     before do
-      allow(tracer).to receive(:start_span).and_return(root_span)
+      allow(tracer).to receive(:start_span).and_return(root_span, agent_span)
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
     end
 
-    it "opens a child tool span with correct name" do
+    it "opens a child tool span with correct name under agent context" do
       allow(tracer).to receive(:start_span).and_return(tool_span)
 
       callbacks.on_tool_start("lookup_user", { user_id: 123 }, context_wrapper)
 
+      agent_ctx = context_wrapper.context[:__otel_tracing][:current_agent_context]
       expect(tracer).to have_received(:start_span).with(
         "agents.run.tool.lookup_user",
-        with_parent: context_wrapper.context[:__otel_tracing][:root_context],
+        with_parent: agent_ctx,
+        attributes: hash_including("langfuse.observation.type" => "tool")
+      )
+    end
+
+    it "parents handoff tools under root context" do
+      allow(tracer).to receive(:start_span).and_return(tool_span)
+
+      callbacks.on_tool_start("handoff_to_billing", { reason: "billing question" }, context_wrapper)
+
+      root_ctx = context_wrapper.context[:__otel_tracing][:root_context]
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.tool.handoff_to_billing",
+        with_parent: root_ctx,
         attributes: hash_including("langfuse.observation.type" => "tool")
       )
     end
@@ -468,12 +609,35 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(context_wrapper.context[:__otel_tracing][:current_tool_span]).to eq(tool_span)
     end
+
+    context "without agent span" do
+      before do
+        tracing = context_wrapper.context[:__otel_tracing]
+        tracing[:current_agent_name] = nil
+        tracing[:current_agent_span] = nil
+        tracing[:current_agent_context] = nil
+      end
+
+      it "falls back to root context for regular tools" do
+        allow(tracer).to receive(:start_span).and_return(tool_span)
+
+        callbacks.on_tool_start("lookup_user", { user_id: 123 }, context_wrapper)
+
+        root_ctx = context_wrapper.context[:__otel_tracing][:root_context]
+        expect(tracer).to have_received(:start_span).with(
+          "agents.run.tool.lookup_user",
+          with_parent: root_ctx,
+          attributes: anything
+        )
+      end
+    end
   end
 
   describe "#on_tool_complete" do
     before do
-      allow(tracer).to receive(:start_span).and_return(root_span, tool_span)
+      allow(tracer).to receive(:start_span).and_return(root_span, agent_span, tool_span)
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
       callbacks.on_tool_start("lookup_user", { user_id: 123 }, context_wrapper)
     end
 
@@ -542,6 +706,16 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(context_wrapper.context[:__otel_tracing]).to be_nil
     end
+
+    it "closes dangling agent span before closing root span" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+      callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
+
+      callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
+
+      expect(agent_span).to have_received(:finish)
+      expect(root_span).to have_received(:finish)
+    end
   end
 
   describe "#on_run_complete with dangling spans" do
@@ -549,8 +723,9 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
     context "with dangling tool span" do
       before do
-        allow(tracer).to receive(:start_span).and_return(root_span, tool_span)
+        allow(tracer).to receive(:start_span).and_return(root_span, agent_span, tool_span)
         callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+        callbacks.on_agent_thinking("TestAgent", "Hello", context_wrapper)
         callbacks.on_tool_start("failing_tool", { key: "val" }, context_wrapper)
       end
 
@@ -558,6 +733,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         callbacks.on_run_complete("TestAgent", run_result, context_wrapper)
 
         expect(tool_span).to have_received(:finish)
+        expect(agent_span).to have_received(:finish)
         expect(root_span).to have_received(:finish)
       end
 
