@@ -50,7 +50,8 @@ module Agents
         tool_start: [],
         tool_complete: [],
         agent_thinking: [],
-        agent_handoff: []
+        agent_handoff: [],
+        llm_call_complete: []
       }
     end
 
@@ -161,6 +162,18 @@ module Agents
       return self unless block
 
       @callbacks_mutex.synchronize { @callbacks[:agent_complete] << block }
+      self
+    end
+
+    # Register a callback for LLM call completion events.
+    # Called after each LLM call completes with model and token usage info.
+    #
+    # @param block [Proc] Callback block that receives (agent_name, model, response, context_wrapper)
+    # @return [self] For method chaining
+    def on_llm_call_complete(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:llm_call_complete] << block }
       self
     end
 

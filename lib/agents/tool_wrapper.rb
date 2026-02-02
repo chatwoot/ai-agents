@@ -47,14 +47,14 @@ module Agents
     def call(args)
       tool_context = ToolContext.new(run_context: @context_wrapper)
 
-      @context_wrapper.callback_manager.emit_tool_start(@tool.name, args)
+      @context_wrapper.callback_manager.emit_tool_start(@tool.name, args, @context_wrapper)
 
       begin
         result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
-        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result)
+        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result, @context_wrapper)
         result
       rescue StandardError => e
-        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}")
+        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}", @context_wrapper)
         raise
       end
     end

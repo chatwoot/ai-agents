@@ -112,15 +112,21 @@ module Agents
         # Get response from LLM (RubyLLM handles tool execution with halting based handoff detection)
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
-                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input, context_wrapper)
                    chat.ask(input)
                  else
                    # Emit agent thinking event for continuation
-                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)")
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)",
+                                                                        context_wrapper)
                    chat.complete
                  end
         response = result
         track_usage(response, context_wrapper)
+
+        # Emit LLM call complete event with model and response for instrumentation
+        context_wrapper.callback_manager.emit_llm_call_complete(
+          current_agent.name, current_agent.model, response, context_wrapper
+        )
 
         # Check for handoff via RubyLLM's halt mechanism
         if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
@@ -155,7 +161,8 @@ module Agents
           context_wrapper.callback_manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
 
           # Emit agent handoff event
-          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
+          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff",
+                                                              context_wrapper)
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent

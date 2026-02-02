@@ -1,0 +1,75 @@
+# frozen_string_literal: true
+
+require_relative "instrumentation/constants"
+require_relative "instrumentation/tracing_callbacks"
+
+module Agents
+  # Optional OpenTelemetry instrumentation for the ai-agents gem.
+  # Emits OTel spans for LLM calls, tool executions, and agent handoffs
+  # that render correctly in Langfuse and other OTel-compatible backends.
+  #
+  # The gem only emits spans — the consumer configures the OTel exporter
+  # and provides a tracer. The opentelemetry-api gem is NOT declared as a
+  # dependency; consumers must include it in their own bundle.
+  #
+  # @example Basic usage
+  #   require 'agents/instrumentation'
+  #
+  #   tracer = OpenTelemetry.tracer_provider.tracer('my_app')
+  #   runner = Agents::Runner.with_agents(triage, billing, support)
+  #
+  #   Agents::Instrumentation.install(runner, tracer: tracer)
+  #
+  # @example With Langfuse attributes
+  #   Agents::Instrumentation.install(runner,
+  #     tracer: tracer,
+  #     span_attributes: { 'langfuse.trace.tags' => ['v2'].to_json },
+  #     attribute_provider: ->(ctx) {
+  #       { 'langfuse.user.id' => ctx.context[:account_id].to_s }
+  #     }
+  #   )
+  module Instrumentation
+    # Install OTel tracing on a runner via callbacks.
+    # No-op if opentelemetry-api is not available.
+    #
+    # @param runner [Agents::AgentRunner] The runner to instrument
+    # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
+    # @param span_attributes [Hash] Static attributes applied to the root span
+    # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning dynamic attributes
+    # @return [Agents::AgentRunner, nil] The runner (for chaining), or nil if OTel is unavailable
+    def self.install(runner, tracer:, span_attributes: {}, attribute_provider: nil)
+      return unless otel_available?
+
+      callbacks = TracingCallbacks.new(
+        tracer: tracer,
+        span_attributes: span_attributes,
+        attribute_provider: attribute_provider
+      )
+
+      register_callbacks(runner, callbacks)
+      runner
+    end
+
+    # Register all tracing callback handlers on the runner.
+    def self.register_callbacks(runner, callbacks)
+      runner.on_run_start { |*args| callbacks.on_run_start(*args) }
+      runner.on_agent_thinking { |*args| callbacks.on_agent_thinking(*args) }
+      runner.on_llm_call_complete { |*args| callbacks.on_llm_call_complete(*args) }
+      runner.on_tool_start { |*args| callbacks.on_tool_start(*args) }
+      runner.on_tool_complete { |*args| callbacks.on_tool_complete(*args) }
+      runner.on_agent_handoff { |*args| callbacks.on_agent_handoff(*args) }
+      runner.on_run_complete { |*args| callbacks.on_run_complete(*args) }
+    end
+    private_class_method :register_callbacks
+
+    # Check if the opentelemetry-api gem is available.
+    #
+    # @return [Boolean] true if opentelemetry-api can be loaded
+    def self.otel_available?
+      require "opentelemetry-api"
+      true
+    rescue LoadError
+      false
+    end
+  end
+end
