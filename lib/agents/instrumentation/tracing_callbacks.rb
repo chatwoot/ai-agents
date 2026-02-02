@@ -4,41 +4,20 @@ require "json"
 
 module Agents
   module Instrumentation
-    # Manages OpenTelemetry span lifecycle for agent execution.
-    # Registers as callbacks on an AgentRunner to produce OTel spans that render
-    # correctly in Langfuse (and other OTel-compatible backends).
+    # Produces OTel spans for agent execution, compatible with Langfuse.
     #
-    # ## Span hierarchy (names derived from trace_name, default "agents.run")
-    #   Trace (root span)
-    #   └── SPAN: <trace_name>                        ← container, NO gen_ai.request.model
-    #       ├── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
-    #       ├── TOOL: <trace_name>.tool.<name>        ← langfuse.observation.type = "tool"
-    #       ├── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
-    #       ├── EVENT: <trace_name>.handoff           ← point event on root span
-    #       └── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
+    # Span hierarchy:
+    #   root (<trace_name>)
+    #   ├── agent.<name>        ← container per agent (no gen_ai.request.model)
+    #   │   ├── .generation     ← GENERATION with model + tokens
+    #   │   └── .tool.<name>    ← TOOL observation
+    #   └── .handoff            ← point event on root
     #
-    # ## Double-counting prevention
-    # Only LLM call spans carry `gen_ai.request.model`, which Langfuse uses to
-    # classify observations as GENERATION (and sum costs). Container spans
-    # (run, tool) intentionally omit this attribute so they appear as SPAN/TOOL
-    # and are not double-counted.
-    #
-    # ## Thread safety
-    # Tracing state is stored in `context_wrapper.context[:__otel_tracing]`, which
-    # is unique per execution (each run gets its own deep-copied context).
-    #
-    # ## Limitation: single-slot span tracking
-    # Only one LLM span and one tool span are tracked at a time (current_llm_span,
-    # current_tool_span). RubyLLM currently executes tool calls sequentially, so this
-    # is sufficient. If parallel/nested tool calls are supported in the future, this
-    # should be changed to a stack or call-id keyed map.
+    # Only GENERATION spans carry gen_ai.request.model to avoid Langfuse double-counting costs.
+    # Tracing state lives in context[:__otel_tracing], unique per run (thread-safe).
     class TracingCallbacks
       include Constants
 
-      # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
-      # @param trace_name [String] Name for the root span (default: "agents.run")
-      # @param span_attributes [Hash] Static attributes applied to the root span
-      # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning a Hash of dynamic attributes
       def initialize(tracer:, trace_name: SPAN_RUN, span_attributes: {}, attribute_provider: nil)
         @tracer = tracer
         @trace_name = trace_name
@@ -50,8 +29,6 @@ module Agents
         @attribute_provider = attribute_provider
       end
 
-      # Called when a run starts. Opens the root `agents.run` span.
-      # This span is a container — it does NOT carry gen_ai.request.model.
       def on_run_start(agent_name, input, context_wrapper)
         attributes = build_root_attributes(agent_name, input, context_wrapper)
 
@@ -67,11 +44,6 @@ module Agents
                             current_agent_context: nil)
       end
 
-      # Called when an agent begins thinking (about to make an LLM call).
-      # Captures the input text so the on_end_message hook can attach it to the
-      # first LLM GENERATION span of this turn.
-      # Also opens an agent container span on first call or when the agent changes
-      # (after a handoff), so that LLM and tool spans nest under the correct agent.
       def on_agent_thinking(agent_name, input, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -83,15 +55,10 @@ module Agents
         start_agent_span(tracing, agent_name)
       end
 
-      # Called after an LLM call completes.
-      # Previously closed the LLM span here, but per-call spans are now handled
-      # by the on_end_message hook registered in on_chat_created.
-      # This method is kept as a no-op because non-tracing consumers still use
-      # the on_llm_call_complete event.
+      # No-op: LLM spans are handled by on_end_message hook (see on_chat_created).
+      # Kept because the callback interface requires it.
       def on_llm_call_complete(_agent_name, _model, _response, _context_wrapper); end
 
-      # Called when an agent finishes its turn (after all LLM calls and tool executions).
-      # Closes the current agent container span so subsequent agents get their own span.
       def on_agent_complete(_agent_name, _result, _error, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -99,9 +66,6 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      # Called when a RubyLLM Chat object is created or reconfigured after handoff.
-      # Registers an on_end_message hook to create individual GENERATION spans
-      # for each assistant message (each actual LLM API call).
       def on_chat_created(chat, agent_name, model, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -111,8 +75,6 @@ module Agents
         end
       end
 
-      # Called when a tool begins execution. Opens an `agents.tool.<name>` child span.
-      # This span does NOT carry gen_ai.request.model (prevents double counting).
       def on_tool_start(tool_name, args, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -133,7 +95,6 @@ module Agents
         tracing[:current_tool_span] = tool_span
       end
 
-      # Called when a tool finishes execution. Closes the tool span with output.
       def on_tool_complete(_tool_name, result, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -146,7 +107,6 @@ module Agents
         tracing[:current_tool_span] = nil
       end
 
-      # Called on agent handoff. Adds a point event to the root span (not a child span).
       def on_agent_handoff(from_agent, to_agent, reason, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -161,14 +121,10 @@ module Agents
         )
       end
 
-      # Called when the run completes. Closes any pending child spans and the root span.
-      # This handles the case where chat.ask/complete raises — the LLM span opened in
-      # on_agent_thinking would never be closed by on_llm_call_complete, so we clean it up here.
       def on_run_complete(_agent_name, result, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        # Close any dangling child spans (e.g. LLM call that raised before on_llm_call_complete)
         finish_dangling_spans(tracing)
 
         root_span = tracing[:root_span]
@@ -186,13 +142,6 @@ module Agents
 
       private
 
-      # Creates and immediately finishes a GENERATION span for each assistant message.
-      # Called by the on_end_message hook registered on the RubyLLM Chat object.
-      # Tool result messages are ignored since tool spans are handled by ToolWrapper callbacks.
-      #
-      # Input is the full chat history (excluding the current response) as a JSON array
-      # of {role, content} messages. This naturally includes tool results when they are
-      # part of the conversation, matching how the LLM actually sees its context.
       def handle_end_message(chat, _agent_name, model, message, context_wrapper)
         return unless message.respond_to?(:role) && message.role == :assistant
 
@@ -210,7 +159,6 @@ module Agents
         llm_span.finish
       end
 
-      # Close any child spans that were opened but never finished (e.g. due to exceptions).
       def finish_dangling_spans(tracing)
         if tracing[:current_tool_span]
           tracing[:current_tool_span].finish
@@ -230,11 +178,8 @@ module Agents
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
       end
 
-      # Extract meaningful output text from an LLM response.
-      # When the assistant message is a tool-call-only message (no text content),
-      # format the tool calls as the output so Langfuse shows something useful.
-      # When content is a Hash or Array (structured output from response_schema),
-      # serialize as JSON for readable display in Langfuse.
+      # Falls back to formatting tool calls when response has no text content,
+      # and uses .to_json for Hash/Array (structured output) to avoid Ruby's .to_s format.
       def llm_output_text(response)
         return format_tool_calls(response) unless response.respond_to?(:content)
 
@@ -247,11 +192,7 @@ module Agents
         text
       end
 
-      # Format chat messages as a JSON array of {role, content} hashes, excluding
-      # the last message (the current assistant response). This mirrors what was
-      # actually sent to the LLM — including system prompt, user messages, prior
-      # assistant messages, and tool results — so each generation span shows its
-      # full input context with proper role separation.
+      # Excludes the last message (current response) — returns what was sent to the LLM.
       def format_chat_messages(chat)
         return nil unless chat.respond_to?(:messages)
 
@@ -309,7 +250,6 @@ module Agents
         attributes[ATTR_LANGFUSE_OBS_INPUT] = input.to_s
         attributes["agent.name"] = agent_name
 
-        # Merge dynamic attributes from provider
         if @attribute_provider
           dynamic_attrs = @attribute_provider.call(context_wrapper)
           attributes.merge!(dynamic_attrs) if dynamic_attrs.is_a?(Hash)
