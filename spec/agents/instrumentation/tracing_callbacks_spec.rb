@@ -487,7 +487,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
         expect(llm_span).to have_received(:set_attribute).with(
           "langfuse.observation.output",
-          "Tool calls: faq_lookup({:query=>\"refund\"})"
+          "Tool calls: faq_lookup(#{tool_call.arguments})"
         )
       end
     end
