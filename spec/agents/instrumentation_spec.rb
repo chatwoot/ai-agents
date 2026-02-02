@@ -57,6 +57,7 @@ RSpec.describe Agents::Instrumentation do
 
         expect(Agents::Instrumentation::TracingCallbacks).to have_received(:new).with(
           tracer: tracer,
+          trace_name: "agents.run",
           span_attributes: span_attrs,
           attribute_provider: provider
         )
