@@ -20,6 +20,12 @@ module Agents
   #
   #   Agents::Instrumentation.install(runner, tracer: tracer)
   #
+  # @example With custom trace name
+  #   Agents::Instrumentation.install(runner,
+  #     tracer: tracer,
+  #     trace_name: 'customer_support.run'
+  #   )
+  #
   # @example With Langfuse attributes
   #   Agents::Instrumentation.install(runner,
   #     tracer: tracer,
@@ -34,14 +40,16 @@ module Agents
     #
     # @param runner [Agents::AgentRunner] The runner to instrument
     # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
+    # @param trace_name [String] Name for the root span (default: "agents.run")
     # @param span_attributes [Hash] Static attributes applied to the root span
     # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning dynamic attributes
     # @return [Agents::AgentRunner, nil] The runner (for chaining), or nil if OTel is unavailable
-    def self.install(runner, tracer:, span_attributes: {}, attribute_provider: nil)
+    def self.install(runner, tracer:, trace_name: Constants::SPAN_RUN, span_attributes: {}, attribute_provider: nil)
       return unless otel_available?
 
       callbacks = TracingCallbacks.new(
         tracer: tracer,
+        trace_name: trace_name,
         span_attributes: span_attributes,
         attribute_provider: attribute_provider
       )

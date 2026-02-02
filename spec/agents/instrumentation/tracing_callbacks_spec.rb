@@ -82,6 +82,62 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       )
     end
 
+    context "with custom trace_name" do
+      let(:custom_callbacks) { described_class.new(tracer: tracer, trace_name: "llm.captain_v2") }
+
+      before do
+        allow(tracer).to receive(:start_span).and_return(root_span)
+        custom_callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+      end
+
+      it "uses the custom name for the root span" do
+        expect(tracer).to have_received(:start_span).with(
+          "llm.captain_v2",
+          attributes: hash_including("agent.name" => "TestAgent")
+        )
+      end
+
+      it "derives LLM span name from trace_name" do
+        chat = instance_double(RubyLLM::Chat)
+        user_msg = instance_double(RubyLLM::Message, role: :user, content: "Hi")
+        assistant_msg = instance_double(RubyLLM::Message,
+                                        role: :assistant, input_tokens: 10, output_tokens: 5,
+                                        content: "Hello", tool_call?: false, tool_calls: {})
+        allow(chat).to receive(:messages).and_return([user_msg, assistant_msg])
+        allow(chat).to receive(:on_end_message).and_yield(assistant_msg)
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        custom_callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expect(tracer).to have_received(:start_span).with(
+          "llm.captain_v2.generation",
+          with_parent: anything,
+          attributes: anything
+        )
+      end
+
+      it "derives tool span name from trace_name" do
+        allow(tracer).to receive(:start_span).and_return(tool_span)
+
+        custom_callbacks.on_tool_start("faq_lookup", { query: "refund" }, context_wrapper)
+
+        expect(tracer).to have_received(:start_span).with(
+          "llm.captain_v2.tool.faq_lookup",
+          with_parent: anything,
+          attributes: anything
+        )
+      end
+
+      it "derives handoff event name from trace_name" do
+        custom_callbacks.on_agent_handoff("Triage", "Billing", "handoff", context_wrapper)
+
+        expect(root_span).to have_received(:add_event).with(
+          "llm.captain_v2.handoff",
+          attributes: hash_including("handoff.from" => "Triage", "handoff.to" => "Billing")
+        )
+      end
+    end
+
     context "with attribute_provider" do
       it "merges dynamic attributes into root span" do
         provider = ->(_ctx) { { "langfuse.user.id" => "user_42", "langfuse.session.id" => "sess_1" } }
@@ -203,7 +259,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       ].to_json
 
       expect(tracer).to have_received(:start_span).with(
-        "agents.llm_call",
+        "agents.run.generation",
         with_parent: context_wrapper.context[:__otel_tracing][:root_context],
         attributes: hash_including("langfuse.observation.input" => expected_input)
       )
@@ -239,7 +295,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       # Capture the attributes from each start_span call
       span_inputs = []
       allow(tracer).to receive(:start_span) do |name, **opts|
-        span_inputs << opts.dig(:attributes, "langfuse.observation.input") if name == "agents.llm_call"
+        span_inputs << opts.dig(:attributes, "langfuse.observation.input") if name == "agents.run.generation"
         llm_span
       end
 
@@ -387,7 +443,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_tool_start("lookup_user", { user_id: 123 }, context_wrapper)
 
       expect(tracer).to have_received(:start_span).with(
-        "agents.tool.lookup_user",
+        "agents.run.tool.lookup_user",
         with_parent: context_wrapper.context[:__otel_tracing][:root_context],
         attributes: hash_including("langfuse.observation.type" => "tool")
       )
@@ -399,7 +455,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_tool_start("lookup_user", { user_id: 123 }, context_wrapper)
 
       expect(tracer).to have_received(:start_span).with(
-        "agents.tool.lookup_user",
+        "agents.run.tool.lookup_user",
         with_parent: anything,
         attributes: hash_not_including("gen_ai.request.model")
       )
@@ -450,7 +506,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_agent_handoff("Triage", "Billing", "handoff", context_wrapper)
 
       expect(root_span).to have_received(:add_event).with(
-        "agents.handoff",
+        "agents.run.handoff",
         attributes: {
           "handoff.from" => "Triage",
           "handoff.to" => "Billing",

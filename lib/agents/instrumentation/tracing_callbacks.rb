@@ -8,14 +8,14 @@ module Agents
     # Registers as callbacks on an AgentRunner to produce OTel spans that render
     # correctly in Langfuse (and other OTel-compatible backends).
     #
-    # ## Span hierarchy
+    # ## Span hierarchy (names derived from trace_name, default "agents.run")
     #   Trace (root span)
-    #   └── SPAN: agents.run                    ← container, NO gen_ai.request.model
-    #       ├── GENERATION: agents.llm_call     ← gen_ai.request.model + tokens
-    #       ├── TOOL: agents.tool.<name>        ← langfuse.observation.type = "tool"
-    #       ├── GENERATION: agents.llm_call     ← gen_ai.request.model + tokens
-    #       ├── EVENT: agents.handoff           ← point event on root span
-    #       └── GENERATION: agents.llm_call     ← gen_ai.request.model + tokens
+    #   └── SPAN: <trace_name>                        ← container, NO gen_ai.request.model
+    #       ├── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
+    #       ├── TOOL: <trace_name>.tool.<name>        ← langfuse.observation.type = "tool"
+    #       ├── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
+    #       ├── EVENT: <trace_name>.handoff           ← point event on root span
+    #       └── GENERATION: <trace_name>.generation   ← gen_ai.request.model + tokens
     #
     # ## Double-counting prevention
     # Only LLM call spans carry `gen_ai.request.model`, which Langfuse uses to
@@ -36,10 +36,15 @@ module Agents
       include Constants
 
       # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
+      # @param trace_name [String] Name for the root span (default: "agents.run")
       # @param span_attributes [Hash] Static attributes applied to the root span
       # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning a Hash of dynamic attributes
-      def initialize(tracer:, span_attributes: {}, attribute_provider: nil)
+      def initialize(tracer:, trace_name: SPAN_RUN, span_attributes: {}, attribute_provider: nil)
         @tracer = tracer
+        @trace_name = trace_name
+        @llm_span_name = "#{trace_name}.generation"
+        @tool_span_name = "#{trace_name}.tool.%s"
+        @handoff_event_name = "#{trace_name}.handoff"
         @span_attributes = span_attributes
         @attribute_provider = attribute_provider
       end
@@ -49,7 +54,7 @@ module Agents
       def on_run_start(agent_name, input, context_wrapper)
         attributes = build_root_attributes(agent_name, input, context_wrapper)
 
-        root_span = @tracer.start_span(SPAN_RUN, attributes: attributes)
+        root_span = @tracer.start_span(@trace_name, attributes: attributes)
         root_context = OpenTelemetry::Trace.context_with_span(root_span)
 
         store_tracing_state(context_wrapper,
@@ -93,7 +98,7 @@ module Agents
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        span_name = format(SPAN_TOOL, tool_name)
+        span_name = format(@tool_span_name, tool_name)
         attributes = {
           ATTR_LANGFUSE_OBS_TYPE => "tool",
           ATTR_LANGFUSE_OBS_INPUT => args.to_s
@@ -127,7 +132,7 @@ module Agents
         return unless tracing
 
         tracing[:root_span]&.add_event(
-          EVENT_HANDOFF,
+          @handoff_event_name,
           attributes: {
             "handoff.from" => from_agent,
             "handoff.to" => to_agent,
@@ -177,7 +182,7 @@ module Agents
         input = format_chat_messages(chat)
         attrs = {}
         attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
-        llm_span = @tracer.start_span(SPAN_LLM_CALL, with_parent: tracing[:root_context], attributes: attrs)
+        llm_span = @tracer.start_span(@llm_span_name, with_parent: tracing[:root_context], attributes: attrs)
 
         llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
         set_llm_response_attributes(llm_span, message)
