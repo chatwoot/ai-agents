@@ -156,6 +156,9 @@ module Agents
         llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
         set_llm_response_attributes(llm_span, message)
 
+        output = llm_output_text(message)
+        tracing[:last_agent_output] = output unless output.empty?
+
         llm_span.finish
       end
 
@@ -217,23 +220,34 @@ module Agents
         finish_agent_span(tracing) # close previous agent span if missed
 
         span_name = format(@agent_span_name, agent_name)
+        attrs = { "agent.name" => agent_name }
+        input = tracing[:pending_llm_input]
+        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input && !input.empty?
+
         agent_span = @tracer.start_span(span_name,
                                         with_parent: tracing[:root_context],
-                                        attributes: { "agent.name" => agent_name })
+                                        attributes: attrs)
         agent_context = OpenTelemetry::Trace.context_with_span(agent_span)
 
         tracing[:current_agent_name] = agent_name
         tracing[:current_agent_span] = agent_span
         tracing[:current_agent_context] = agent_context
+        tracing[:last_agent_output] = nil
       end
 
       def finish_agent_span(tracing)
         return unless tracing[:current_agent_span]
 
+        last_output = tracing[:last_agent_output]
+        if last_output && !last_output.empty?
+          tracing[:current_agent_span].set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, last_output)
+        end
+
         tracing[:current_agent_span].finish
         tracing[:current_agent_name] = nil
         tracing[:current_agent_span] = nil
         tracing[:current_agent_context] = nil
+        tracing[:last_agent_output] = nil
       end
 
       def parent_context(tracing)

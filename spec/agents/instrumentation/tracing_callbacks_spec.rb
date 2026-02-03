@@ -151,7 +151,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         expect(tracer).to have_received(:start_span).with(
           "llm.captain_v2.agent.Triage",
           with_parent: anything,
-          attributes: hash_including("agent.name" => "Triage")
+          attributes: hash_including("agent.name" => "Triage", "langfuse.observation.input" => "Hello")
         )
       end
     end
@@ -213,7 +213,19 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracer).to have_received(:start_span).with(
         "agents.run.agent.TestAgent",
         with_parent: context_wrapper.context[:__otel_tracing][:root_context],
-        attributes: { "agent.name" => "TestAgent" }
+        attributes: hash_including("agent.name" => "TestAgent")
+      )
+    end
+
+    it "sets observation input on the agent span from pending input" do
+      allow(tracer).to receive(:start_span).and_return(agent_span)
+
+      callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.agent.TestAgent",
+        with_parent: anything,
+        attributes: hash_including("langfuse.observation.input" => "What is your refund policy?")
       )
     end
 
@@ -250,7 +262,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracer).to have_received(:start_span).with(
         "agents.run.agent.Billing",
         with_parent: anything,
-        attributes: { "agent.name" => "Billing" }
+        attributes: hash_including("agent.name" => "Billing")
       )
       expect(context_wrapper.context[:__otel_tracing][:current_agent_name]).to eq("Billing")
       expect(context_wrapper.context[:__otel_tracing][:current_agent_span]).to eq(agent_span2)
@@ -284,6 +296,32 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracing[:current_agent_name]).to be_nil
       expect(tracing[:current_agent_span]).to be_nil
       expect(tracing[:current_agent_context]).to be_nil
+    end
+
+    it "backfills observation output on agent span from last LLM response" do
+      chat = instance_double(RubyLLM::Chat)
+      assistant_msg = instance_double(RubyLLM::Message,
+                                      role: :assistant, input_tokens: 10, output_tokens: 5,
+                                      content: "Here is your answer", tool_call?: false, tool_calls: {})
+      allow(chat).to receive(:messages).and_return([
+        instance_double(RubyLLM::Message, role: :user, content: "Hi"),
+        assistant_msg
+      ])
+      allow(chat).to receive(:on_end_message).and_yield(assistant_msg)
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+      callbacks.on_agent_complete("TestAgent", nil, nil, context_wrapper)
+
+      expect(agent_span).to have_received(:set_attribute).with(
+        "langfuse.observation.output", "Here is your answer"
+      )
+    end
+
+    it "does not set observation output on agent span when no LLM response occurred" do
+      callbacks.on_agent_complete("TestAgent", nil, nil, context_wrapper)
+
+      expect(agent_span).not_to have_received(:set_attribute).with("langfuse.observation.output", anything)
     end
 
     context "without tracing state" do
