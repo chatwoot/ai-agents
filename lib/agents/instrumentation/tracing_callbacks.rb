@@ -82,7 +82,7 @@ module Agents
         span_name = format(@tool_span_name, tool_name)
         attributes = {
           ATTR_LANGFUSE_OBS_TYPE => "tool",
-          ATTR_LANGFUSE_OBS_INPUT => args.to_s
+          ATTR_LANGFUSE_OBS_INPUT => serialize_output(args)
         }
 
         parent = handoff_tool?(tool_name) ? tracing[:root_context] : parent_context(tracing)
@@ -102,7 +102,7 @@ module Agents
         tool_span = tracing[:current_tool_span]
         return unless tool_span
 
-        tool_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, result.to_s)
+        tool_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, serialize_output(result))
         tool_span.finish
         tracing[:current_tool_span] = nil
       end
@@ -202,7 +202,24 @@ module Agents
         messages = chat.messages
         return nil if messages.nil? || messages.empty?
 
-        messages[0...-1].map { |m| { role: m.role.to_s, content: m.content.to_s } }.to_json
+        messages[0...-1].map { |m| format_single_message(m) }.to_json
+      end
+
+      def format_single_message(msg)
+        text = serialize_content(msg.content)
+        text = append_tool_calls(msg, text)
+        { role: msg.role.to_s, content: text }
+      end
+
+      def serialize_content(content)
+        content.is_a?(Hash) || content.is_a?(Array) ? content.to_json : content.to_s
+      end
+
+      def append_tool_calls(msg, text)
+        return text unless msg.role == :assistant && msg.respond_to?(:tool_calls) && msg.tool_calls&.any?
+
+        calls = msg.tool_calls.values.map { |tc| "#{tc.name}(#{tc.arguments.to_json})" }.join(", ")
+        text.empty? ? "Tool calls: #{calls}" : "#{text}\nTool calls: #{calls}"
       end
 
       def serialize_output(value)
@@ -212,7 +229,9 @@ module Agents
       def format_tool_calls(response)
         return "" unless response.respond_to?(:tool_calls) && response.tool_calls&.any?
 
-        calls = response.tool_calls.values.map { |tc| "#{tc.name}(#{tc.arguments})" }
+        calls = response.tool_calls.values.map do |tc|
+          "#{tc.name}(#{serialize_output(tc.arguments)})"
+        end
         "Tool calls: #{calls.join(", ")}"
       end
 
@@ -260,8 +279,9 @@ module Agents
 
       def build_root_attributes(agent_name, input, context_wrapper)
         attributes = @span_attributes.dup
-        attributes[ATTR_LANGFUSE_TRACE_INPUT] = input.to_s
-        attributes[ATTR_LANGFUSE_OBS_INPUT] = input.to_s
+        serialized_input = serialize_output(input)
+        attributes[ATTR_LANGFUSE_TRACE_INPUT] = serialized_input
+        attributes[ATTR_LANGFUSE_OBS_INPUT] = serialized_input
         attributes["agent.name"] = agent_name
 
         if @attribute_provider

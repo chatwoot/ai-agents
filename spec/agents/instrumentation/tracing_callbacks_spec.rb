@@ -471,11 +471,11 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         { role: "user", content: "What is your refund policy?" }
       ].to_json
 
-      # Second LLM span input: includes tool call + tool result
+      # Second LLM span input: includes tool call (with tool call details) + tool result
       second_input = [
         { role: "system", content: "You are a helpful assistant" },
         { role: "user", content: "What is your refund policy?" },
-        { role: "assistant", content: "" },
+        { role: "assistant", content: "Tool calls: faq_lookup(#{{ query: "refund" }.to_json})" },
         { role: "tool", content: "Refund policy: 30 days" }
       ].to_json
 
@@ -525,7 +525,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
         expect(llm_span).to have_received(:set_attribute).with(
           "langfuse.observation.output",
-          "Tool calls: faq_lookup(#{tool_call.arguments})"
+          "Tool calls: faq_lookup(#{tool_call.arguments.to_json})"
         )
       end
     end
@@ -591,6 +591,30 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
 
         expect(chat).not_to have_received(:on_end_message)
+      end
+    end
+
+    context "with Hash/Array content in messages" do
+      it "serializes Hash content as JSON in chat message input" do
+        hash_msg = instance_double(RubyLLM::Message, role: :assistant, content: { key: "value" },
+                                                      tool_call?: false, tool_calls: {},
+                                                      input_tokens: 10, output_tokens: 5)
+        allow(chat).to receive(:messages).and_return([user_message, hash_msg, assistant_message])
+        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expected_input = [
+          { role: "user", content: "What is your refund policy?" },
+          { role: "assistant", content: { key: "value" }.to_json }
+        ].to_json
+
+        expect(tracer).to have_received(:start_span).with(
+          "agents.run.generation",
+          with_parent: anything,
+          attributes: hash_including("langfuse.observation.input" => expected_input)
+        )
       end
     end
   end
