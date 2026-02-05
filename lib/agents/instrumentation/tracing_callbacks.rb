@@ -132,8 +132,10 @@ module Agents
 
         if result.respond_to?(:output)
           output_text = serialize_output(result.output)
-          root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, output_text)
-          root_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output_text)
+          unless output_text.empty?
+            root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, output_text)
+            root_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output_text)
+          end
         end
 
         root_span.finish
@@ -280,8 +282,10 @@ module Agents
       def build_root_attributes(agent_name, input, context_wrapper)
         attributes = @span_attributes.dup
         serialized_input = serialize_output(input)
-        attributes[ATTR_LANGFUSE_TRACE_INPUT] = serialized_input
-        attributes[ATTR_LANGFUSE_OBS_INPUT] = serialized_input
+        unless serialized_input.empty?
+          attributes[ATTR_LANGFUSE_TRACE_INPUT] = serialized_input
+          attributes[ATTR_LANGFUSE_OBS_INPUT] = serialized_input
+        end
         attributes["agent.name"] = agent_name
 
         if @attribute_provider
