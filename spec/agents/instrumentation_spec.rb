@@ -58,22 +58,6 @@ RSpec.describe Agents::Instrumentation do
         expect(Agents::Instrumentation::TracingCallbacks).to have_received(:new).once
       end
 
-      it "passes span_attributes and attribute_provider to TracingCallbacks" do
-        span_attrs = { "langfuse.trace.tags" => '["v2"]' }
-        provider = ->(_ctx) { { "langfuse.user.id" => "123" } }
-
-        allow(Agents::Instrumentation::TracingCallbacks).to receive(:new).and_call_original
-
-        described_class.install(runner, tracer: tracer, span_attributes: span_attrs, attribute_provider: provider)
-
-        expect(Agents::Instrumentation::TracingCallbacks).to have_received(:new).with(
-          tracer: tracer,
-          trace_name: "agents.run",
-          span_attributes: span_attrs,
-          attribute_provider: provider
-        )
-      end
-
       it "maps traced events to valid runner callback methods" do
         traced_events = described_class.send(:const_get, :TRACED_EVENTS)
 

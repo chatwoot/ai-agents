@@ -45,13 +45,17 @@ module Agents
     # No-op if opentelemetry-api is not available.
     # Idempotent per runner instance: first install wins.
     #
+    # Session grouping: set `context[:session_id]` when calling `runner.run()`.
+    # TracingCallbacks automatically reads it per-request and sets `langfuse.session.id`.
+    #
     # @param runner [Agents::AgentRunner] The runner to instrument
     # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
     # @param trace_name [String] Name for the root span (default: "agents.run")
     # @param span_attributes [Hash] Static attributes applied to the root span
     # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning dynamic attributes
     # @return [Agents::AgentRunner, nil] The runner (for chaining), or nil if OTel is unavailable
-    def self.install(runner, tracer:, trace_name: Constants::SPAN_RUN, span_attributes: {}, attribute_provider: nil)
+    def self.install(runner, tracer:, trace_name: Constants::SPAN_RUN, span_attributes: {},
+                     attribute_provider: nil)
       return unless otel_available?
 
       INSTALL_MUTEX.synchronize do

@@ -172,6 +172,32 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       end
     end
 
+    context "with session_id in context" do
+      it "sets langfuse.session.id on root span from context" do
+        ctx = instance_double(Agents::RunContext, context: { session_id: "1_1" },
+                                                  callback_manager: instance_double(Agents::CallbackManager))
+        allow(tracer).to receive(:start_span).and_return(root_span)
+
+        callbacks.on_run_start("TestAgent", "Hello", ctx)
+
+        expect(tracer).to have_received(:start_span).with(
+          "agents.run",
+          attributes: hash_including("langfuse.session.id" => "1_1")
+        )
+      end
+
+      it "does not set langfuse.session.id when context has no session_id" do
+        allow(tracer).to receive(:start_span).and_return(root_span)
+
+        callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+
+        expect(tracer).to have_received(:start_span).with(
+          "agents.run",
+          attributes: hash_not_including("langfuse.session.id")
+        )
+      end
+    end
+
     context "with attribute_provider" do
       it "merges dynamic attributes into root span" do
         provider = ->(_ctx) { { "langfuse.user.id" => "user_42", "langfuse.session.id" => "sess_1" } }
@@ -320,9 +346,9 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
                                       role: :assistant, input_tokens: 10, output_tokens: 5,
                                       content: "Here is your answer", tool_call?: false, tool_calls: {})
       allow(chat).to receive(:messages).and_return([
-        instance_double(RubyLLM::Message, role: :user, content: "Hi"),
-        assistant_msg
-      ])
+                                                     instance_double(RubyLLM::Message, role: :user, content: "Hi"),
+                                                     assistant_msg
+                                                   ])
       allow(chat).to receive(:on_end_message).and_yield(assistant_msg)
       allow(tracer).to receive(:start_span).and_return(llm_span)
 
@@ -449,11 +475,11 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
     it "includes tool results in input when tools ran between LLM calls" do
       tool_call_msg = instance_double(RubyLLM::Message, role: :assistant, content: nil,
-                                                         input_tokens: 100, output_tokens: 20,
-                                                         tool_call?: true,
-                                                         tool_calls: { "c1" => instance_double(RubyLLM::ToolCall,
-                                                                                               name: "faq_lookup",
-                                                                                               arguments: { query: "refund" }) })
+                                                        input_tokens: 100, output_tokens: 20,
+                                                        tool_call?: true,
+                                                        tool_calls: { "c1" => instance_double(RubyLLM::ToolCall,
+                                                                                              name: "faq_lookup",
+                                                                                              arguments: { query: "refund" }) })
       tool_result_msg = instance_double(RubyLLM::Message, role: :tool, content: "Refund policy: 30 days")
 
       # Track which messages the chat has at each point
@@ -467,10 +493,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         end
       end
 
-      allow(chat).to receive(:on_end_message) do |&block|
-        block.call(tool_call_msg)
-        block.call(assistant_message)
-      end
+      allow(chat).to receive(:on_end_message).and_yield(tool_call_msg).and_yield(assistant_message)
 
       # Capture the attributes from each start_span call
       span_inputs = []
@@ -613,8 +636,8 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     context "with Hash/Array content in messages" do
       it "serializes Hash content as JSON in chat message input" do
         hash_msg = instance_double(RubyLLM::Message, role: :assistant, content: { key: "value" },
-                                                      tool_call?: false, tool_calls: {},
-                                                      input_tokens: 10, output_tokens: 5)
+                                                     tool_call?: false, tool_calls: {},
+                                                     input_tokens: 10, output_tokens: 5)
         allow(chat).to receive(:messages).and_return([user_message, hash_msg, assistant_message])
         allow(chat).to receive(:on_end_message).and_yield(assistant_message)
         allow(tracer).to receive(:start_span).and_return(llm_span)

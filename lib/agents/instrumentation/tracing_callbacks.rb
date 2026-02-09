@@ -296,19 +296,31 @@ module Agents
 
       def build_root_attributes(agent_name, input, context_wrapper)
         attributes = @span_attributes.dup
-        serialized_input = serialize_output(input)
-        unless serialized_input.empty?
-          attributes[ATTR_LANGFUSE_TRACE_INPUT] = serialized_input
-          attributes[ATTR_LANGFUSE_OBS_INPUT] = serialized_input
-        end
+        apply_session_id(attributes, context_wrapper)
+        apply_input(attributes, input)
         attributes["agent.name"] = agent_name
-
-        if @attribute_provider
-          dynamic_attrs = @attribute_provider.call(context_wrapper)
-          attributes.merge!(dynamic_attrs) if dynamic_attrs.is_a?(Hash)
-        end
-
+        apply_dynamic_attributes(attributes, context_wrapper)
         attributes
+      end
+
+      def apply_session_id(attributes, context_wrapper)
+        session_id = context_wrapper&.context&.dig(:session_id)&.to_s
+        attributes[ATTR_LANGFUSE_SESSION_ID] = session_id if session_id && !session_id.empty?
+      end
+
+      def apply_input(attributes, input)
+        serialized_input = serialize_output(input)
+        return if serialized_input.empty?
+
+        attributes[ATTR_LANGFUSE_TRACE_INPUT] = serialized_input
+        attributes[ATTR_LANGFUSE_OBS_INPUT] = serialized_input
+      end
+
+      def apply_dynamic_attributes(attributes, context_wrapper)
+        return unless @attribute_provider
+
+        dynamic_attrs = @attribute_provider.call(context_wrapper)
+        attributes.merge!(dynamic_attrs) if dynamic_attrs.is_a?(Hash)
       end
 
       def store_tracing_state(context_wrapper, **state)
