@@ -426,6 +426,11 @@ module Agents
     # Check if the last message in the chat already matches the user's input.
     # This happens when an external system (e.g. Chatwoot) includes the current
     # user message in the conversation history passed via context.
+    #
+    # TODO: This .to_s == .to_s comparison is a best-effort safety net and is
+    # brittle for edge cases (trailing whitespace, Hash/JSON round-tripping).
+    # The proper fix is for callers to pass nil when input is already present
+    # in conversation history, similar to the handoff continuation path.
     def last_message_matches?(chat, input)
       return false unless input && chat.respond_to?(:messages)
 
