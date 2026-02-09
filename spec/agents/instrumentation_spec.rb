@@ -47,6 +47,17 @@ RSpec.describe Agents::Instrumentation do
         expect(result).to eq(runner)
       end
 
+      it "is idempotent per runner and does not register tracing twice" do
+        allow(Agents::Instrumentation::TracingCallbacks).to receive(:new).and_call_original
+
+        first = described_class.install(runner, tracer: tracer)
+        second = described_class.install(runner, tracer: tracer)
+
+        expect(first).to eq(runner)
+        expect(second).to eq(runner)
+        expect(Agents::Instrumentation::TracingCallbacks).to have_received(:new).once
+      end
+
       it "passes span_attributes and attribute_provider to TracingCallbacks" do
         span_attrs = { "langfuse.trace.tags" => '["v2"]' }
         provider = ->(_ctx) { { "langfuse.user.id" => "123" } }
@@ -61,6 +72,20 @@ RSpec.describe Agents::Instrumentation do
           span_attributes: span_attrs,
           attribute_provider: provider
         )
+      end
+
+      it "maps traced events to valid runner callback methods" do
+        traced_events = described_class.send(:const_get, :TRACED_EVENTS)
+
+        traced_events.each do |event|
+          expect(runner).to respond_to(:"on_#{event}")
+        end
+      end
+
+      it "uses callback manager event types as traced events" do
+        traced_events = described_class.send(:const_get, :TRACED_EVENTS)
+
+        expect(traced_events).to eq(Agents::CallbackManager::EVENT_TYPES)
       end
     end
   end

@@ -2,6 +2,7 @@
 
 require_relative "instrumentation/constants"
 require_relative "instrumentation/tracing_callbacks"
+require_relative "callback_manager"
 
 module Agents
   # Optional OpenTelemetry instrumentation for the ai-agents gem.
@@ -35,8 +36,15 @@ module Agents
   #     }
   #   )
   module Instrumentation
+    INSTALL_MUTEX = Mutex.new
+    private_constant :INSTALL_MUTEX
+
+    INSTRUMENTATION_FLAG_IVAR = :@__agents_otel_instrumentation_installed
+    private_constant :INSTRUMENTATION_FLAG_IVAR
+
     # Install OTel tracing on a runner via callbacks.
     # No-op if opentelemetry-api is not available.
+    # Idempotent per runner instance: first install wins.
     #
     # @param runner [Agents::AgentRunner] The runner to instrument
     # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
@@ -47,23 +55,24 @@ module Agents
     def self.install(runner, tracer:, trace_name: Constants::SPAN_RUN, span_attributes: {}, attribute_provider: nil)
       return unless otel_available?
 
-      callbacks = TracingCallbacks.new(
-        tracer: tracer,
-        trace_name: trace_name,
-        span_attributes: span_attributes,
-        attribute_provider: attribute_provider
-      )
+      INSTALL_MUTEX.synchronize do
+        return runner if instrumentation_installed?(runner)
 
-      register_callbacks(runner, callbacks)
+        callbacks = TracingCallbacks.new(
+          tracer: tracer,
+          trace_name: trace_name,
+          span_attributes: span_attributes,
+          attribute_provider: attribute_provider
+        )
+
+        register_callbacks(runner, callbacks)
+        mark_instrumentation_installed(runner)
+      end
       runner
     end
 
     # Callback event types that are forwarded from the runner to TracingCallbacks.
-    TRACED_EVENTS = %i[
-      run_start agent_thinking llm_call_complete
-      tool_start tool_complete agent_handoff
-      run_complete chat_created agent_complete
-    ].freeze
+    TRACED_EVENTS = CallbackManager::EVENT_TYPES
     private_constant :TRACED_EVENTS
 
     # Register all tracing callback handlers on the runner.
@@ -73,6 +82,16 @@ module Agents
       end
     end
     private_class_method :register_callbacks
+
+    def self.instrumentation_installed?(runner)
+      runner.instance_variable_get(INSTRUMENTATION_FLAG_IVAR)
+    end
+    private_class_method :instrumentation_installed?
+
+    def self.mark_instrumentation_installed(runner)
+      runner.instance_variable_set(INSTRUMENTATION_FLAG_IVAR, true)
+    end
+    private_class_method :mark_instrumentation_installed
 
     # Check if the opentelemetry-api gem is available.
     #
