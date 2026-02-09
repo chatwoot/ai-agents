@@ -7,8 +7,15 @@ require_relative "../../../lib/agents/instrumentation"
 module OpenTelemetry
   module Trace
     class Status
+      attr_reader :code, :description
+
+      def initialize(code:, description:)
+        @code = code
+        @description = description
+      end
+
       def self.error(description)
-        { code: :error, description: description }
+        new(code: 2, description: description)
       end
     end
 
@@ -783,7 +790,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(root_span).to have_received(:record_exception).with(run_error)
       expect(root_span).to have_received(:status=).with(
-        OpenTelemetry::Trace::Status.error("tool execution failed")
+        having_attributes(description: "tool execution failed")
       )
     end
 
