@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-09
+
+### Added
+- **OpenTelemetry Instrumentation**: Optional OTel tracing for LLM calls, tool executions, and agent handoffs
+  - `Agents::Instrumentation.install(runner, tracer:)` registers tracing callbacks on any runner
+  - Produces nested spans: `agents.run` → `agents.tool.*` → `agents.llm_call` (GENERATION)
+  - Compatible with Langfuse and other OTel-compatible backends out of the box
+  - Supports `langfuse.session.id` via `context[:session_id]` for session grouping
+  - Custom static and dynamic span attributes via `span_attributes` and `attribute_provider`
+  - Idempotent installation with thread-safe mutex guard
+  - No hard dependency on `opentelemetry-api` — gracefully no-ops if the gem is absent
+- **New callback events**: `on_chat_created` and `on_end_message` for hooking into RubyLLM chat lifecycle
+- Instrumentation guide at `docs/guides/instrumentation.md`
+- Live instrumentation smoke tests against real LLM providers
+
+### Changed
+- `CallbackManager` extended to support `chat_created` and `end_message` event types
+- `Runner` and `ToolWrapper` now fire the new lifecycle callbacks
+
 ## [0.8.0] - 2026-01-07
 
 ### Added
