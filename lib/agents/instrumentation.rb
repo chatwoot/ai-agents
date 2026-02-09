@@ -2,7 +2,6 @@
 
 require_relative "instrumentation/constants"
 require_relative "instrumentation/tracing_callbacks"
-require_relative "callback_manager"
 
 module Agents
   # Optional OpenTelemetry instrumentation for the ai-agents gem.
