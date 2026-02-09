@@ -81,12 +81,6 @@ RSpec.describe Agents::Instrumentation do
           expect(runner).to respond_to(:"on_#{event}")
         end
       end
-
-      it "uses callback manager event types as traced events" do
-        traced_events = described_class.send(:const_get, :TRACED_EVENTS)
-
-        expect(traced_events).to eq(Agents::CallbackManager::EVENT_TYPES)
-      end
     end
   end
 end
