@@ -130,13 +130,8 @@ module Agents
         root_span = tracing[:root_span]
         return unless root_span
 
-        if result.respond_to?(:output)
-          output_text = serialize_output(result.output)
-          unless output_text.empty?
-            root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, output_text)
-            root_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output_text)
-          end
-        end
+        set_run_output_attributes(root_span, result)
+        set_run_error_status(root_span, result)
 
         root_span.finish
         cleanup_tracing_state(context_wrapper)
@@ -170,6 +165,26 @@ module Agents
           tracing[:current_tool_span] = nil
         end
         finish_agent_span(tracing)
+      end
+
+      def set_run_output_attributes(root_span, result)
+        return unless result.respond_to?(:output)
+
+        output_text = serialize_output(result.output)
+        return if output_text.empty?
+
+        root_span.set_attribute(ATTR_LANGFUSE_TRACE_OUTPUT, output_text)
+        root_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output_text)
+      end
+
+      def set_run_error_status(root_span, result)
+        return unless result.respond_to?(:error)
+
+        error = result.error
+        return unless error
+
+        root_span.record_exception(error)
+        root_span.status = OpenTelemetry::Trace::Status.error(error.message)
       end
 
       def set_llm_response_attributes(span, response)

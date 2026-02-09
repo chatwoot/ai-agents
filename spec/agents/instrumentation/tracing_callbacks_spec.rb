@@ -6,10 +6,18 @@ require_relative "../../../lib/agents/instrumentation"
 # Stub OTel classes since the gem is optional and not loaded in tests
 module OpenTelemetry
   module Trace
+    class Status
+      def self.error(description)
+        { code: :error, description: description }
+      end
+    end
+
     # Minimal stub matching the OTel Span interface used by TracingCallbacks
     class Span
       def set_attribute(_key, _value); end
       def add_event(_name, attributes: {}); end
+      def record_exception(_exception); end
+      def status=(_status); end
       def finish; end
     end
 
@@ -42,7 +50,8 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
   let(:callbacks) { described_class.new(tracer: tracer) }
 
   before do
-    allow(root_span).to receive_messages(set_attribute: nil, add_event: nil, finish: nil)
+    allow(root_span).to receive_messages(set_attribute: nil, add_event: nil, record_exception: nil, finish: nil)
+    allow(root_span).to receive(:status=)
     allow(llm_span).to receive_messages(set_attribute: nil, finish: nil)
     allow(tool_span).to receive_messages(set_attribute: nil, finish: nil)
     allow(agent_span).to receive_messages(set_attribute: nil, finish: nil)
@@ -755,6 +764,27 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(root_span).to have_received(:set_attribute).with("langfuse.trace.output", "Final answer")
       expect(root_span).to have_received(:set_attribute).with("langfuse.observation.output", "Final answer")
+    end
+
+    it "does not set output attributes when serialized output is empty" do
+      empty_output_result = instance_double(Agents::RunResult, output: nil)
+
+      callbacks.on_run_complete("TestAgent", empty_output_result, context_wrapper)
+
+      expect(root_span).not_to have_received(:set_attribute).with("langfuse.trace.output", anything)
+      expect(root_span).not_to have_received(:set_attribute).with("langfuse.observation.output", anything)
+    end
+
+    it "records run errors and marks the root span status as error" do
+      run_error = StandardError.new("tool execution failed")
+      error_result = instance_double(Agents::RunResult, output: nil, error: run_error)
+
+      callbacks.on_run_complete("TestAgent", error_result, context_wrapper)
+
+      expect(root_span).to have_received(:record_exception).with(run_error)
+      expect(root_span).to have_received(:status=).with(
+        OpenTelemetry::Trace::Status.error("tool execution failed")
+      )
     end
 
     it "finishes the root span" do
