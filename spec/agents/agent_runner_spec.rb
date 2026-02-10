@@ -137,7 +137,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -159,7 +160,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -183,7 +185,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -217,7 +220,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -250,7 +254,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -283,7 +288,8 @@ RSpec.describe Agents::AgentRunner do
             tool_start: [],
             tool_complete: [],
             agent_thinking: [],
-            agent_handoff: []
+            agent_handoff: [],
+            chat_created: []
           )
         )
       end
@@ -582,7 +588,9 @@ RSpec.describe Agents::AgentRunner do
               tool_start: [],
               tool_complete: [],
               agent_thinking: [],
-              agent_handoff: []
+              agent_handoff: [],
+              llm_call_complete: [],
+              chat_created: []
             }
           )
         )

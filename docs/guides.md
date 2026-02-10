@@ -18,3 +18,4 @@ Practical guides for building real-world applications with the AI Agents library
 - **[State Persistence](guides/state-persistence.html)** - Managing conversation state and context across sessions and processes
 - **[Structured Output](guides/structured-output.html)** - Enforcing JSON schema validation for reliable agent responses
 - **[Custom Request Headers](guides/request-headers.html)** - Adding custom HTTP headers for authentication, tracking, and provider-specific features
+- **[OpenTelemetry Instrumentation](guides/instrumentation.html)** - Trace agent execution with Langfuse and other OTel backends

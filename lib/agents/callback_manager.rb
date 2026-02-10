@@ -20,13 +20,20 @@ module Agents
       tool_complete
       agent_thinking
       agent_handoff
+      llm_call_complete
+      chat_created
     ].freeze
 
     def initialize(callbacks = {})
       @callbacks = callbacks.dup.freeze
     end
 
-    # Generic method to emit any callback event type
+    # Generic method to emit any callback event type.
+    # Handles arity-aware dispatch: lambdas with strict arity receive only the
+    # arguments they expect (extra trailing args are sliced off), while procs
+    # and blocks (which have flexible arity) receive all arguments.
+    # This ensures backwards compatibility when new arguments (e.g. context_wrapper)
+    # are appended to existing callback signatures.
     #
     # @param event_type [Symbol] The type of event to emit
     # @param args [Array] Arguments to pass to callbacks
@@ -34,7 +41,8 @@ module Agents
       callback_list = @callbacks[event_type] || []
 
       callback_list.each do |callback|
-        callback.call(*args)
+        safe_args = arity_safe_args(callback, args)
+        callback.call(*safe_args)
       rescue StandardError => e
         # Log callback errors but don't let them crash execution
         warn "Callback error for #{event_type}: #{e.message}"
@@ -52,6 +60,23 @@ module Agents
       define_method("emit_#{event_type}") do |*args|
         emit(event_type, *args)
       end
+    end
+
+    private
+
+    # Returns args sliced to fit the callback's accepted parameter count.
+    #
+    # Non-lambda procs/blocks silently ignore extra args, so they always get all args.
+    # Lambdas enforce strict argument counts and will raise ArgumentError on extras —
+    # even lambdas with optional params (e.g. ->(a, b, c = nil) {}) have a max.
+    # We inspect #parameters to compute the max and slice accordingly.
+    # Lambdas with a *rest parameter accept unlimited args, so we pass everything.
+    def arity_safe_args(callback, args)
+      return args unless callback.lambda?
+      return args if callback.parameters.any? { |type, _| type == :rest }
+
+      max = callback.parameters.count { |type, _| %i[req opt].include?(type) }
+      args.first(max)
     end
   end
 end

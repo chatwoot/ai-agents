@@ -209,6 +209,22 @@ Agents.configure do |config|
 end
 ```
 
+## 🔍 Observability
+
+Optional OpenTelemetry instrumentation for tracing agent execution, compatible with
+[Langfuse](https://langfuse.com) and other OTel backends.
+
+```ruby
+require 'agents/instrumentation'
+
+tracer = OpenTelemetry.tracer_provider.tracer('my-app')
+runner = Agents::Runner.with_agents(triage, billing, support)
+
+Agents::Instrumentation.install(runner, tracer: tracer)
+```
+
+See the [Instrumentation Guide](docs/guides/instrumentation.md) for setup details.
+
 ## 🤝 Contributing
 
 1. Fork the repository

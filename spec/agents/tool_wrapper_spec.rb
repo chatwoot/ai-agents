@@ -64,8 +64,9 @@ RSpec.describe Agents::ToolWrapper do
 
       expect { tool_wrapper.call(args) }.to raise_error(StandardError, error_message)
 
-      expect(callback_manager).to have_received(:emit_tool_start).with(tool.name, args)
-      expect(callback_manager).to have_received(:emit_tool_complete).with(tool.name, "ERROR: #{error_message}")
+      expect(callback_manager).to have_received(:emit_tool_start).with(tool.name, args, context_wrapper)
+      expect(callback_manager).to have_received(:emit_tool_complete).with(tool.name, "ERROR: #{error_message}",
+                                                                          context_wrapper)
     end
   end
 

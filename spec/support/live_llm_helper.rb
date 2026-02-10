@@ -3,7 +3,7 @@
 # Helper utilities for running live LLM integration specs.
 # These specs are tagged :live_llm and only run when explicitly enabled.
 module LiveLLMHelper
-  DEFAULT_LIVE_MODEL = "gpt-4o-mini"
+  DEFAULT_LIVE_MODEL = "gpt-4.1-nano"
 
   def configure_live_llm(model: live_model)
     Agents.configure do |config|

@@ -104,6 +104,8 @@ module Agents
       apply_headers(chat, current_headers)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
+      input_already_in_history = last_message_matches?(chat, input)
+      context_wrapper.callback_manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper)
 
       loop do
         current_turn += 1
@@ -112,15 +114,23 @@ module Agents
         # Get response from LLM (RubyLLM handles tool execution with halting based handoff detection)
         result = if current_turn == 1
                    # Emit agent thinking event for initial message
-                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input)
-                   chat.ask(input)
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input, context_wrapper)
+                   # If conversation history already ends with this user message (e.g. passed
+                   # in via context from an external system), use complete to avoid duplicating it.
+                   input_already_in_history ? chat.complete : chat.ask(input)
                  else
                    # Emit agent thinking event for continuation
-                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)")
+                   context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, "(continuing conversation)",
+                                                                        context_wrapper)
                    chat.complete
                  end
         response = result
         track_usage(response, context_wrapper)
+
+        # Emit LLM call complete event with model and response for instrumentation
+        context_wrapper.callback_manager.emit_llm_call_complete(
+          current_agent.name, current_agent.model, response, context_wrapper
+        )
 
         # Check for handoff via RubyLLM's halt mechanism
         if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
@@ -155,7 +165,8 @@ module Agents
           context_wrapper.callback_manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
 
           # Emit agent handoff event
-          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff")
+          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff",
+                                                              context_wrapper)
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
@@ -166,6 +177,9 @@ module Agents
           agent_headers = Helpers::Headers.normalize(current_agent.headers)
           current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
           apply_headers(chat, current_headers)
+          context_wrapper.callback_manager.emit_chat_created(
+            chat, current_agent.name, current_agent.model, context_wrapper
+          )
 
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
@@ -407,6 +421,21 @@ module Agents
       chat.with_schema(agent.response_schema) if agent.response_schema
 
       chat
+    end
+
+    # Check if the last message in the chat already matches the user's input.
+    # This happens when an external system (e.g. Chatwoot) includes the current
+    # user message in the conversation history passed via context.
+    #
+    # TODO: This .to_s == .to_s comparison is a best-effort safety net and is
+    # brittle for edge cases (trailing whitespace, Hash/JSON round-tripping).
+    # The proper fix is for callers to pass nil when input is already present
+    # in conversation history, similar to the handoff continuation path.
+    def last_message_matches?(chat, input)
+      return false unless input && chat.respond_to?(:messages)
+
+      last_msg = chat.messages.last
+      last_msg && last_msg.role == :user && last_msg.content.to_s == input.to_s
     end
 
     def apply_headers(chat, headers)

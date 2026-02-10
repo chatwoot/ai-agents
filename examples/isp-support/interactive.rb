@@ -3,8 +3,13 @@
 
 require "json"
 require "readline"
+require "securerandom"
 require_relative "../../lib/agents"
 require_relative "agents_factory"
+require_relative "../../lib/agents/instrumentation"
+require "opentelemetry-sdk"
+require "opentelemetry-exporter-otlp"
+require "base64"
 
 # Simple ISP Customer Support Demo
 class ISPSupportDemo
@@ -27,10 +32,15 @@ class ISPSupportDemo
     # Setup real-time callbacks for UI feedback
     setup_callbacks
 
-    @context = {}
+    # Setup OpenTelemetry instrumentation with Langfuse
+    setup_instrumentation
+
+    @session_id = SecureRandom.uuid
+    @context = { session_id: @session_id }
     @current_status = ""
 
     puts green("🏢 Welcome to ISP Customer Support!")
+    puts dim_text("Session ID: #{@session_id}")
     puts dim_text("Type '/help' for commands or 'exit' to quit.")
     puts
   end
@@ -89,6 +99,33 @@ class ISPSupportDemo
 
   private
 
+  def setup_instrumentation
+    host = ENV["LANGFUSE_HOST"]
+    pub_key = ENV["LANGFUSE_PUBLIC_KEY"]
+    sec_key = ENV["LANGFUSE_SECRET_KEY"]
+    unless host && pub_key && sec_key
+      return puts dim_text("⚠️  Langfuse env vars not set — running without instrumentation.")
+    end
+
+    configure_otel_exporter(host, pub_key, sec_key)
+    tracer = OpenTelemetry.tracer_provider.tracer("isp-support-demo")
+    Agents::Instrumentation.install(@runner, tracer: tracer, trace_name: "isp-support")
+    puts green("📡 Langfuse instrumentation enabled — traces → #{host}")
+  end
+
+  def configure_otel_exporter(host, pub_key, sec_key)
+    endpoint = "#{host}/api/public/otel/v1/traces"
+    auth = Base64.strict_encode64("#{pub_key}:#{sec_key}")
+    otlp = OpenTelemetry::Exporter::OTLP::Exporter.new(
+      endpoint: endpoint,
+      headers: { "Authorization" => "Basic #{auth}" },
+      ssl_verify_mode: OpenSSL::SSL::VERIFY_NONE
+    )
+    OpenTelemetry::SDK.configure do |c|
+      c.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(otlp))
+    end
+  end
+
   def setup_callbacks
     @callback_messages = []
 
@@ -132,6 +169,7 @@ class ISPSupportDemo
     case input.downcase
     when "exit", "quit"
       dump_context_and_quit
+      flush_traces
       puts "👋 Goodbye!"
       :exit
     when "/help"
@@ -153,6 +191,13 @@ class ISPSupportDemo
     else
       :not_command # Not a command, continue with normal processing
     end
+  end
+
+  def flush_traces
+    OpenTelemetry.tracer_provider.force_flush
+    puts dim_text("📡 Traces flushed to Langfuse.")
+  rescue StandardError
+    # OTel not configured — nothing to flush
   end
 
   def dump_context_and_quit
