@@ -24,7 +24,8 @@ RSpec.describe Agents::Runner do
                     temperature: 0.7,
                     response_schema: nil,
                     get_system_prompt: "You are a helpful assistant",
-                    headers: {})
+                    headers: {},
+                    params: {})
   end
 
   let(:handoff_agent) do
@@ -36,7 +37,8 @@ RSpec.describe Agents::Runner do
                     temperature: 0.7,
                     response_schema: nil,
                     get_system_prompt: "You are a specialist",
-                    headers: {})
+                    headers: {},
+                    params: {})
   end
 
   let(:test_tool) do
@@ -154,6 +156,73 @@ RSpec.describe Agents::Runner do
         result = runner.run(agent, "Hello", headers: runtime_headers)
 
         expect(result.output).to eq("Hello with merged headers")
+      end
+    end
+
+    context "with custom params" do
+      it "passes runtime params to RubyLLM chat" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with params",
+                                                          input_tokens: 10, output_tokens: 5)
+        params = { service_tier: "default" }
+
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat,
+                                             with_model: mock_chat, ask: mock_response)
+
+        result = runner.run(agent, "Hello", params: params)
+
+        expect(result.output).to eq("Hello with params")
+        expect(mock_chat).to have_received(:with_params).with(service_tier: "default")
+      end
+
+      it "applies agent default params when runtime params are absent" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent params",
+                                                          input_tokens: 10, output_tokens: 5)
+
+        allow(agent).to receive(:params).and_return({ service_tier: "flex" })
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat,
+                                             with_model: mock_chat, ask: mock_response)
+
+        result = runner.run(agent, "Hello")
+
+        expect(result.output).to eq("Hello with agent params")
+        expect(mock_chat).to have_received(:with_params).with(service_tier: "flex")
+      end
+
+      it "merges params giving runtime precedence over agent defaults" do
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged params",
+                                                          input_tokens: 10, output_tokens: 5)
+        runtime_params = { service_tier: "default", max_tokens: 1000 }
+
+        allow(agent).to receive(:params).and_return({ service_tier: "flex", top_p: 0.9 })
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat,
+                                             with_model: mock_chat, ask: mock_response)
+
+        result = runner.run(agent, "Hello", params: runtime_params)
+
+        expect(result.output).to eq("Hello with merged params")
+        expect(mock_chat).to have_received(:with_params).with(
+          service_tier: "default",
+          top_p: 0.9,
+          max_tokens: 1000
+        )
       end
     end
 
@@ -675,7 +744,8 @@ RSpec.describe Agents::Runner do
                         temperature: 0.7,
                         response_schema: nil,
                         get_system_prompt: "You route users to specialists",
-                        headers: {})
+                        headers: {},
+                        params: {})
       end
 
       before do
@@ -854,7 +924,8 @@ RSpec.describe Agents::Runner do
                         temperature: 0.7,
                         response_schema: schema,
                         get_system_prompt: "You provide structured responses",
-                        headers: {})
+                        headers: {},
+                        params: {})
       end
 
       it "includes response_schema in API request" do
@@ -926,7 +997,8 @@ RSpec.describe Agents::Runner do
                         temperature: 0.7,
                         response_schema: nil,
                         get_system_prompt: "You are an agent with tools",
-                        headers: {})
+                        headers: {},
+                        params: {})
       end
 
       it "wraps regular tools in ToolWrapper" do
@@ -1036,7 +1108,8 @@ RSpec.describe Agents::Runner do
                                              temperature: 0.7,
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
-                                             headers: {})
+                                             headers: {},
+                                             params: {})
 
         stub_chat_sequence(
           { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
@@ -1067,7 +1140,8 @@ RSpec.describe Agents::Runner do
                                              temperature: 0.7,
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
-                                             headers: {})
+                                             headers: {},
+                                             params: {})
 
         stub_request(:post, "https://api.openai.com/v1/chat/completions")
           .to_return(

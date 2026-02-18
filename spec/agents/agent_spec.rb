@@ -19,6 +19,8 @@ RSpec.describe Agents::Agent do
       expect(agent.temperature).to eq(0.7)
       expect(agent.headers).to eq({})
       expect(agent.headers).to be_frozen
+      expect(agent.params).to eq({})
+      expect(agent.params).to be_frozen
     end
 
     it "creates agent with all parameters" do
@@ -97,6 +99,19 @@ RSpec.describe Agents::Agent do
       agent = described_class.new(name: "Test", headers: nil)
 
       expect(agent.headers).to eq({})
+    end
+
+    it "normalizes and freezes params" do
+      agent = described_class.new(name: "Test", params: { service_tier: "default" })
+
+      expect(agent.params).to eq(service_tier: "default")
+      expect(agent.params).to be_frozen
+    end
+
+    it "normalizes nil params to empty hash" do
+      agent = described_class.new(name: "Test", params: nil)
+
+      expect(agent.params).to eq({})
     end
   end
 
@@ -252,6 +267,21 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.headers).to eq("X-New": "new")
       expect(original_agent.headers).to eq("X-Test": "value")
+    end
+
+    it "preserves params when cloning" do
+      agent_with_params = described_class.new(name: "Test", params: { service_tier: "default" })
+      cloned = agent_with_params.clone(name: "Cloned")
+
+      expect(cloned.params).to eq(service_tier: "default")
+    end
+
+    it "allows overriding params when cloning" do
+      agent_with_params = described_class.new(name: "Test", params: { service_tier: "default" })
+      cloned = agent_with_params.clone(params: { service_tier: "flex" })
+
+      expect(cloned.params).to eq(service_tier: "flex")
+      expect(agent_with_params.params).to eq(service_tier: "default")
     end
   end
 

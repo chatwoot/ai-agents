@@ -81,9 +81,11 @@ module Agents
     # @param registry [Hash] Registry of agents for handoff resolution
     # @param max_turns [Integer] Maximum conversation turns before stopping
     # @param headers [Hash, nil] Custom HTTP headers passed to the underlying LLM provider
+    # @param params [Hash, nil] Provider-specific parameters passed to the underlying LLM (e.g., service_tier)
     # @param callbacks [Hash] Optional callbacks for real-time event notifications
     # @return [RunResult] The result containing output, messages, and usage
-    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, headers: nil, callbacks: {})
+    def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, headers: nil, params: nil,
+            callbacks: {})
       # The starting_agent is already determined by AgentRunner based on conversation history
       current_agent = starting_agent
 
@@ -97,11 +99,15 @@ module Agents
 
       runtime_headers = Helpers::Headers.normalize(headers)
       agent_headers = Helpers::Headers.normalize(current_agent.headers)
+      runtime_params = Helpers::Params.normalize(params)
+      agent_params = Helpers::Params.normalize(current_agent.params)
 
       # Create chat and restore conversation history
       chat = RubyLLM::Chat.new(model: current_agent.model)
       current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+      current_params = Helpers::Params.merge(agent_params, runtime_params)
       apply_headers(chat, current_headers)
+      apply_params(chat, current_params)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
       input_already_in_history = last_message_matches?(chat, input)
@@ -177,6 +183,9 @@ module Agents
           agent_headers = Helpers::Headers.normalize(current_agent.headers)
           current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
           apply_headers(chat, current_headers)
+          agent_params = Helpers::Params.normalize(current_agent.params)
+          current_params = Helpers::Params.merge(agent_params, runtime_params)
+          apply_params(chat, current_params)
           context_wrapper.callback_manager.emit_chat_created(
             chat, current_agent.name, current_agent.model, context_wrapper
           )
@@ -442,6 +451,12 @@ module Agents
       return if headers.empty?
 
       chat.with_headers(**headers)
+    end
+
+    def apply_params(chat, params)
+      return if params.empty?
+
+      chat.with_params(**params)
     end
 
     def track_usage(response, context_wrapper)
