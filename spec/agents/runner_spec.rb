@@ -218,6 +218,115 @@ RSpec.describe Agents::Runner do
       end
     end
 
+    context "with multimodal content in history" do
+      let(:multimodal_content) do
+        [
+          { type: "text", text: "Here is my error screenshot" },
+          { type: "image_url", image_url: { url: "https://example.com/error.png" } }
+        ]
+      end
+
+      let(:context_with_multimodal_history) do
+        {
+          conversation_history: [
+            { role: :user, content: multimodal_content },
+            { role: :assistant, content: "I can see a 500 error in your screenshot." }
+          ]
+        }
+      end
+
+      before do
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(
+            status: 200,
+            body: {
+              id: "chatcmpl-multimodal",
+              object: "chat.completion",
+              created: 1_677_652_288,
+              model: "gpt-4o",
+              choices: [{
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "Looking at the screenshot again, I see the connection pool error."
+                },
+                finish_reason: "stop"
+              }],
+              usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "restores multimodal messages with image attachments" do
+        result = runner.run(agent, "Can you look at the top-right corner?", context: context_with_multimodal_history)
+
+        expect(result.success?).to be true
+        expect(result.messages.length).to eq(4) # 2 from history + 2 new
+      end
+
+      it "preserves image URLs in restored user messages" do
+        runner_instance = Agents::Runner.new
+        mock_chat = instance_double(RubyLLM::Chat)
+        context_wrapper = Agents::RunContext.new(context_with_multimodal_history)
+
+        messages_added = []
+        allow(mock_chat).to receive(:add_message) { |msg| messages_added << msg }
+
+        runner_instance.send(:restore_conversation_history, mock_chat, context_wrapper)
+
+        user_msg = messages_added.find { |m| m.role == :user }
+        expect(user_msg).not_to be_nil
+        expect(user_msg.content).to be_a(RubyLLM::Content)
+        expect(user_msg.content.text).to eq("Here is my error screenshot")
+        expect(user_msg.content.attachments.first.source.to_s).to eq("https://example.com/error.png")
+      end
+
+      context "with string-keyed multimodal content" do
+        let(:string_keyed_content) do
+          [
+            { "type" => "text", "text" => "Check this image" },
+            { "type" => "image_url", "image_url" => { "url" => "https://example.com/img.png" } }
+          ]
+        end
+
+        it "handles string keys in multimodal arrays" do
+          runner_instance = Agents::Runner.new
+          mock_chat = instance_double(RubyLLM::Chat)
+          ctx = { conversation_history: [{ role: :user, content: string_keyed_content }] }
+          context_wrapper = Agents::RunContext.new(ctx)
+
+          messages_added = []
+          allow(mock_chat).to receive(:add_message) { |msg| messages_added << msg }
+
+          runner_instance.send(:restore_conversation_history, mock_chat, context_wrapper)
+
+          user_msg = messages_added.first
+          expect(user_msg.content).to be_a(RubyLLM::Content)
+          expect(user_msg.content.text).to eq("Check this image")
+          expect(user_msg.content.attachments.first.source.to_s).to eq("https://example.com/img.png")
+        end
+      end
+
+      context "with text-only multimodal arrays" do
+        it "handles arrays with no image parts as plain text" do
+          runner_instance = Agents::Runner.new
+          mock_chat = instance_double(RubyLLM::Chat)
+          text_only_array = [{ type: "text", text: "Just text, no images" }]
+          ctx = { conversation_history: [{ role: :user, content: text_only_array }] }
+          context_wrapper = Agents::RunContext.new(ctx)
+
+          messages_added = []
+          allow(mock_chat).to receive(:add_message) { |msg| messages_added << msg }
+
+          runner_instance.send(:restore_conversation_history, mock_chat, context_wrapper)
+
+          user_msg = messages_added.first
+          expect(user_msg.content.to_s).to eq("Just text, no images")
+        end
+      end
+    end
+
     context "with tool message history" do
       let(:context_with_tool_history) do
         {
