@@ -378,6 +378,8 @@ module Agents
         p.dig(:image_url, :url) || p.dig("image_url", "url")
       end
 
+      return RubyLLM::Content.new(content_value.to_json) if text_parts.empty? && image_urls.empty?
+
       text = text_parts.join(" ")
       image_urls.any? ? RubyLLM::Content.new(text, image_urls) : RubyLLM::Content.new(text)
     end
