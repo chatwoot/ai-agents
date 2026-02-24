@@ -3,42 +3,46 @@
 require_relative "../../../lib/agents"
 require_relative "../../../lib/agents/instrumentation"
 
-# Stub OTel classes since the gem is optional and not loaded in tests
-module OpenTelemetry
-  module Trace
-    class Status
-      attr_reader :code, :description
+begin
+  require "opentelemetry-api"
+rescue LoadError
+  # Minimal OTel stubs for environments where opentelemetry-api isn't installed.
+  module OpenTelemetry
+    module Trace
+      class Status
+        attr_reader :code, :description
 
-      def initialize(code:, description:)
-        @code = code
-        @description = description
+        def initialize(code:, description:)
+          @code = code
+          @description = description
+        end
+
+        def self.error(description)
+          new(code: 2, description: description)
+        end
       end
 
-      def self.error(description)
-        new(code: 2, description: description)
+      # Minimal stub matching the OTel Span interface used by TracingCallbacks
+      class Span
+        def set_attribute(_key, _value); end
+        def add_event(_name, attributes: {}); end
+        def record_exception(_exception); end
+        def status=(_status); end
+        def finish; end
+      end
+
+      # Minimal stub matching the OTel Tracer interface
+      class Tracer
+        def start_span(_name, **_opts); end
+      end
+
+      def self.context_with_span(span)
+        span
       end
     end
 
-    # Minimal stub matching the OTel Span interface used by TracingCallbacks
-    class Span
-      def set_attribute(_key, _value); end
-      def add_event(_name, attributes: {}); end
-      def record_exception(_exception); end
-      def status=(_status); end
-      def finish; end
-    end
-
-    # Minimal stub matching the OTel Tracer interface
-    class Tracer
-      def start_span(_name, **_opts); end
-    end
-
-    def self.context_with_span(span)
-      span
-    end
+    class Context; end
   end
-
-  class Context; end
 end
 
 RSpec.describe Agents::Instrumentation::TracingCallbacks do
