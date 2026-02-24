@@ -177,6 +177,70 @@ RSpec.describe "Live instrumentation smoke test", :live_llm do
     end
   end
 
+  context "with multimodal image history" do
+    let(:image_url) do
+      "https://raw.githubusercontent.com/chatwoot/ai-agents/main/spec/fixtures/dice_transparency.png"
+    end
+
+    # rubocop:disable RSpec/InstanceVariable
+    before do
+      tracer = OpenTelemetry.tracer_provider.tracer("live-instrumentation-multimodal")
+
+      agent = Agents::Agent.new(
+        name: "VisionAgent",
+        instructions: "You are a helpful assistant that can analyze images.",
+        model: model,
+        temperature: 0
+      )
+
+      history = [
+        {
+          role: :user,
+          content: [
+            { type: "text", text: "What do you see in this image?" },
+            { type: "image_url", image_url: { url: image_url } }
+          ]
+        },
+        {
+          role: :assistant,
+          content: "I can see dice on a checkered background."
+        }
+      ]
+
+      runner = Agents::Runner.with_agents(agent)
+      Agents::Instrumentation.install(runner, tracer: tracer, trace_name: "multimodal-test")
+
+      @run_result = runner.run(
+        "How many dice were in the image?",
+        context: { conversation_history: history }
+      )
+      OpenTelemetry.tracer_provider.force_flush
+    end
+
+    it "completes the conversation referencing the image from history" do
+      expect(@run_result.error).to be_nil
+      expect(@run_result.output.to_s.downcase).to match(/dice/)
+      log_langfuse_status("multimodal-test")
+    end
+    # rubocop:enable RSpec/InstanceVariable
+
+    it "produces a root span with trace I/O" do
+      root = find_span("multimodal-test")
+      expect(root).not_to be_nil
+      expect(root.attributes["langfuse.trace.input"]).not_to be_nil
+      expect(root.attributes["langfuse.trace.output"]).not_to be_nil
+    end
+
+    it "produces generation spans with token usage" do
+      gen_spans = in_memory_exporter.finished_spans.select { |s| s.name == "multimodal-test.generation" }
+      expect(gen_spans).not_to be_empty
+
+      gen_attrs = gen_spans.last.attributes
+      expect(gen_attrs["gen_ai.request.model"]).not_to be_nil
+      expect(gen_attrs["gen_ai.usage.input_tokens"]).to be > 0
+    end
+  end
+
   private
 
   def find_span(name)
