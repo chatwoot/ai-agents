@@ -64,8 +64,9 @@ module Agents
     # @param context [Hash] Conversation context (will be restored if continuing conversation)
     # @param max_turns [Integer] Maximum turns before stopping (default: 10)
     # @param headers [Hash, nil] Custom HTTP headers to pass through to the underlying LLM provider
+    # @param params [Hash, nil] Provider-specific parameters to pass through to the underlying LLM (e.g., service_tier)
     # @return [RunResult] Execution result with output, messages, and updated context
-    def run(input, context: {}, max_turns: Runner::DEFAULT_MAX_TURNS, headers: nil)
+    def run(input, context: {}, max_turns: Runner::DEFAULT_MAX_TURNS, headers: nil, params: nil)
       # Determine which agent should handle this conversation
       # Uses conversation history to maintain continuity across handoffs
       current_agent = determine_conversation_agent(context)
@@ -78,6 +79,7 @@ module Agents
         registry: @registry,
         max_turns: max_turns,
         headers: headers,
+        params: params,
         callbacks: @callbacks
       )
     end

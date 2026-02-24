@@ -130,6 +130,7 @@ RSpec.describe Agents::AgentRunner do
           registry: hash_including("Triage Agent" => triage_agent),
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -153,6 +154,7 @@ RSpec.describe Agents::AgentRunner do
           registry: anything,
           max_turns: 5,
           headers: nil,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -178,6 +180,7 @@ RSpec.describe Agents::AgentRunner do
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: headers,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -213,6 +216,7 @@ RSpec.describe Agents::AgentRunner do
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -247,6 +251,7 @@ RSpec.describe Agents::AgentRunner do
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -281,6 +286,7 @@ RSpec.describe Agents::AgentRunner do
           registry: anything,
           max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
           headers: nil,
+          params: nil,
           callbacks: hash_including(
             run_start: [],
             run_complete: [],
@@ -298,6 +304,34 @@ RSpec.describe Agents::AgentRunner do
     it "returns the result from the underlying runner" do
       result = runner.run("Test message")
       expect(result).to eq(mock_result)
+    end
+
+    context "when passing custom params" do
+      it "passes custom params to the runner" do
+        params = { service_tier: "default" }
+
+        runner.run("Hello", params: params)
+
+        expect(mock_runner_instance).to have_received(:run).with(
+          triage_agent,
+          "Hello",
+          context: {},
+          registry: anything,
+          max_turns: Agents::Runner::DEFAULT_MAX_TURNS,
+          headers: nil,
+          params: params,
+          callbacks: hash_including(
+            run_start: [],
+            run_complete: [],
+            agent_complete: [],
+            tool_start: [],
+            tool_complete: [],
+            agent_thinking: [],
+            agent_handoff: [],
+            chat_created: []
+          )
+        )
+      end
     end
   end
 

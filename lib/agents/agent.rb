@@ -5,6 +5,7 @@
 # They encapsulate the configuration needed to interact with an LLM including
 # instructions, tools, and potential handoff targets.
 require_relative "helpers/headers"
+require_relative "helpers/params"
 # @example Creating a basic agent
 #   agent = Agents::Agent.new(
 #     name: "Assistant",
@@ -50,7 +51,7 @@ require_relative "helpers/headers"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema, :headers
+    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema, :headers, :params
 
     # Initialize a new Agent instance
     #
@@ -62,8 +63,9 @@ module Agents
     # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
+    # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
     def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7,
-                   response_schema: nil, headers: nil)
+                   response_schema: nil, headers: nil, params: nil)
       @name = name
       @instructions = instructions
       @model = model
@@ -72,6 +74,7 @@ module Agents
       @temperature = temperature
       @response_schema = response_schema
       @headers = Helpers::Headers.normalize(headers, freeze_result: true)
+      @params = Helpers::Params.normalize(params, freeze_result: true)
 
       # Mutex for thread-safe handoff registration
       # While agents are typically configured at startup, we want to ensure
@@ -167,7 +170,8 @@ module Agents
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
         temperature: changes.fetch(:temperature, @temperature),
         response_schema: changes.fetch(:response_schema, @response_schema),
-        headers: changes.fetch(:headers, @headers)
+        headers: changes.fetch(:headers, @headers),
+        params: changes.fetch(:params, @params)
       )
     end
 
