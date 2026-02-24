@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-02-24
+
+### Fixed
+- **Multimodal Conversation History**: Restored multimodal image content from conversation history, ensuring image URLs and base64 data are preserved across agent turns (#46)
+- **Tracing Instrumentation**: Improved serialization of multimodal content in tracing callbacks, returning JSON for non-text content types
+
+### Changed
+- **Test Infrastructure**: OpenTelemetry stubs in tests are now conditionally applied only when the `opentelemetry-api` gem is not installed (#45)
+
 ## [0.9.0] - 2026-02-09
 
 ### Added
