@@ -334,7 +334,7 @@ module Agents
 
       params = {
         role: role,
-        content: RubyLLM::Content.new(content_value)
+        content: build_content(content_value)
       }
 
       # Handle tool-specific parameters (Tool Results)
@@ -364,6 +364,24 @@ module Agents
       end
 
       params
+    end
+
+    # Build RubyLLM::Content from stored content, handling multimodal arrays with image attachments.
+    # Multimodal arrays follow the OpenAI content format: [{type: 'text', text: '...'}, {type: 'image_url', ...}]
+    def build_content(content_value)
+      return RubyLLM::Content.new(content_value) unless content_value.is_a?(Array)
+
+      text_parts = content_value.filter_map { |p| p[:text] || p["text"] if (p[:type] || p["type"]) == "text" }
+      image_urls = content_value.filter_map do |p|
+        next unless (p[:type] || p["type"]) == "image_url"
+
+        p.dig(:image_url, :url) || p.dig("image_url", "url")
+      end
+
+      return RubyLLM::Content.new(content_value.to_json) if text_parts.empty? && image_urls.empty?
+
+      text = text_parts.join(" ")
+      image_urls.any? ? RubyLLM::Content.new(text, image_urls) : RubyLLM::Content.new(text)
     end
 
     # Validate tool message has required tool_call_id

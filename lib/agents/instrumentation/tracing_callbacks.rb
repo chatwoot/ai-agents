@@ -48,7 +48,7 @@ module Agents
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        tracing[:pending_llm_input] = input.to_s
+        tracing[:pending_llm_input] = serialize_output(input)
 
         return if tracing[:current_agent_name] == agent_name
 
@@ -206,7 +206,7 @@ module Agents
         content = response.content
         return format_tool_calls(response) if content.nil?
 
-        text = content.is_a?(Hash) || content.is_a?(Array) ? content.to_json : content.to_s
+        text = serialize_content(content)
         return format_tool_calls(response) if text.empty?
 
         text
@@ -229,6 +229,8 @@ module Agents
       end
 
       def serialize_content(content)
+        return serialize_multimodal_content(content) if multimodal_content?(content)
+
         content.is_a?(Hash) || content.is_a?(Array) ? content.to_json : content.to_s
       end
 
@@ -240,6 +242,8 @@ module Agents
       end
 
       def serialize_output(value)
+        return serialize_multimodal_content(value) if multimodal_content?(value)
+
         value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
       end
 
@@ -333,6 +337,23 @@ module Agents
 
       def cleanup_tracing_state(context_wrapper)
         context_wrapper.context.delete(:__otel_tracing)
+      end
+
+      def multimodal_content?(value)
+        value.respond_to?(:text) && value.respond_to?(:attachments)
+      end
+
+      def serialize_multimodal_content(content)
+        parts = []
+        text = content.text
+        parts << text if text && !text.empty?
+
+        if content.attachments&.any?
+          urls = content.attachments.map { |a| a.respond_to?(:source) ? a.source.to_s : a.to_s }
+          parts << "Attachments: #{urls.join(", ")}"
+        end
+
+        parts.join("\n")
       end
     end
   end
