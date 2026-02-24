@@ -21,7 +21,8 @@ RSpec.describe "Live LLM multimodal history", :live_llm do
       },
       {
         role: :assistant,
-        content: "I can see two dice on a transparent checkered background. " \
+        # ensure that the context does not have the actual count
+        content: "I can see a few dice on a transparent checkered background. " \
                  "This appears to be a PNG transparency demonstration image."
       }
     ]
@@ -46,6 +47,6 @@ RSpec.describe "Live LLM multimodal history", :live_llm do
     )
 
     expect(result.error).to be_nil
-    expect(result.output.to_s.downcase).to match(/two|2/)
+    expect(result.output.to_s.downcase).to match(/four|4/)
   end
 end
