@@ -97,15 +97,15 @@ module Agents
       # Emit run start event
       context_wrapper.callback_manager.emit_run_start(current_agent.name, input, context_wrapper)
 
-      runtime_headers = Helpers::Headers.normalize(headers)
-      agent_headers = Helpers::Headers.normalize(current_agent.headers)
-      runtime_params = Helpers::Params.normalize(params)
-      agent_params = Helpers::Params.normalize(current_agent.params)
+      runtime_headers = Helpers::HashNormalizer.normalize(headers, label: "headers")
+      agent_headers = Helpers::HashNormalizer.normalize(current_agent.headers, label: "headers")
+      runtime_params = Helpers::HashNormalizer.normalize(params, label: "params")
+      agent_params = Helpers::HashNormalizer.normalize(current_agent.params, label: "params")
 
       # Create chat and restore conversation history
       chat = RubyLLM::Chat.new(model: current_agent.model)
-      current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
-      current_params = Helpers::Params.merge(agent_params, runtime_params)
+      current_headers = Helpers::HashNormalizer.merge(agent_headers, runtime_headers)
+      current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
       apply_headers(chat, current_headers)
       apply_params(chat, current_params)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
@@ -180,11 +180,11 @@ module Agents
 
           # Reconfigure existing chat for new agent - preserves conversation history automatically
           configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
-          agent_headers = Helpers::Headers.normalize(current_agent.headers)
-          current_headers = Helpers::Headers.merge(agent_headers, runtime_headers)
+          agent_headers = Helpers::HashNormalizer.normalize(current_agent.headers, label: "headers")
+          current_headers = Helpers::HashNormalizer.merge(agent_headers, runtime_headers)
           apply_headers(chat, current_headers)
-          agent_params = Helpers::Params.normalize(current_agent.params)
-          current_params = Helpers::Params.merge(agent_params, runtime_params)
+          agent_params = Helpers::HashNormalizer.normalize(current_agent.params, label: "params")
+          current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
           apply_params(chat, current_params)
           context_wrapper.callback_manager.emit_chat_created(
             chat, current_agent.name, current_agent.model, context_wrapper
