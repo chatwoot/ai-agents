@@ -4,8 +4,7 @@
 # Agents are immutable, thread-safe objects that can be cloned with modifications.
 # They encapsulate the configuration needed to interact with an LLM including
 # instructions, tools, and potential handoff targets.
-require_relative "helpers/headers"
-require_relative "helpers/params"
+require_relative "helpers/hash_normalizer"
 # @example Creating a basic agent
 #   agent = Agents::Agent.new(
 #     name: "Assistant",
@@ -73,8 +72,8 @@ module Agents
       @handoff_agents = []
       @temperature = temperature
       @response_schema = response_schema
-      @headers = Helpers::Headers.normalize(headers, freeze_result: true)
-      @params = Helpers::Params.normalize(params, freeze_result: true)
+      @headers = Helpers::HashNormalizer.normalize(headers, label: "headers", freeze_result: true)
+      @params = Helpers::HashNormalizer.normalize(params, label: "params", freeze_result: true)
 
       # Mutex for thread-safe handoff registration
       # While agents are typically configured at startup, we want to ensure

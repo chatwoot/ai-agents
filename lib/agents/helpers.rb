@@ -6,6 +6,4 @@ module Agents
 end
 
 require_relative "helpers/hash_normalizer"
-require_relative "helpers/headers"
-require_relative "helpers/params"
 require_relative "helpers/message_extractor"
