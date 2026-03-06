@@ -81,8 +81,7 @@ RSpec.describe Agents::AgentRunner do
         agents = [triage_agent, billing_agent]
         runner = described_class.new(agents)
 
-        frozen_agents = runner.instance_variable_get(:@agents)
-        expect(frozen_agents).to be_frozen
+        expect(runner.agents).to be_frozen
       end
 
       it "freezes the registry for thread safety" do
@@ -454,7 +453,7 @@ RSpec.describe Agents::AgentRunner do
 
     it "maintains immutable state across concurrent access" do
       original_registry = runner.instance_variable_get(:@registry)
-      original_agents = runner.instance_variable_get(:@agents)
+      original_agents = runner.agents
 
       # Simulate concurrent access
       threads = 3.times.map do
@@ -469,7 +468,7 @@ RSpec.describe Agents::AgentRunner do
 
       # State should remain unchanged
       expect(runner.instance_variable_get(:@registry)).to eq(original_registry)
-      expect(runner.instance_variable_get(:@agents)).to eq(original_agents)
+      expect(runner.agents).to eq(original_agents)
     end
   end
 

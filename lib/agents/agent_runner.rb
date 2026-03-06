@@ -29,6 +29,8 @@ module Agents
   # can safely register callbacks concurrently without data races.
   #
   class AgentRunner
+    attr_reader :agents
+
     # Initialize with a list of agents. The first agent becomes the default entry point.
     #
     # @param agents [Array<Agents::Agent>] List of agents, first one is the default entry point
