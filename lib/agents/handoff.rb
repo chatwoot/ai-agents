@@ -53,7 +53,7 @@ module Agents
       @target_agent = target_agent
 
       # Set up the tool with a standardized name and description
-      @tool_name = "handoff_to_#{target_agent.name.downcase.gsub(/\s+/, "_")}"
+      @tool_name = "handoff_to_#{Helpers::NameNormalizer.to_tool_name(target_agent.name)}"
       @tool_description = "Transfer conversation to #{target_agent.name}"
 
       super()
