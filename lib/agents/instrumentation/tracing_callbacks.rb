@@ -206,7 +206,7 @@ module Agents
         content = response.content
         return format_tool_calls(response) if content.nil?
 
-        text = serialize_content(content)
+        text = serialize_output(content)
         return format_tool_calls(response) if text.empty?
 
         text
@@ -223,15 +223,9 @@ module Agents
       end
 
       def format_single_message(msg)
-        text = serialize_content(msg.content)
+        text = serialize_output(msg.content)
         text = append_tool_calls(msg, text)
         { role: msg.role.to_s, content: text }
-      end
-
-      def serialize_content(content)
-        return serialize_multimodal_content(content) if multimodal_content?(content)
-
-        content.is_a?(Hash) || content.is_a?(Array) ? content.to_json : content.to_s
       end
 
       def append_tool_calls(msg, text)

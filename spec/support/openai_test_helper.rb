@@ -72,7 +72,7 @@ module OpenAITestHelper
   #
   # @param target_agent [String] The agent to hand off to
   def stub_handoff_chat(target_agent:)
-    tool_name = "handoff_to_#{target_agent.downcase.gsub(/\s+/, "")}"
+    tool_name = "handoff_to_#{Agents::Helpers::NameNormalizer.to_tool_name(target_agent)}"
 
     stub_tool_call_chat(
       tool_calls: [{

@@ -97,7 +97,7 @@ module Agents
     private
 
     def transform_agent_name(name)
-      name.downcase.gsub(/\s+/, "_").gsub(/[^a-z0-9_]/, "")
+      Helpers::NameNormalizer.to_tool_name(name)
     end
 
     # Create isolated context that only shares state, not conversation artifacts

@@ -16,6 +16,15 @@ RSpec.describe Agents::HandoffTool do
       expect(handoff_tool.name).to eq("handoff_to_support_agent")
     end
 
+    context "with special characters in agent name" do
+      it "strips special characters from tool name" do
+        agent = instance_double(Agents::Agent, name: "Billing-Agent!")
+        tool = described_class.new(agent)
+
+        expect(tool.name).to eq("handoff_to_billingagent")
+      end
+    end
+
     it "sets description for handoff" do
       expected_description = "Transfer conversation to Support Agent"
       expect(handoff_tool.description).to eq(expected_description)
