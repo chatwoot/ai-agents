@@ -262,15 +262,12 @@ module Agents
           next
         end
 
-        message_params = build_message_params(msg)
-        next unless message_params # Skip invalid messages
+        message = build_restored_message(msg)
+        next unless message
 
-        message = RubyLLM::Message.new(**message_params)
         chat.add_message(message)
 
-        if message.role == :assistant && message_params[:tool_calls]
-          valid_tool_call_ids.merge(message_params[:tool_calls].keys)
-        end
+        valid_tool_call_ids.merge(message.tool_calls.keys) if message.role == :assistant && message.tool_calls
       end
     end
 
@@ -287,18 +284,13 @@ module Agents
       true
     end
 
-    # Build message parameters for restoration
-    def build_message_params(msg)
+    # Build a RubyLLM message from persisted history.
+    # RubyLLM 1.13.x now handles assistant tool-call messages with nil content,
+    # so we only normalize the stored shapes that still need adaptation:
+    # tool_calls arrays and multimodal attachment payloads.
+    def build_restored_message(msg)
       role = msg[:role].to_sym
-
-      content_value = msg[:content]
-      # Assistant tool-call messages may have empty text, but still need placeholder content
-      content_value = "" if content_value.nil? && role == :assistant && msg[:tool_calls]&.any?
-
-      params = {
-        role: role,
-        content: build_content(content_value)
-      }
+      params = { role: role, content: restored_message_content(msg[:content]) }
 
       # Handle tool-specific parameters (Tool Results)
       if role == :tool
@@ -307,32 +299,25 @@ module Agents
         params[:tool_call_id] = msg[:tool_call_id]
       end
 
-      # FIX: Restore tool_calls on assistant messages
-      # This is required by OpenAI/Anthropic API contracts to link
-      # subsequent tool result messages back to this request.
       if role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
-        # Convert stored array of hashes back into the Hash format RubyLLM expects
-        # RubyLLM stores tool_calls as: { call_id => ToolCall_object, ... }
-        # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
-        params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
-          tool_call_id = tc[:id] || tc["id"]
-          next unless tool_call_id
-
-          hash[tool_call_id] = RubyLLM::ToolCall.new(
-            id: tool_call_id,
-            name: tc[:name] || tc["name"],
-            arguments: tc[:arguments] || tc["arguments"] || {}
-          )
-        end
+        params[:tool_calls] = restored_tool_calls(msg[:tool_calls])
       end
 
-      params
+      RubyLLM::Message.new(**params)
     end
 
-    # Build RubyLLM::Content from stored content, handling multimodal arrays with image attachments.
-    # Multimodal arrays follow the OpenAI content format: [{type: 'text', text: '...'}, {type: 'image_url', ...}]
-    def build_content(content_value)
-      return RubyLLM::Content.new(content_value) unless content_value.is_a?(Array)
+    def restored_message_content(content_value)
+      return build_multimodal_content(content_value) if content_value.is_a?(Array)
+      return RubyLLM::Content.new(content_value) if content_value.is_a?(Hash)
+
+      content_value
+    end
+
+    # Build RubyLLM::Content from stored multimodal arrays with image attachments.
+    # Persisted arrays follow the OpenAI content block format:
+    # [{type: 'text', text: '...'}, {type: 'image_url', image_url: {url: '...'}}]
+    def build_multimodal_content(content_value)
+      return content_value unless content_value.is_a?(Array)
 
       text_parts = content_value.filter_map { |p| p[:text] || p["text"] if (p[:type] || p["type"]) == "text" }
       image_urls = content_value.filter_map do |p|
@@ -345,6 +330,19 @@ module Agents
 
       text = text_parts.join(" ")
       image_urls.any? ? RubyLLM::Content.new(text, image_urls) : RubyLLM::Content.new(text)
+    end
+
+    def restored_tool_calls(tool_calls)
+      tool_calls.each_with_object({}) do |tool_call, hash|
+        tool_call_id = tool_call[:id] || tool_call["id"]
+        next unless tool_call_id
+
+        hash[tool_call_id] = RubyLLM::ToolCall.new(
+          id: tool_call_id,
+          name: tool_call[:name] || tool_call["name"],
+          arguments: tool_call[:arguments] || tool_call["arguments"] || {}
+        )
+      end
     end
 
     # Validate tool message has required tool_call_id
