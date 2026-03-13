@@ -151,9 +151,9 @@ module Agents
         llm_span = @tracer.start_span(@llm_span_name, with_parent: parent_context(tracing), attributes: attrs)
 
         llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
-        set_llm_response_attributes(llm_span, message)
 
         output = llm_output_text(message)
+        set_llm_response_attributes(llm_span, message, output)
         tracing[:last_agent_output] = output unless output.empty?
 
         llm_span.finish
@@ -187,29 +187,25 @@ module Agents
         root_span.status = OpenTelemetry::Trace::Status.error(error.message)
       end
 
-      def set_llm_response_attributes(span, response)
+      def set_llm_response_attributes(span, response, output)
         if response.respond_to?(:input_tokens) && response.input_tokens
           span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.input_tokens)
         end
         if response.respond_to?(:output_tokens) && response.output_tokens
           span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.output_tokens)
         end
-        output = llm_output_text(response)
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
       end
 
-      # Falls back to formatting tool calls when response has no text content,
-      # and uses .to_json for Hash/Array (structured output) to avoid Ruby's .to_s format.
+      # Returns serialized text content if present, otherwise falls back to tool call formatting.
+      # Uses .to_json for Hash/Array (structured output) to avoid Ruby's .to_s format.
       def llm_output_text(response)
-        return format_tool_calls(response) unless response.respond_to?(:content)
+        if response.respond_to?(:content) && response.content
+          text = serialize_output(response.content)
+          return text unless text.empty?
+        end
 
-        content = response.content
-        return format_tool_calls(response) if content.nil?
-
-        text = serialize_output(content)
-        return format_tool_calls(response) if text.empty?
-
-        text
+        format_tool_calls(response)
       end
 
       # Excludes the last message (current response) — returns what was sent to the LLM.
@@ -231,7 +227,7 @@ module Agents
       def append_tool_calls(msg, text)
         return text unless msg.role == :assistant && msg.respond_to?(:tool_calls) && msg.tool_calls&.any?
 
-        calls = msg.tool_calls.values.map { |tc| "#{tc.name}(#{tc.arguments.to_json})" }.join(", ")
+        calls = msg.tool_calls.values.map { |tc| "#{tc.name}(#{serialize_output(tc.arguments)})" }.join(", ")
         text.empty? ? "Tool calls: #{calls}" : "#{text}\nTool calls: #{calls}"
       end
 
