@@ -30,6 +30,12 @@ module Agents
       ATTR_LANGFUSE_OBS_TYPE   = "langfuse.observation.type"
       ATTR_LANGFUSE_OBS_INPUT  = "langfuse.observation.input"
       ATTR_LANGFUSE_OBS_OUTPUT = "langfuse.observation.output"
+
+      # Guard attributes
+      ATTR_GUARD_NAME    = "agents.guard.name"
+      ATTR_GUARD_PHASE   = "agents.guard.phase"
+      ATTR_GUARD_ACTION  = "agents.guard.action"
+      ATTR_GUARD_MESSAGE = "agents.guard.message"
     end
   end
 end
