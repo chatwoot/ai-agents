@@ -3,7 +3,7 @@
 require_relative "../../lib/agents"
 
 RSpec.describe Agents::HandoffTool do
-  let(:target_agent) { instance_double(Agents::Agent, name: "Support Agent") }
+  let(:target_agent) { instance_double(Agents::Agent, name: "Support Agent", handoff_description: nil) }
   let(:handoff_tool) { described_class.new(target_agent) }
   let(:context) { {} }
 
@@ -18,7 +18,7 @@ RSpec.describe Agents::HandoffTool do
 
     context "with special characters in agent name" do
       it "strips special characters from tool name" do
-        agent = instance_double(Agents::Agent, name: "Billing-Agent!")
+        agent = instance_double(Agents::Agent, name: "Billing-Agent!", handoff_description: nil)
         tool = described_class.new(agent)
 
         expect(tool.name).to eq("handoff_to_billingagent")
@@ -28,6 +28,30 @@ RSpec.describe Agents::HandoffTool do
     it "sets description for handoff" do
       expected_description = "Transfer conversation to Support Agent"
       expect(handoff_tool.description).to eq(expected_description)
+    end
+
+    it "uses handoff_description from target agent when present" do
+      agent_with_desc = instance_double(
+        Agents::Agent, name: "Billing Agent",
+                       handoff_description: "Handles payment issues and refund requests"
+      )
+      tool = described_class.new(agent_with_desc)
+
+      expect(tool.description).to eq("Handles payment issues and refund requests")
+    end
+
+    it "falls back to default description when handoff_description is nil" do
+      agent_without_desc = instance_double(Agents::Agent, name: "Billing Agent", handoff_description: nil)
+      tool = described_class.new(agent_without_desc)
+
+      expect(tool.description).to eq("Transfer conversation to Billing Agent")
+    end
+
+    it "falls back to default description when handoff_description is blank" do
+      agent_blank_desc = instance_double(Agents::Agent, name: "Billing Agent", handoff_description: "")
+      tool = described_class.new(agent_blank_desc)
+
+      expect(tool.description).to eq("Transfer conversation to Billing Agent")
     end
   end
 
