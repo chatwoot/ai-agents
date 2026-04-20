@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Bump `ruby_llm` dependency**: now `~> 1.14` (was `~> 1.9.1`). Trusts upstream semantic versioning by dropping the PATCH-level pin so minor-version fixes are picked up automatically (#61)
+- Various internal refactors to `TracingCallbacks`, `Runner`, and helper modules
 
 
 ## [0.9.1] - 2026-02-24
