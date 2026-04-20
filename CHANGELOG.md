@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.10.0] - 2026-04-20
+
 ### Added
-- Support for provider specific params
+- Support for provider-specific params via `with_params` (#44)
+
+### Changed
+- **Bump `ruby_llm` dependency**: now `~> 1.14` (was `~> 1.9.1`). Trusts upstream semantic versioning by dropping the PATCH-level pin so minor-version fixes are picked up automatically (#61)
+
+### Internal
+- Extract `NameNormalizer` for agent-to-tool-name conversion (#53)
+- Remove duplicate `serialize_content` in `TracingCallbacks` (#52)
+- Remove duplicate Headers and Params helper wrappers (#51)
+- Expose agents via `attr_reader` on `AgentRunner` (#54)
+- Extract `finalize_run` helper to deduplicate Runner exit paths (#56)
+- Eliminate redundant work and inconsistency in `TracingCallbacks` (#57)
 
 
 ## [0.9.1] - 2026-02-24
