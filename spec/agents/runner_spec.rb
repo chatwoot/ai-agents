@@ -25,7 +25,9 @@ RSpec.describe Agents::Runner do
                     response_schema: nil,
                     get_system_prompt: "You are a helpful assistant",
                     headers: {},
-                    params: {})
+                    params: {},
+                    input_guards: [],
+                    output_guards: [])
   end
 
   let(:handoff_agent) do
@@ -38,7 +40,9 @@ RSpec.describe Agents::Runner do
                     response_schema: nil,
                     get_system_prompt: "You are a specialist",
                     headers: {},
-                    params: {})
+                    params: {},
+                    input_guards: [],
+                    output_guards: [])
   end
 
   let(:test_tool) do
@@ -854,7 +858,9 @@ RSpec.describe Agents::Runner do
                         response_schema: nil,
                         get_system_prompt: "You route users to specialists",
                         headers: {},
-                        params: {})
+                        params: {},
+                        input_guards: [],
+                        output_guards: [])
       end
 
       before do
@@ -1034,7 +1040,9 @@ RSpec.describe Agents::Runner do
                         response_schema: schema,
                         get_system_prompt: "You provide structured responses",
                         headers: {},
-                        params: {})
+                        params: {},
+                        input_guards: [],
+                        output_guards: [])
       end
 
       it "includes response_schema in API request" do
@@ -1107,7 +1115,9 @@ RSpec.describe Agents::Runner do
                         response_schema: nil,
                         get_system_prompt: "You are an agent with tools",
                         headers: {},
-                        params: {})
+                        params: {},
+                        input_guards: [],
+                        output_guards: [])
       end
 
       it "wraps regular tools in ToolWrapper" do
@@ -1218,7 +1228,9 @@ RSpec.describe Agents::Runner do
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
                                              headers: {},
-                                             params: {})
+                                             params: {},
+                                             input_guards: [],
+                                             output_guards: [])
 
         stub_chat_sequence(
           { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
@@ -1250,7 +1262,9 @@ RSpec.describe Agents::Runner do
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
                                              headers: {},
-                                             params: {})
+                                             params: {},
+                                             input_guards: [],
+                                             output_guards: [])
 
         stub_request(:post, "https://api.openai.com/v1/chat/completions")
           .to_return(
@@ -1295,6 +1309,619 @@ RSpec.describe Agents::Runner do
         run_complete_call = callbacks_called.find { |c| c[0] == :run_complete }
         expect(run_complete_call).not_to be_nil
         expect(run_complete_call[1]).to eq("TriageAgent")
+      end
+    end
+
+    context "with input guards" do
+      let(:rewriting_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "uppercaser"
+
+          def call(content, _context)
+            Agents::GuardResult.rewrite(content.upcase, message: "uppercased")
+          end
+        end
+        guard_class.new
+      end
+
+      let(:guarded_agent) do
+        instance_double(Agents::Agent,
+                        name: "GuardedAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: nil,
+                        get_system_prompt: "You are a guarded assistant",
+                        headers: {},
+                        params: {},
+                        input_guards: [rewriting_guard],
+                        output_guards: [])
+      end
+
+      it "sends rewritten input to the LLM" do
+        stub_simple_chat("I received your message")
+
+        result = runner.run(guarded_agent, "hello")
+
+        expect(result.success?).to be true
+        user_message = result.messages.find { |m| m[:role] == :user }
+        expect(user_message[:content]).to eq("HELLO")
+      end
+
+      it "rewritten input defeats stale dedup from conversation history" do
+        context_with_history = {
+          conversation_history: [
+            { role: :user, content: "hello" }
+          ],
+          current_agent: "GuardedAgent"
+        }
+
+        stub_simple_chat("Got your updated message")
+
+        result = runner.run(guarded_agent, "hello", context: context_with_history)
+
+        expect(result.success?).to be true
+        user_messages = result.messages.select { |m| m[:role] == :user }
+        expect(user_messages.last[:content]).to eq("HELLO")
+      end
+    end
+
+    context "with output guards" do
+      let(:redacting_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "redactor"
+
+          def call(content, _context)
+            redacted = content.gsub(/\d{3}-\d{2}-\d{4}/, "[REDACTED]")
+            Agents::GuardResult.rewrite(redacted, message: "PII redacted") if redacted != content
+          end
+        end
+        guard_class.new
+      end
+
+      let(:output_guarded_agent) do
+        instance_double(Agents::Agent,
+                        name: "OutputGuardedAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: nil,
+                        get_system_prompt: "You are a guarded assistant",
+                        headers: {},
+                        params: {},
+                        input_guards: [],
+                        output_guards: [redacting_guard])
+      end
+
+      it "rewrites output before returning" do
+        stub_simple_chat("Your SSN is 123-45-6789")
+
+        result = runner.run(output_guarded_agent, "What is my SSN?")
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Your SSN is [REDACTED]")
+      end
+
+      it "passes output through unchanged when guard returns nil" do
+        stub_simple_chat("No PII here")
+
+        result = runner.run(output_guarded_agent, "Hello")
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("No PII here")
+      end
+    end
+
+    context "with output guards on structured output" do
+      let(:schema) do
+        {
+          type: "object",
+          properties: {
+            answer: { type: "string" },
+            ssn: { type: "string" }
+          },
+          required: %w[answer ssn]
+        }
+      end
+
+      let(:json_redacting_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "json_redactor"
+
+          def call(content, _context)
+            redacted = content.gsub(/\d{3}-\d{2}-\d{4}/, "[REDACTED]")
+            Agents::GuardResult.rewrite(redacted, message: "PII redacted") if redacted != content
+          end
+        end
+        guard_class.new
+      end
+
+      let(:tripwire_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "json_blocker"
+
+          def call(content, _context)
+            Agents::GuardResult.tripwire(message: "blocked structured output") if content.include?("secret")
+          end
+        end
+        guard_class.new
+      end
+
+      let(:passing_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "noop_guard"
+
+          def call(_content, _context)
+            nil
+          end
+        end
+        guard_class.new
+      end
+
+      let(:structured_guarded_agent) do
+        instance_double(Agents::Agent,
+                        name: "StructuredGuardedAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: schema,
+                        get_system_prompt: "You provide structured responses",
+                        headers: {},
+                        params: {},
+                        input_guards: [],
+                        output_guards: [json_redacting_guard])
+      end
+
+      it "redacts values inside structured output" do
+        stub_simple_chat('{"answer": "here you go", "ssn": "123-45-6789"}')
+
+        result = runner.run(structured_guarded_agent, "What is my SSN?")
+
+        expect(result.success?).to be true
+        expect(result.output).to be_a(Hash)
+        expect(result.output["ssn"]).to eq("[REDACTED]")
+        expect(result.output["answer"]).to eq("here you go")
+      end
+
+      it "tripwires on structured output" do
+        tripwire_agent = instance_double(Agents::Agent,
+                                         name: "TripwireStructuredAgent",
+                                         model: "gpt-4o",
+                                         tools: [],
+                                         handoff_agents: [],
+                                         temperature: 0.7,
+                                         response_schema: schema,
+                                         get_system_prompt: "You provide structured responses",
+                                         headers: {},
+                                         params: {},
+                                         input_guards: [],
+                                         output_guards: [tripwire_guard])
+
+        stub_simple_chat('{"answer": "secret data", "ssn": "000-00-0000"}')
+
+        result = runner.run(tripwire_agent, "Give me the secret")
+
+        expect(result.tripwired?).to be true
+        expect(result.guardrail_tripwire[:guard_name]).to eq("json_blocker")
+      end
+
+      it "preserves Hash type when guard passes" do
+        pass_agent = instance_double(Agents::Agent,
+                                     name: "PassStructuredAgent",
+                                     model: "gpt-4o",
+                                     tools: [],
+                                     handoff_agents: [],
+                                     temperature: 0.7,
+                                     response_schema: schema,
+                                     get_system_prompt: "You provide structured responses",
+                                     headers: {},
+                                     params: {},
+                                     input_guards: [],
+                                     output_guards: [passing_guard])
+
+        stub_simple_chat('{"answer": "clean", "ssn": "none"}')
+
+        result = runner.run(pass_agent, "Hello")
+
+        expect(result.success?).to be true
+        expect(result.output).to be_a(Hash)
+        expect(result.output["answer"]).to eq("clean")
+      end
+    end
+
+    context "with output guard that corrupts structured JSON" do
+      it "returns a failed RunResult with JSON::ParserError" do
+        corrupting_guard = Class.new(Agents::Guard) do
+          guard_name "corruptor"
+
+          def call(content, _context)
+            Agents::GuardResult.rewrite(content[0..5], message: "truncated")
+          end
+        end.new
+
+        schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] }
+        corrupt_agent = instance_double(Agents::Agent,
+                                        name: "CorruptAgent",
+                                        model: "gpt-4o",
+                                        tools: [],
+                                        handoff_agents: [],
+                                        temperature: 0.7,
+                                        response_schema: schema,
+                                        get_system_prompt: "You provide structured responses",
+                                        headers: {},
+                                        params: {},
+                                        input_guards: [],
+                                        output_guards: [corrupting_guard])
+
+        stub_simple_chat('{"answer": "hello world"}')
+
+        result = runner.run(corrupt_agent, "Hello")
+
+        expect(result.failed?).to be true
+        expect(result.error).to be_a(JSON::ParserError)
+      end
+    end
+
+    context "with input guard tripwire" do
+      let(:input_tripwire_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "input_blocker"
+
+          def call(content, _context)
+            Agents::GuardResult.tripwire(message: "banned input", metadata: { pattern: "evil" }) if content.include?("evil")
+          end
+        end
+        guard_class.new
+      end
+
+      let(:input_tripwire_agent) do
+        instance_double(Agents::Agent,
+                        name: "InputTripwireAgent",
+                        model: "gpt-4o",
+                        tools: [],
+                        handoff_agents: [],
+                        temperature: 0.7,
+                        response_schema: nil,
+                        get_system_prompt: "You are guarded",
+                        headers: {},
+                        params: {},
+                        input_guards: [input_tripwire_guard],
+                        output_guards: [])
+      end
+
+      it "returns a tripwired RunResult with metadata" do
+        stub_simple_chat("should not reach here")
+
+        result = runner.run(input_tripwire_agent, "do something evil")
+
+        expect(result.tripwired?).to be true
+        expect(result.success?).to be false
+        expect(result.output).to be_nil
+        expect(result.guardrail_tripwire[:guard_name]).to eq("input_blocker")
+        expect(result.guardrail_tripwire[:message]).to eq("banned input")
+        expect(result.guardrail_tripwire[:metadata]).to eq({ pattern: "evil" })
+      end
+
+      it "emits agent_complete and run_complete callbacks on tripwire" do
+        stub_simple_chat("should not reach here")
+
+        callbacks_called = []
+        callbacks = {
+          run_start: [],
+          run_complete: [proc { |*args| callbacks_called << [:run_complete, *args] }],
+          agent_complete: [proc { |*args| callbacks_called << [:agent_complete, *args] }],
+          agent_thinking: [],
+          tool_start: [],
+          tool_complete: [],
+          agent_handoff: [],
+          llm_call_complete: [],
+          chat_created: [],
+          guard_triggered: [proc { |*args| callbacks_called << [:guard_triggered, *args] }]
+        }
+
+        runner.run(input_tripwire_agent, "do something evil", callbacks: callbacks)
+
+        guard_event = callbacks_called.find { |c| c[0] == :guard_triggered }
+        expect(guard_event).not_to be_nil
+        expect(guard_event[1]).to eq("input_blocker")
+
+        complete_event = callbacks_called.find { |c| c[0] == :agent_complete }
+        expect(complete_event).not_to be_nil
+
+        run_event = callbacks_called.find { |c| c[0] == :run_complete }
+        expect(run_event).not_to be_nil
+      end
+    end
+
+    context "with guards across handoffs" do
+      let(:pii_redactor) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "pii_redactor"
+
+          def call(content, _context)
+            redacted = content.gsub(/\d{3}-\d{2}-\d{4}/, "[REDACTED]")
+            Agents::GuardResult.rewrite(redacted, message: "PII redacted") if redacted != content
+          end
+        end
+        guard_class.new
+      end
+
+      let(:specialist_tripwire) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "specialist_blocker"
+
+          def call(content, _context)
+            Agents::GuardResult.tripwire(message: "blocked") if content.include?("specialist")
+          end
+        end
+        guard_class.new
+      end
+
+      let(:uppercasing_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "uppercaser"
+
+          def call(content, _context)
+            Agents::GuardResult.rewrite(content.upcase, message: "uppercased")
+          end
+        end
+        guard_class.new
+      end
+
+      it "applies agent B's output guards after handoff" do
+        specialist = instance_double(Agents::Agent,
+                                     name: "HandoffAgent",
+                                     model: "gpt-4o",
+                                     tools: [],
+                                     handoff_agents: [],
+                                     temperature: 0.7,
+                                     response_schema: nil,
+                                     get_system_prompt: "You are a specialist",
+                                     headers: {},
+                                     params: {},
+                                     input_guards: [],
+                                     output_guards: [pii_redactor])
+
+        triage = instance_double(Agents::Agent,
+                                 name: "TriageAgent",
+                                 model: "gpt-4o",
+                                 tools: [],
+                                 handoff_agents: [specialist],
+                                 temperature: 0.7,
+                                 response_schema: nil,
+                                 get_system_prompt: "You route users",
+                                 headers: {},
+                                 params: {},
+                                 input_guards: [],
+                                 output_guards: [])
+
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "Your SSN is 123-45-6789"
+        )
+
+        registry = { "TriageAgent" => triage, "HandoffAgent" => specialist }
+        result = runner.run(triage, "What is my SSN?", registry: registry)
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Your SSN is [REDACTED]")
+        expect(result.context[:current_agent]).to eq("HandoffAgent")
+      end
+
+      it "does NOT apply agent A's output guards after handoff" do
+        triage_with_tripwire = instance_double(Agents::Agent,
+                                               name: "TriageAgent",
+                                               model: "gpt-4o",
+                                               tools: [],
+                                               handoff_agents: [handoff_agent],
+                                               temperature: 0.7,
+                                               response_schema: nil,
+                                               get_system_prompt: "You route users",
+                                               headers: {},
+                                               params: {},
+                                               input_guards: [],
+                                               output_guards: [specialist_tripwire])
+
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "I'm the specialist, how can I help?"
+        )
+
+        registry = { "TriageAgent" => triage_with_tripwire, "HandoffAgent" => handoff_agent }
+        result = runner.run(triage_with_tripwire, "Help me", registry: registry)
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("I'm the specialist, how can I help?")
+        expect(result.tripwired?).to be false
+      end
+
+      it "applies agent A's input guards before handoff occurs" do
+        triage_with_input_guard = instance_double(Agents::Agent,
+                                                  name: "TriageAgent",
+                                                  model: "gpt-4o",
+                                                  tools: [],
+                                                  handoff_agents: [handoff_agent],
+                                                  temperature: 0.7,
+                                                  response_schema: nil,
+                                                  get_system_prompt: "You route users",
+                                                  headers: {},
+                                                  params: {},
+                                                  input_guards: [uppercasing_guard],
+                                                  output_guards: [])
+
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "Specialist here to help"
+        )
+
+        registry = { "TriageAgent" => triage_with_input_guard, "HandoffAgent" => handoff_agent }
+        result = runner.run(triage_with_input_guard, "help me", registry: registry)
+
+        expect(result.success?).to be true
+        # The user message should be the uppercased version from agent A's input guard
+        user_message = result.messages.find { |m| m[:role] == :user }
+        expect(user_message[:content]).to eq("HELP ME")
+      end
+    end
+
+    context "with guards on handoff target agent" do
+      let(:target_tripwire_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "target_input_blocker"
+
+          def call(content, _context)
+            Agents::GuardResult.tripwire(message: "blocked by target") if content.include?("blocked")
+          end
+        end
+        guard_class.new
+      end
+
+      it "runs Agent B's input guards after handoff" do
+        specialist = instance_double(Agents::Agent,
+                                     name: "HandoffAgent",
+                                     model: "gpt-4o",
+                                     tools: [],
+                                     handoff_agents: [],
+                                     temperature: 0.7,
+                                     response_schema: nil,
+                                     get_system_prompt: "You are a specialist",
+                                     headers: {},
+                                     params: {},
+                                     input_guards: [target_tripwire_guard],
+                                     output_guards: [])
+
+        triage = instance_double(Agents::Agent,
+                                 name: "TriageAgent",
+                                 model: "gpt-4o",
+                                 tools: [],
+                                 handoff_agents: [specialist],
+                                 temperature: 0.7,
+                                 response_schema: nil,
+                                 get_system_prompt: "You route users",
+                                 headers: {},
+                                 params: {},
+                                 input_guards: [],
+                                 output_guards: [])
+
+        stub_chat_sequence(
+          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          "Specialist here to help"
+        )
+
+        registry = { "TriageAgent" => triage, "HandoffAgent" => specialist }
+        result = runner.run(triage, "this should be blocked", registry: registry)
+
+        expect(result.tripwired?).to be true
+        expect(result.guardrail_tripwire[:guard_name]).to eq("target_input_blocker")
+      end
+    end
+
+    context "with output guards on halt response" do
+      let(:halt_redacting_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "halt_redactor"
+
+          def call(content, _context)
+            redacted = content.gsub(/\d{3}-\d{2}-\d{4}/, "[REDACTED]")
+            Agents::GuardResult.rewrite(redacted, message: "PII redacted") if redacted != content
+          end
+        end
+        guard_class.new
+      end
+
+      it "runs output guards on halt content before returning" do
+        halt_guarded_agent = instance_double(Agents::Agent,
+                                             name: "HaltGuardedAgent",
+                                             model: "gpt-4o",
+                                             tools: [],
+                                             handoff_agents: [],
+                                             temperature: 0.7,
+                                             response_schema: nil,
+                                             get_system_prompt: "You are guarded",
+                                             headers: {},
+                                             params: {},
+                                             input_guards: [],
+                                             output_guards: [halt_redacting_guard])
+
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_halt = instance_double(RubyLLM::Tool::Halt, content: "Your SSN is 123-45-6789")
+
+        allow(mock_halt).to receive(:is_a?).with(RubyLLM::Tool::Halt).and_return(true)
+        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
+        allow(runner).to receive_messages(
+          configure_chat_for_agent: mock_chat,
+          restore_conversation_history: nil,
+          save_conversation_state: nil
+        )
+        allow(mock_chat).to receive(:ask).and_return(mock_halt)
+
+        result = runner.run(halt_guarded_agent, "What is my SSN?")
+
+        expect(result.success?).to be true
+        expect(result.output).to eq("Your SSN is [REDACTED]")
+      end
+    end
+
+    context "with output guards on Array structured output" do
+      let(:array_redacting_guard) do
+        guard_class = Class.new(Agents::Guard) do
+          guard_name "array_redactor"
+
+          def call(content, _context)
+            redacted = content.gsub(/\d{3}-\d{2}-\d{4}/, "[REDACTED]")
+            Agents::GuardResult.rewrite(redacted, message: "PII redacted") if redacted != content
+          end
+        end
+        guard_class.new
+      end
+
+      it "redacts values inside Array structured output and preserves Array type" do
+        schema = {
+          type: "array",
+          items: { type: "object", properties: { ssn: { type: "string" } } }
+        }
+        array_agent = instance_double(Agents::Agent,
+                                      name: "ArrayAgent",
+                                      model: "gpt-4o",
+                                      tools: [],
+                                      handoff_agents: [],
+                                      temperature: 0.7,
+                                      response_schema: schema,
+                                      get_system_prompt: "You provide arrays",
+                                      headers: {},
+                                      params: {},
+                                      input_guards: [],
+                                      output_guards: [array_redacting_guard])
+
+        stub_simple_chat('[{"ssn":"123-45-6789"},{"ssn":"987-65-4321"}]')
+
+        result = runner.run(array_agent, "List SSNs")
+
+        expect(result.success?).to be true
+        expect(result.output).to be_a(Array)
+        expect(result.output[0]["ssn"]).to eq("[REDACTED]")
+        expect(result.output[1]["ssn"]).to eq("[REDACTED]")
+      end
+    end
+
+    context "without guards" do
+      it "dedup still works when input matches history" do
+        context_with_history = {
+          conversation_history: [
+            { role: :user, content: "hello" },
+            { role: :assistant, content: "Hi there" }
+          ],
+          current_agent: "TestAgent"
+        }
+
+        stub_simple_chat("Continued response")
+
+        result = runner.run(agent, "hello", context: context_with_history)
+
+        expect(result.success?).to be true
       end
     end
   end

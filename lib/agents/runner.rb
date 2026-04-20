@@ -110,8 +110,16 @@ module Agents
       apply_params(chat, current_params)
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
-      input_already_in_history = last_message_matches?(chat, input)
       context_wrapper.callback_manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper)
+
+      # Run input guards before the first LLM call
+      input_guard_result = GuardRunner.run(
+        current_agent.input_guards, input, context_wrapper, phase: :input
+      )
+      input = input_guard_result.output if input_guard_result.rewrite?
+
+      # Check dedup AFTER guards so rewritten input is compared against history
+      input_already_in_history = last_message_matches?(chat, input)
 
       loop do
         current_turn += 1
@@ -175,27 +183,56 @@ module Agents
             chat, current_agent.name, current_agent.model, context_wrapper
           )
 
+          # Run Agent B's input guards on the conversation context
+          # The last user message is the relevant input for the new agent's guards
+          last_user_msg = chat.messages.reverse.find { |m| m.role == :user }&.content.to_s
+          unless last_user_msg.empty?
+            handoff_guard_result = GuardRunner.run(
+              current_agent.input_guards, last_user_msg, context_wrapper, phase: :input
+            )
+            # If Agent B's input guard tripwires, the rescue below handles it
+          end
+
           # Force the new agent to respond to the conversation context
           # This ensures the user gets a response from the new agent
           input = nil
           next
         end
 
-        # Handle non-handoff halts - return the halt content as final response
+        # Handle non-handoff halts - run output guards before returning
         if response.is_a?(RubyLLM::Tool::Halt)
-          return finalize_run(chat, context_wrapper, current_agent, output: response.content)
+          halt_output = response.content
+          halt_guard_result = GuardRunner.run(
+            current_agent.output_guards, halt_output, context_wrapper, phase: :output
+          )
+          halt_output = halt_guard_result.output if halt_guard_result.rewrite?
+          return finalize_run(chat, context_wrapper, current_agent, output: halt_output)
         end
 
         # If tools were called, continue the loop to let them execute
         next if response.tool_call?
 
         # If no tools were called, we have our final response
-        return finalize_run(chat, context_wrapper, current_agent, output: response.content)
+
+        # Run output guards before returning
+        final_output = response.content
+        output_guard_result = GuardRunner.run(
+          current_agent.output_guards, final_output, context_wrapper, phase: :output
+        )
+        final_output = output_guard_result.output if output_guard_result.rewrite?
+
+        return finalize_run(chat, context_wrapper, current_agent, output: final_output)
       end
+    rescue Guard::Tripwire => e
+      finalize_run(chat, context_wrapper, current_agent,
+                   output: nil, error: e,
+                   guardrail_tripwire: { guard_name: e.guard_name, message: e.message, metadata: e.metadata })
     rescue MaxTurnsExceeded => e
       finalize_run(chat, context_wrapper, current_agent,
                    output: "Conversation ended: #{e.message}", error: e)
     rescue StandardError => e
+      raise if e.is_a?(Guard::Tripwire) # safety net — should be caught above
+
       finalize_run(chat, context_wrapper, current_agent, output: nil, error: e)
     end
 
@@ -210,7 +247,7 @@ module Agents
     # @param output [String, nil] The output text for the result
     # @param error [StandardError, nil] Optional error to attach to the result
     # @return [RunResult]
-    def finalize_run(chat, context_wrapper, current_agent, output:, error: nil)
+    def finalize_run(chat, context_wrapper, current_agent, output:, error: nil, guardrail_tripwire: nil)
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
       result = RunResult.new(
@@ -218,7 +255,8 @@ module Agents
         messages: chat ? Helpers::MessageExtractor.extract_messages(chat, current_agent) : [],
         usage: context_wrapper.usage,
         error: error,
-        context: context_wrapper.context
+        context: context_wrapper.context,
+        guardrail_tripwire: guardrail_tripwire
       )
 
       context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)

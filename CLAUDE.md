@@ -30,6 +30,9 @@ This project is a Ruby SDK for building multi-agent AI workflows. It allows deve
     -   `lib/agents/tool.rb`: Defines the `Tool` class, the base for creating custom tools for agents.
     -   `lib/agents/agent_runner.rb`: Thread-safe agent execution manager for multi-agent conversations.
     -   `lib/agents/runner.rb`: Internal orchestrator that handles individual conversation turns.
+    -   `lib/agents/guard.rb`: Base class for guardrails — stateless input/output validators.
+    -   `lib/agents/guard_result.rb`: Value object for guard outcomes (pass/rewrite/tripwire).
+    -   `lib/agents/guard_runner.rb`: Ordered chain executor for guards with fail-open/closed modes.
 -   `spec/`: Contains the RSpec tests for the project.
 -   `examples/`: Includes example implementations of multi-agent systems, such as an ISP customer support demo.
 -   `Gemfile`: Manages the project's Ruby dependencies.
@@ -65,7 +68,9 @@ This will start a command-line interface where you can interact with the multi-a
 -   **Handoff**: The process of transferring a conversation from one agent to another. This is a core feature of the SDK.
 -   **Runner**: Internal component that manages individual conversation turns (used by AgentRunner).
 -   **Context**: A shared state object that stores conversation history and agent information, fully serializable for persistence.
--   **Callbacks**: Event hooks for monitoring agent execution, including agent thinking, tool start/complete, and handoffs.
+-   **Callbacks**: Event hooks for monitoring agent execution, including agent thinking, tool start/complete, handoffs, and guard triggers.
+-   **Guard**: A stateless validator that intercepts content before (input) or after (output) agent execution. Returns pass, rewrite (modify content), or tripwire (abort run).
+-   **GuardRunner**: Executes an ordered chain of guards. Supports fail-open (default) and fail-closed (strict) error handling.
 
 ## Development Commands
 
@@ -118,6 +123,9 @@ ruby examples/isp-support/interactive.rb
 - **Agents::Context**: Shared state management across agent interactions
 - **Agents::Handoff**: Manages seamless transfers between agents
 - **Agents::CallbackManager**: Centralized event handling for real-time monitoring
+- **Agents::Guard**: Base class for guardrails (input/output content validation)
+- **Agents::GuardResult**: Value object for guard outcomes (pass/rewrite/tripwire)
+- **Agents::GuardRunner**: Ordered guard chain executor with fail-open/closed modes
 
 ### Key Design Principles
 
@@ -143,6 +151,9 @@ lib/agents/
 ├── tool_context.rb     # Tool execution context
 ├── tool_wrapper.rb     # Thread-safe tool wrapping
 ├── callback_manager.rb # Centralized callback event handling
+├── guard.rb            # Base class for guardrails (input/output validators)
+├── guard_result.rb     # Value object for guard outcomes (pass/rewrite/tripwire)
+├── guard_runner.rb     # Ordered guard chain executor
 ├── message_extractor.rb # Conversation history processing
 └── version.rb          # Gem version
 ```
@@ -231,6 +242,7 @@ The SDK includes a comprehensive callback system for monitoring agent execution 
 - `on_tool_start`: Triggered when a tool begins execution
 - `on_tool_complete`: Triggered when a tool finishes execution
 - `on_agent_handoff`: Triggered when control transfers between agents
+- `on_guard_triggered`: Triggered when a guard produces a non-pass result (rewrite or tripwire)
 
 ### Callback Integration
 
