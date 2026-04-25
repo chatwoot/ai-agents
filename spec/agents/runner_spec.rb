@@ -38,7 +38,8 @@ RSpec.describe Agents::Runner do
                     response_schema: nil,
                     get_system_prompt: "You are a specialist",
                     headers: {},
-                    params: {})
+                    params: {},
+                    handoff_description: nil)
   end
 
   let(:test_tool) do
