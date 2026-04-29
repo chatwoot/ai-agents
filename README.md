@@ -225,6 +225,59 @@ Agents::Instrumentation.install(runner, tracer: tracer)
 
 See the [Instrumentation Guide](docs/guides/instrumentation.md) for setup details.
 
+## FAQ
+
+### General
+
+**Q: What is AI Agents?**
+AI Agents is a provider-agnostic Ruby SDK for building multi-agent AI workflows. It enables you to create specialized agents that work together with seamless handoffs, tool calling, and shared context.
+
+**Q: Which LLM providers are supported?**
+The SDK supports OpenAI, Anthropic, Google Gemini, and any provider compatible with RubyLLM. Configure your preferred provider in the `Agents.configure` block.
+
+**Q: How is this different from OpenAI's Agents SDK?**
+While inspired by OpenAI's Agents SDK, this Ruby implementation is provider-agnostic and designed specifically for Ruby/Rails applications, with native integration into the Ruby ecosystem.
+
+### Installation & Setup
+
+**Q: What Ruby version is required?**
+Ruby 3.0 or higher is recommended. The gem is available on RubyGems and can be added to your Gemfile with `gem 'ai-agents'`.
+
+**Q: How do I configure API keys?**
+Set your API keys in the configuration block: `Agents.configure { |config| config.openai_api_key = ENV['OPENAI_API_KEY'] }`. Use environment variables to keep keys secure.
+
+### Agent Development
+
+**Q: How do agent handoffs work?**
+Agents can transfer conversations to other agents transparently. Users don't see the handoff — the new agent continues the conversation naturally with full context from the previous agent.
+
+**Q: How do I add custom tools?**
+Create a tool class that implements the expected interface, then pass it to the agent's `tools` array. Tools can call external APIs, query databases, or perform any Ruby operation.
+
+**Q: What is shared context?**
+Shared context allows agents to access state that persists across agent handoffs. Use it for user preferences, conversation history, or any data that multiple agents need.
+
+### Observability & Debugging
+
+**Q: How do I trace agent execution?**
+The SDK supports OpenTelemetry instrumentation. Install the instrumentation middleware with a tracer from Langfuse or any OTel-compatible backend to get full execution traces.
+
+**Q: How do I debug agent behavior?**
+Enable debug mode with `config.debug = true` to see detailed logs of agent decisions, tool calls, and handoffs. Use the OpenTelemetry integration for production monitoring.
+
+### Troubleshooting
+
+**Q: Agent returns empty responses**
+Check that your API key is correctly configured and the default model is set. Verify the agent has valid instructions and the provider is reachable.
+
+**Q: Handoff not working**
+Ensure the target agent is included in the `Runner.with_agents` call. Handoffs only work between agents registered in the same runner.
+
+**Q: Tool calls failing**
+Verify your tool class implements the required interface. Check that any external API calls within tools are handling errors gracefully and returning results in the expected format.
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository
