@@ -103,7 +103,11 @@ module Agents
       agent_params = Helpers::HashNormalizer.normalize(current_agent.params, label: "params")
 
       # Create chat and restore conversation history
-      chat = RubyLLM::Chat.new(model: current_agent.model)
+      chat = RubyLLM::Chat.new(
+        model: current_agent.model,
+        provider: current_agent.provider,
+        assume_model_exists: current_agent.assume_model_exists
+      )
       current_headers = Helpers::HashNormalizer.merge(agent_headers, runtime_headers)
       current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
       apply_headers(chat, current_headers)
@@ -393,7 +397,13 @@ module Agents
       all_tools = build_agent_tools(agent, context_wrapper)
 
       # Switch model if different (important for handoffs between agents using different models)
-      chat.with_model(agent.model) if replace
+      if replace
+        chat.with_model(
+          agent.model,
+          provider: agent.provider,
+          assume_exists: agent.assume_model_exists
+        )
+      end
 
       # Configure chat with instructions, temperature, tools, and schema
       chat.with_instructions(system_prompt, replace: replace) if system_prompt

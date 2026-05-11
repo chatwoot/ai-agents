@@ -19,6 +19,8 @@ RSpec.describe Agents::Runner do
     instance_double(Agents::Agent,
                     name: "TestAgent",
                     model: "gpt-4o",
+                    provider: nil,
+                    assume_model_exists: false,
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
@@ -32,6 +34,8 @@ RSpec.describe Agents::Runner do
     instance_double(Agents::Agent,
                     name: "HandoffAgent",
                     model: "gpt-4o",
+                    provider: nil,
+                    assume_model_exists: false,
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
@@ -89,6 +93,40 @@ RSpec.describe Agents::Runner do
         expect(result.context).to include(:conversation_history)
         expect(result.context).to include(turn_count: 1)
         expect(result.context).to include(:last_updated)
+      end
+
+      it "creates RubyLLM chat with provider and assume_model_exists from the agent" do
+        azure_agent = instance_double(
+          Agents::Agent,
+          name: "AzureAgent",
+          model: "deployment-name",
+          provider: :azure,
+          assume_model_exists: true,
+          tools: [],
+          handoff_agents: [],
+          temperature: 0.7,
+          response_schema: nil,
+          get_system_prompt: "You are a helpful assistant",
+          headers: {},
+          params: {}
+        )
+        mock_chat = instance_double(RubyLLM::Chat)
+        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello from Azure",
+                                                          input_tokens: 10, output_tokens: 5)
+
+        expect(RubyLLM::Chat).to receive(:new).with(
+          model: "deployment-name",
+          provider: :azure,
+          assume_model_exists: true
+        ).and_return(mock_chat)
+        allow(mock_chat).to receive(:add_message)
+        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat, ask: mock_response)
+
+        result = runner.run(azure_agent, "Hello")
+
+        expect(result.output).to eq("Hello from Azure")
       end
     end
 
@@ -848,6 +886,8 @@ RSpec.describe Agents::Runner do
         instance_double(Agents::Agent,
                         name: "TriageAgent",
                         model: "gpt-4o",
+                        provider: nil,
+                        assume_model_exists: false,
                         tools: [],
                         handoff_agents: [handoff_agent],
                         temperature: 0.7,
@@ -873,6 +913,29 @@ RSpec.describe Agents::Runner do
         expect(result.success?).to be true
         expect(result.output).to eq("Hello, I'm the specialist. How can I help?")
         expect(result.context[:current_agent]).to eq("HandoffAgent")
+      end
+
+      it "switches handoff chat to the target agent model and provider" do
+        allow(handoff_agent).to receive_messages(
+          model: "deployment-name",
+          provider: :azure,
+          assume_model_exists: true
+        )
+        mock_chat = instance_double(RubyLLM::Chat)
+        context_wrapper = Agents::RunContext.new({})
+
+        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
+                                             with_tools: mock_chat, with_schema: mock_chat)
+        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
+        allow(runner).to receive(:build_agent_tools).with(handoff_agent, context_wrapper).and_return([])
+
+        runner.send(:configure_chat_for_agent, mock_chat, handoff_agent, context_wrapper, replace: true)
+
+        expect(mock_chat).to have_received(:with_model).with(
+          "deployment-name",
+          provider: :azure,
+          assume_exists: true
+        )
       end
 
       it "returns error when handoff to unregistered agent is attempted" do
@@ -1028,6 +1091,8 @@ RSpec.describe Agents::Runner do
         instance_double(Agents::Agent,
                         name: "StructuredAgent",
                         model: "gpt-4o",
+                        provider: nil,
+                        assume_model_exists: false,
                         tools: [],
                         handoff_agents: [],
                         temperature: 0.7,
@@ -1101,6 +1166,8 @@ RSpec.describe Agents::Runner do
         instance_double(Agents::Agent,
                         name: "ToolAgent",
                         model: "gpt-4o",
+                        provider: nil,
+                        assume_model_exists: false,
                         tools: [test_tool],
                         handoff_agents: [],
                         temperature: 0.7,
@@ -1212,6 +1279,8 @@ RSpec.describe Agents::Runner do
         agent_with_handoff = instance_double(Agents::Agent,
                                              name: "TriageAgent",
                                              model: "gpt-4o",
+                                             provider: nil,
+                                             assume_model_exists: false,
                                              tools: [],
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
@@ -1244,6 +1313,8 @@ RSpec.describe Agents::Runner do
         agent_with_handoff = instance_double(Agents::Agent,
                                              name: "TriageAgent",
                                              model: "gpt-4o",
+                                             provider: nil,
+                                             assume_model_exists: false,
                                              tools: [],
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
