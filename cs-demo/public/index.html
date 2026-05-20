@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Airline Co. Agents Demo</title>
+    <link rel="icon" href="/airline-mark.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="agent-panel" aria-label="Agent view">
+        <header class="panel-header">
+          <img src="/airline-mark.svg" alt="" class="brand-mark" />
+          <h1>Agent View</h1>
+          <span>Airline Co.</span>
+        </header>
+
+        <div class="panel-body">
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-icon">◎</span>
+              <h2>Available Agents</h2>
+            </div>
+            <div id="agents-list" class="agents-grid"></div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-icon">▤</span>
+              <h2>Conversation Context</h2>
+            </div>
+            <div id="context-list" class="context-grid"></div>
+          </section>
+
+          <section class="panel-section runner-section">
+            <div class="section-title">
+              <span class="section-icon">⌁</span>
+              <h2>Runner Output</h2>
+            </div>
+            <div id="runner-output" class="runner-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="chat-panel" aria-label="Customer view">
+        <header class="panel-header chat-header">
+          <h2>Customer View</h2>
+          <button id="reset-button" class="ghost-button" type="button">New chat</button>
+        </header>
+
+        <div id="messages" class="messages"></div>
+
+        <div id="starter-prompts" class="starter-prompts">
+          <button type="button" data-prompt="Can I change my seat?">Change my seat</button>
+          <button type="button" data-prompt="What's the status of flight FLT-123?">Flight status</button>
+          <button type="button" data-prompt="My flight from Paris to New York was delayed and I missed my connection to Austin. I need to spend the night in New York. Can you help me?">Missed connection</button>
+        </div>
+
+        <form id="composer" class="composer">
+          <input id="message-input" type="text" autocomplete="off" placeholder="Message..." />
+          <button id="send-button" type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <div id="seat-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-seat-map></div>
+      <section class="seat-map" role="dialog" aria-modal="true" aria-labelledby="seat-map-title">
+        <header class="seat-map-header">
+          <div>
+            <h2 id="seat-map-title">Select Your Seat</h2>
+            <p>Available, occupied, and exit-row seats for the current aircraft.</p>
+          </div>
+          <button type="button" class="icon-button" data-close-seat-map aria-label="Close seat map">×</button>
+        </header>
+        <div class="seat-legend">
+          <span><i class="legend-available"></i>Available</span>
+          <span><i class="legend-occupied"></i>Occupied</span>
+          <span><i class="legend-exit"></i>Exit Row</span>
+        </div>
+        <div id="seat-map-grid" class="seat-map-grid"></div>
+      </section>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
