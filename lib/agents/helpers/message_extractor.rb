@@ -18,7 +18,23 @@
 module Agents
   module Helpers
     module MessageExtractor
+      # RubyLLM::Message has no metadata/extension API, so agent ownership is stored
+      # as an SDK-namespaced ivar on the message object until it is extracted.
+      AUTHORING_AGENT_IVAR = :@agents_authoring_agent
+
       module_function
+
+      def assign_agent_name(message, agent_name)
+        return unless message && agent_name
+
+        message.instance_variable_set(AUTHORING_AGENT_IVAR, agent_name)
+      end
+
+      def attributed_agent_name_for(message)
+        return unless message&.instance_variable_defined?(AUTHORING_AGENT_IVAR)
+
+        message.instance_variable_get(AUTHORING_AGENT_IVAR)
+      end
 
       # Check if content is considered empty (handles both String and Hash content)
       #
@@ -65,7 +81,8 @@ module Agents
 
         return message unless msg.role == :assistant
 
-        message[:agent_name] = current_agent.name if current_agent
+        attributed_agent_name = attributed_agent_name_for(msg) || current_agent&.name
+        message[:agent_name] = attributed_agent_name if attributed_agent_name
 
         if tool_calls_present
           # RubyLLM stores tool_calls as Hash with call_id => ToolCall object

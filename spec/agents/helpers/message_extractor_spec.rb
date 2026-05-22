@@ -5,6 +5,40 @@ require "spec_helper"
 RSpec.describe Agents::Helpers::MessageExtractor do
   let(:current_agent) { instance_double(Agents::Agent, name: "TestAgent") }
 
+  describe ".assign_agent_name" do
+    let(:message) do
+      instance_double(RubyLLM::Message,
+                      role: :assistant,
+                      content: "I'll route this.",
+                      tool_call?: false,
+                      tool_calls: nil)
+    end
+
+    it "stores attribution that extraction can read back" do
+      described_class.assign_agent_name(message, "Triage")
+
+      result = described_class.extract_messages(instance_double(RubyLLM::Chat, messages: [message]), current_agent)
+
+      expect(result).to eq([
+                             {
+                               role: :assistant,
+                               content: "I'll route this.",
+                               agent_name: "Triage"
+                             }
+                           ])
+    end
+
+    it "does nothing when message is nil" do
+      expect { described_class.assign_agent_name(nil, "Triage") }.not_to raise_error
+    end
+
+    it "does nothing when agent name is nil" do
+      described_class.assign_agent_name(message, nil)
+
+      expect(described_class.attributed_agent_name_for(message)).to be_nil
+    end
+  end
+
   describe ".extract_messages" do
     context "when chat has no messages method" do
       let(:chat) { double("chat without messages") }
@@ -204,6 +238,48 @@ RSpec.describe Agents::Helpers::MessageExtractor do
                                      arguments: { foo: "bar" }
                                    }
                                  ]
+                               }
+                             ])
+      end
+    end
+
+    context "when assistant messages have per-message agent attribution" do
+      let(:triage_message) do
+        instance_double(RubyLLM::Message,
+                        role: :assistant,
+                        content: "I'll route this.",
+                        tool_call?: false,
+                        tool_calls: nil)
+      end
+
+      let(:specialist_message) do
+        instance_double(RubyLLM::Message,
+                        role: :assistant,
+                        content: "I can help with your invoice.",
+                        tool_call?: false,
+                        tool_calls: nil)
+      end
+
+      let(:chat) { instance_double(RubyLLM::Chat, messages: [triage_message, specialist_message]) }
+
+      before do
+        described_class.assign_agent_name(triage_message, "Triage")
+        described_class.assign_agent_name(specialist_message, "Billing")
+      end
+
+      it "uses stored per-message attribution instead of the current agent" do
+        result = described_class.extract_messages(chat, current_agent)
+
+        expect(result).to eq([
+                               {
+                                 role: :assistant,
+                                 content: "I'll route this.",
+                                 agent_name: "Triage"
+                               },
+                               {
+                                 role: :assistant,
+                                 content: "I can help with your invoice.",
+                                 agent_name: "Billing"
                                }
                              ])
       end
