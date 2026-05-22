@@ -20,6 +20,12 @@ module Agents
     module MessageExtractor
       # RubyLLM::Message has no metadata/extension API, so agent ownership is stored
       # as an SDK-namespaced ivar on the message object until it is extracted.
+      #
+      # Caveat: RubyLLM::Message#instance_variables is overridden to hide :@raw but does
+      # not hide this ivar, so it will appear in instance_variables listings. This is
+      # harmless for our own code path (we read it via instance_variable_get and
+      # serialize through extract_messages, not Marshal), but external introspection
+      # of a message's ivars will see :@agents_authoring_agent.
       AUTHORING_AGENT_IVAR = :@agents_authoring_agent
 
       module_function
