@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve per-message assistant agent attribution when restoring and snapshotting multi-agent conversation history, preventing earlier assistant messages from being re-labeled as the final active agent after handoffs (#67)
 
 ## [0.10.0] - 2026-04-20
 
