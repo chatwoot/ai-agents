@@ -122,6 +122,7 @@ module Agents
         raise MaxTurnsExceeded, "Exceeded maximum turns: #{max_turns}" if current_turn > max_turns
 
         # Get response from LLM (RubyLLM handles tool execution with halting based handoff detection)
+        message_count_before_response = chat_message_count(chat)
         response = if current_turn == 1
                      # Emit agent thinking event for initial message
                      context_wrapper.callback_manager.emit_agent_thinking(current_agent.name, input, context_wrapper)
@@ -134,6 +135,7 @@ module Agents
                                                                           context_wrapper)
                      chat.complete
                    end
+        assign_agent_name_to_new_assistant_messages(chat, current_agent, message_count_before_response)
         track_usage(response, context_wrapper)
 
         # Emit LLM call complete event with model and response for instrumentation
@@ -270,6 +272,7 @@ module Agents
         next unless message_params # Skip invalid messages
 
         message = RubyLLM::Message.new(**message_params)
+        assign_restored_agent_name(message, msg)
         chat.add_message(message)
 
         if message.role == :assistant && message_params[:tool_calls]
@@ -379,6 +382,33 @@ module Agents
 
       # Clean up temporary handoff state
       context_wrapper.context.delete(:pending_handoff)
+    end
+
+    def assign_agent_name_to_new_assistant_messages(chat, current_agent, start_index)
+      # Runtime chats are RubyLLM::Chat instances and expose messages. Keep this
+      # no-op guard for chat-like doubles/adapters that do not expose history.
+      return unless chat.respond_to?(:messages)
+
+      chat.messages[start_index..]&.each do |message|
+        next unless message.role == :assistant
+
+        Helpers::MessageExtractor.assign_agent_name(message, current_agent.name)
+      end
+    end
+
+    def chat_message_count(chat)
+      # Runtime chats are RubyLLM::Chat instances and expose messages. Keep this
+      # fallback for chat-like doubles/adapters where attribution is irrelevant.
+      return 0 unless chat.respond_to?(:messages)
+
+      chat.messages.length
+    end
+
+    def assign_restored_agent_name(message, msg)
+      return unless message.role == :assistant
+
+      restored_agent_name = msg[:agent_name] || msg["agent_name"]
+      Helpers::MessageExtractor.assign_agent_name(message, restored_agent_name)
     end
 
     # Configures a RubyLLM chat instance with agent-specific settings.
