@@ -54,7 +54,8 @@ module Agents
 
       # Set up the tool with a standardized name and description
       @tool_name = "handoff_to_#{Helpers::NameNormalizer.to_tool_name(target_agent.name)}"
-      @tool_description = "Transfer conversation to #{target_agent.name}"
+      desc = target_agent.handoff_description
+      @tool_description = desc.is_a?(String) && !desc.empty? ? desc : "Transfer conversation to #{target_agent.name}"
 
       super()
     end

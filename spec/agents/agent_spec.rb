@@ -4,7 +4,7 @@ require_relative "../../lib/agents"
 
 RSpec.describe Agents::Agent do
   let(:test_tool) { instance_double(Agents::Tool, "TestTool") }
-  let(:other_agent) { instance_double(described_class, name: "Other Agent") }
+  let(:other_agent) { instance_double(described_class, name: "Other Agent", handoff_description: nil) }
   let(:context) { {} }
 
   describe "#initialize" do
@@ -95,6 +95,18 @@ RSpec.describe Agents::Agent do
       expect(agent.response_schema).to be_nil
     end
 
+    it "stores handoff_description when provided" do
+      agent = described_class.new(name: "Billing", handoff_description: "Handles payment and billing issues")
+
+      expect(agent.handoff_description).to eq("Handles payment and billing issues")
+    end
+
+    it "defaults handoff_description to nil" do
+      agent = described_class.new(name: "Test")
+
+      expect(agent.handoff_description).to be_nil
+    end
+
     it "normalizes nil headers to empty hash" do
       agent = described_class.new(name: "Test", headers: nil)
 
@@ -159,7 +171,7 @@ RSpec.describe Agents::Agent do
 
   describe "#all_tools" do
     let(:agent) { described_class.new(name: "Test Agent", tools: [test_tool]) }
-    let(:handoff_agent) { instance_double(described_class, name: "Handoff Agent") }
+    let(:handoff_agent) { instance_double(described_class, name: "Handoff Agent", handoff_description: nil) }
 
     it "returns regular tools when no handoffs registered" do
       expect(agent.all_tools).to eq([test_tool])
@@ -178,7 +190,7 @@ RSpec.describe Agents::Agent do
       threads = []
       5.times do |i|
         threads << Thread.new do
-          agent.register_handoffs(instance_double(described_class, name: "Agent#{i}"))
+          agent.register_handoffs(instance_double(described_class, name: "Agent#{i}", handoff_description: nil))
           agent.all_tools
         end
       end
@@ -282,6 +294,21 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.params).to eq(service_tier: "flex")
       expect(agent_with_params.params).to eq(service_tier: "default")
+    end
+
+    it "preserves handoff_description when cloning" do
+      agent = described_class.new(name: "Billing", handoff_description: "Handles billing")
+      cloned = agent.clone(name: "Billing Clone")
+
+      expect(cloned.handoff_description).to eq("Handles billing")
+    end
+
+    it "allows overriding handoff_description when cloning" do
+      agent = described_class.new(name: "Billing", handoff_description: "Handles billing")
+      cloned = agent.clone(handoff_description: "Updated billing description")
+
+      expect(cloned.handoff_description).to eq("Updated billing description")
+      expect(agent.handoff_description).to eq("Handles billing")
     end
   end
 

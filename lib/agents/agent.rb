@@ -50,7 +50,8 @@ require_relative "helpers/hash_normalizer"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema, :headers, :params
+    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema, :headers,
+                :params, :handoff_description
 
     # Initialize a new Agent instance
     #
@@ -63,8 +64,9 @@ module Agents
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
     # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
+    # @param handoff_description [String, nil] Short description exposed when this agent is offered as a handoff target
     def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7,
-                   response_schema: nil, headers: nil, params: nil)
+                   response_schema: nil, headers: nil, params: nil, handoff_description: nil)
       @name = name
       @instructions = instructions
       @model = model
@@ -74,6 +76,7 @@ module Agents
       @response_schema = response_schema
       @headers = Helpers::HashNormalizer.normalize(headers, label: "headers", freeze_result: true)
       @params = Helpers::HashNormalizer.normalize(params, label: "params", freeze_result: true)
+      @handoff_description = handoff_description
 
       # Mutex for thread-safe handoff registration
       # While agents are typically configured at startup, we want to ensure
@@ -170,7 +173,8 @@ module Agents
         temperature: changes.fetch(:temperature, @temperature),
         response_schema: changes.fetch(:response_schema, @response_schema),
         headers: changes.fetch(:headers, @headers),
-        params: changes.fetch(:params, @params)
+        params: changes.fetch(:params, @params),
+        handoff_description: changes.fetch(:handoff_description, @handoff_description)
       )
     end
 
