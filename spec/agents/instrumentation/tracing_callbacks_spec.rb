@@ -873,6 +873,51 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     end
   end
 
+  describe "#on_guard_triggered" do
+    let(:guard_span) { instance_double(OpenTelemetry::Trace::Span) }
+
+    before do
+      allow(guard_span).to receive_messages(set_attribute: nil, finish: nil)
+      allow(tracer).to receive(:start_span).and_return(root_span)
+      callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
+    end
+
+    it "creates a guard span with correct attributes" do
+      allow(tracer).to receive(:start_span).and_return(guard_span)
+
+      callbacks.on_guard_triggered("pii_redactor", :output, :rewrite, "SSN redacted", context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.guard.pii_redactor",
+        with_parent: anything,
+        attributes: hash_including(
+          "agents.guard.name" => "pii_redactor",
+          "agents.guard.phase" => "output",
+          "agents.guard.action" => "rewrite",
+          "agents.guard.message" => "SSN redacted"
+        )
+      )
+      expect(guard_span).to have_received(:finish)
+    end
+
+    it "omits message attribute when message is empty" do
+      allow(tracer).to receive(:start_span).and_return(guard_span)
+
+      callbacks.on_guard_triggered("blocker", :input, :tripwire, "", context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.guard.blocker",
+        with_parent: anything,
+        attributes: hash_not_including("agents.guard.message")
+      )
+    end
+
+    it "does nothing without tracing state" do
+      fresh_context = instance_double(Agents::RunContext, context: {})
+      expect { callbacks.on_guard_triggered("test", :input, :pass, "ok", fresh_context) }.not_to raise_error
+    end
+  end
+
   describe "tracing state isolation" do
     it "stores tracing state per context_wrapper" do
       context1 = instance_double(Agents::RunContext, context: {})

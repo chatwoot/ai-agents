@@ -623,7 +623,8 @@ RSpec.describe Agents::AgentRunner do
               agent_thinking: [],
               agent_handoff: [],
               llm_call_complete: [],
-              chat_created: []
+              chat_created: [],
+              guard_triggered: []
             }
           )
         )

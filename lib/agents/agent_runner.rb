@@ -54,7 +54,8 @@ module Agents
         agent_thinking: [],
         agent_handoff: [],
         llm_call_complete: [],
-        chat_created: []
+        chat_created: [],
+        guard_triggered: []
       }
     end
 
@@ -192,6 +193,18 @@ module Agents
       return self unless block
 
       @callbacks_mutex.synchronize { @callbacks[:chat_created] << block }
+      self
+    end
+
+    # Register a callback for guard triggered events.
+    # Called when a guardrail produces a non-pass result (rewrite or tripwire).
+    #
+    # @param block [Proc] Callback block that receives (guard_name, phase, action, message, context_wrapper)
+    # @return [self] For method chaining
+    def on_guard_triggered(&block)
+      return self unless block
+
+      @callbacks_mutex.synchronize { @callbacks[:guard_triggered] << block }
       self
     end
 

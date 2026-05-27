@@ -121,6 +121,22 @@ module Agents
         )
       end
 
+      def on_guard_triggered(guard_name, phase, action, message, context_wrapper)
+        tracing = tracing_state(context_wrapper)
+        return unless tracing
+
+        parent = parent_context(tracing)
+        attributes = {
+          ATTR_GUARD_NAME => guard_name.to_s,
+          ATTR_GUARD_PHASE => phase.to_s,
+          ATTR_GUARD_ACTION => action.to_s
+        }
+        attributes[ATTR_GUARD_MESSAGE] = message if message && !message.empty?
+
+        span = @tracer.start_span("#{@trace_name}.guard.#{guard_name}", with_parent: parent, attributes: attributes)
+        span.finish
+      end
+
       def on_run_complete(_agent_name, result, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
