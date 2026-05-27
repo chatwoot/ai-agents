@@ -267,6 +267,22 @@ RSpec.describe Agents::Runner do
         expect(result.messages.length).to eq(4) # 2 from history + 2 new
       end
 
+      it "preserves restored assistant agent attribution" do
+        context = {
+          conversation_history: [
+            { role: :user, content: "I need help with billing" },
+            { role: :assistant, content: "I'll route this.", agent_name: "TriageAgent" }
+          ]
+        }
+
+        result = runner.run(agent, "Thanks for routing me", context: context)
+
+        expect(result.context[:conversation_history]).to include(
+          hash_including(content: "I'll route this.", agent_name: "TriageAgent"),
+          hash_including(content: "Yes, that's correct! Is there anything else?", agent_name: "TestAgent")
+        )
+      end
+
       context "with string roles in history" do
         let(:context_with_string_roles) do
           {
@@ -861,7 +877,8 @@ RSpec.describe Agents::Runner do
         # First request - triage agent decides to handoff
         # After handoff, the specialist agent responds
         stub_chat_sequence(
-          { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
+          { content: "I'll route this to a specialist.",
+            tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
           "Hello, I'm the specialist. How can I help?"
         )
       end
@@ -873,6 +890,18 @@ RSpec.describe Agents::Runner do
         expect(result.success?).to be true
         expect(result.output).to eq("Hello, I'm the specialist. How can I help?")
         expect(result.context[:current_agent]).to eq("HandoffAgent")
+      end
+
+      it "preserves assistant attribution across handoff snapshots" do
+        registry = { "TriageAgent" => agent_with_handoffs, "HandoffAgent" => handoff_agent }
+        result = runner.run(agent_with_handoffs, "I need specialist help", registry: registry)
+
+        assistant_messages = result.context[:conversation_history].select { |msg| msg[:role] == :assistant }
+
+        expect(assistant_messages).to include(
+          hash_including(content: "I'll route this to a specialist.", agent_name: "TriageAgent"),
+          hash_including(content: "Hello, I'm the specialist. How can I help?", agent_name: "HandoffAgent")
+        )
       end
 
       it "returns error when handoff to unregistered agent is attempted" do

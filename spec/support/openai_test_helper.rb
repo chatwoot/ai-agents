@@ -93,7 +93,7 @@ module OpenAITestHelper
       current_stub = if response.is_a?(String)
                        build_simple_response(response)
                      elsif response[:tool_calls]
-                       build_tool_call_response(response[:tool_calls])
+                       build_tool_call_response(response[:tool_calls], content: response[:content])
                      else
                        build_simple_response(response[:content] || "Response", response)
                      end
@@ -147,7 +147,7 @@ module OpenAITestHelper
     }
   end
 
-  def build_tool_call_response(tool_calls)
+  def build_tool_call_response(tool_calls, content: nil)
     formatted_tool_calls = tool_calls.map do |call|
       {
         id: call[:id] || "call_#{SecureRandom.hex(4)}",
@@ -168,7 +168,7 @@ module OpenAITestHelper
         index: 0,
         message: {
           role: "assistant",
-          content: nil,
+          content: content,
           tool_calls: formatted_tool_calls
         },
         finish_reason: "tool_calls"
