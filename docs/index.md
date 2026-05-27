@@ -61,6 +61,8 @@ require 'agents'
 # Configure your API keys
 Agents.configure do |config|
   config.openai_api_key = ENV['OPENAI_API_KEY']
+  # config.azure_api_base = ENV['AZURE_API_BASE']
+  # config.azure_api_key = ENV['AZURE_API_KEY']
   # config.anthropic_api_key = ENV['ANTHROPIC_API_KEY']
   # config.gemini_api_key = ENV['GEMINI_API_KEY']
   config.default_model = 'gpt-4o-mini'
@@ -86,6 +88,24 @@ result = runner.run("I need help with a technical issue")
 
 puts result.output
 ```
+
+### Azure and Custom Deployments
+
+```ruby
+Agents.configure do |config|
+  config.azure_api_base = ENV["AZURE_API_BASE"]
+  config.azure_api_key = ENV["AZURE_API_KEY"]
+end
+
+agent = Agents::Agent.new(
+  name: "Support",
+  model: "my-azure-deployment",
+  provider: :azure,
+  assume_model_exists: true
+)
+```
+
+`provider` is optional for known, unambiguous registry models. Set it for custom deployment names and duplicate model IDs, such as Azure and OpenAI deployments.
 
 ## Next Steps
 

@@ -14,6 +14,8 @@ RSpec.describe Agents::Agent do
       expect(agent.name).to eq("Test Agent")
       expect(agent.instructions).to be_nil
       expect(agent.model).to eq("gpt-4.1-mini")
+      expect(agent.provider).to be_nil
+      expect(agent.assume_model_exists).to be false
       expect(agent.tools).to eq([])
       expect(agent.handoff_agents).to eq([])
       expect(agent.temperature).to eq(0.7)
@@ -33,6 +35,8 @@ RSpec.describe Agents::Agent do
         name: "Test Agent",
         instructions: instructions,
         model: "gpt-4o",
+        provider: :azure,
+        assume_model_exists: true,
         tools: tools,
         handoff_agents: handoff_agents,
         temperature: 0.9,
@@ -42,6 +46,8 @@ RSpec.describe Agents::Agent do
       expect(agent.name).to eq("Test Agent")
       expect(agent.instructions).to eq(instructions)
       expect(agent.model).to eq("gpt-4o")
+      expect(agent.provider).to eq(:azure)
+      expect(agent.assume_model_exists).to be true
       expect(agent.tools).to eq(tools)
       expect(agent.handoff_agents).to include(other_agent)
       expect(agent.temperature).to eq(0.9)
@@ -74,6 +80,12 @@ RSpec.describe Agents::Agent do
       agent = described_class.new(name: "Test", temperature: 0.2)
 
       expect(agent.temperature).to eq(0.2)
+    end
+
+    it "normalizes string provider to symbol" do
+      agent = described_class.new(name: "Test", provider: "azure")
+
+      expect(agent.provider).to eq(:azure)
     end
 
     it "creates agent with response_schema" do
@@ -194,6 +206,8 @@ RSpec.describe Agents::Agent do
         name: "Original",
         instructions: "Original instructions",
         model: "gpt-4",
+        provider: :azure,
+        assume_model_exists: true,
         tools: [test_tool],
         handoff_agents: [other_agent],
         temperature: 0.7,
@@ -208,6 +222,8 @@ RSpec.describe Agents::Agent do
       expect(cloned.name).to eq("Original")
       expect(cloned.instructions).to eq("Original instructions")
       expect(cloned.model).to eq("gpt-4")
+      expect(cloned.provider).to eq(:azure)
+      expect(cloned.assume_model_exists).to be true
       expect(cloned.tools).to eq([test_tool])
       expect(cloned.handoff_agents).to eq([other_agent])
       expect(cloned.headers).to eq("X-Test": "value")
@@ -222,6 +238,8 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.name).to eq("Cloned")
       expect(cloned.model).to eq("gpt-3.5-turbo")
+      expect(cloned.provider).to eq(:azure)
+      expect(cloned.assume_model_exists).to be true
       expect(cloned.instructions).to eq("Original instructions")
       expect(cloned.tools).to eq([test_tool])
       expect(cloned.temperature).to eq(0.7)
@@ -282,6 +300,15 @@ RSpec.describe Agents::Agent do
 
       expect(cloned.params).to eq(service_tier: "flex")
       expect(agent_with_params.params).to eq(service_tier: "default")
+    end
+
+    it "allows overriding provider and assume_model_exists when cloning" do
+      cloned = original_agent.clone(provider: :openai, assume_model_exists: false)
+
+      expect(cloned.provider).to eq(:openai)
+      expect(cloned.assume_model_exists).to be false
+      expect(original_agent.provider).to eq(:azure)
+      expect(original_agent.assume_model_exists).to be true
     end
   end
 

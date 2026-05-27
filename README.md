@@ -193,21 +193,39 @@ ruby examples/isp-support/interactive.rb
 Agents.configure do |config|
   # Provider API keys
   config.openai_api_key = ENV['OPENAI_API_KEY']
+  config.azure_api_base = ENV['AZURE_API_BASE']
+  config.azure_api_key = ENV['AZURE_API_KEY']
   config.anthropic_api_key = ENV['ANTHROPIC_API_KEY']
   config.gemini_api_key = ENV['GEMINI_API_KEY']
 
   # Defaults
-  config.default_provider = :openai
   config.default_model = 'gpt-4o'
 
   # Performance
   config.request_timeout = 120
-  config.max_turns = 10
 
   # Debugging
   config.debug = true
 end
 ```
+
+### Azure and Custom Deployments
+
+```ruby
+Agents.configure do |config|
+  config.azure_api_base = ENV["AZURE_API_BASE"]
+  config.azure_api_key = ENV["AZURE_API_KEY"]
+end
+
+agent = Agents::Agent.new(
+  name: "Support",
+  model: "my-azure-deployment",
+  provider: :azure,
+  assume_model_exists: true
+)
+```
+
+`provider` is optional for known, unambiguous registry models. Set it for custom deployment names and for model IDs that can exist under multiple providers, such as Azure and OpenAI deployments.
 
 ## 🔍 Observability
 

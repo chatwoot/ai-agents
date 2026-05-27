@@ -50,24 +50,29 @@ require_relative "helpers/hash_normalizer"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :tools, :handoff_agents, :temperature, :response_schema, :headers, :params
+    attr_reader :name, :instructions, :model, :provider, :assume_model_exists, :tools, :handoff_agents, :temperature,
+                :response_schema, :headers, :params
 
     # Initialize a new Agent instance
     #
     # @param name [String] The name of the agent
     # @param instructions [String, Proc, nil] Static string or dynamic Proc that returns instructions
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
+    # @param provider [Symbol, String, nil] Optional RubyLLM provider override
+    # @param assume_model_exists [Boolean] Whether RubyLLM should skip registry validation for custom model IDs
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
     # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
     # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", tools: [], handoff_agents: [], temperature: 0.7,
-                   response_schema: nil, headers: nil, params: nil)
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", provider: nil, assume_model_exists: false,
+                   tools: [], handoff_agents: [], temperature: 0.7, response_schema: nil, headers: nil, params: nil)
       @name = name
       @instructions = instructions
       @model = model
+      @provider = provider&.to_sym
+      @assume_model_exists = assume_model_exists
       @tools = tools.dup
       @handoff_agents = []
       @temperature = temperature
@@ -155,6 +160,8 @@ module Agents
     # @option changes [String] :name New agent name
     # @option changes [String, Proc] :instructions New instructions
     # @option changes [String] :model New model identifier
+    # @option changes [Symbol, String, nil] :provider New provider override
+    # @option changes [Boolean] :assume_model_exists Whether to skip model registry validation
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
     # @option changes [Float] :temperature Temperature for LLM responses (0.0-1.0)
@@ -165,6 +172,8 @@ module Agents
         name: changes.fetch(:name, @name),
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
+        provider: changes.fetch(:provider, @provider),
+        assume_model_exists: changes.fetch(:assume_model_exists, @assume_model_exists),
         tools: changes.fetch(:tools, @tools.dup),
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
         temperature: changes.fetch(:temperature, @temperature),

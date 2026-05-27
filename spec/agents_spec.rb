@@ -44,10 +44,10 @@ RSpec.describe Agents do
     let(:mock_ruby_llm_config) do
       Class.new do
         attr_writer :openai_api_key, :openai_api_base, :openai_organization_id, :openai_project_id,
-                    :anthropic_api_key, :gemini_api_key, :deepseek_api_key, :openrouter_api_key,
-                    :ollama_api_base, :bedrock_api_key, :bedrock_secret_key, :bedrock_region,
-                    :bedrock_session_token, :default_model, :log_level, :request_timeout
-        attr_reader :log_level
+                    :anthropic_api_key, :azure_api_base, :azure_api_key, :azure_ai_auth_token, :gemini_api_key,
+                    :deepseek_api_key, :openrouter_api_key, :ollama_api_base, :bedrock_api_key, :bedrock_secret_key,
+                    :bedrock_region, :bedrock_session_token, :default_model, :log_level, :request_timeout
+        attr_reader :azure_api_base, :azure_api_key, :azure_ai_auth_token, :log_level
       end.new
     end
 
@@ -126,6 +126,9 @@ RSpec.describe Agents do
         config.openai_api_base = "https://custom.openai.com"
         config.openai_organization_id = "org-123"
         config.openai_project_id = "proj-456"
+        config.azure_api_base = "https://example.openai.azure.com"
+        config.azure_api_key = "test-azure-key"
+        config.azure_ai_auth_token = "test-azure-token"
         config.deepseek_api_key = "test-deepseek"
         config.openrouter_api_key = "test-openrouter"
         config.ollama_api_base = "http://localhost:11434"
@@ -136,6 +139,20 @@ RSpec.describe Agents do
       end
 
       expect(RubyLLM).to have_received(:configure)
+    end
+
+    it "applies Azure config fields to RubyLLM config" do
+      allow(RubyLLM).to receive(:configure).and_yield(mock_ruby_llm_config)
+
+      described_class.configure do |config|
+        config.azure_api_base = "https://example.openai.azure.com"
+        config.azure_api_key = "test-azure-key"
+        config.azure_ai_auth_token = "test-azure-token"
+      end
+
+      expect(mock_ruby_llm_config.azure_api_base).to eq("https://example.openai.azure.com")
+      expect(mock_ruby_llm_config.azure_api_key).to eq("test-azure-key")
+      expect(mock_ruby_llm_config.azure_ai_auth_token).to eq("test-azure-token")
     end
   end
 end
@@ -156,6 +173,9 @@ RSpec.describe Agents::Configuration do
       expect(config.openai_organization_id).to be_nil
       expect(config.openai_project_id).to be_nil
       expect(config.anthropic_api_key).to be_nil
+      expect(config.azure_api_base).to be_nil
+      expect(config.azure_api_key).to be_nil
+      expect(config.azure_ai_auth_token).to be_nil
       expect(config.gemini_api_key).to be_nil
       expect(config.deepseek_api_key).to be_nil
       expect(config.openrouter_api_key).to be_nil
@@ -176,6 +196,16 @@ RSpec.describe Agents::Configuration do
     it "allows setting and getting anthropic_api_key" do
       config.anthropic_api_key = "test-anthropic-key"
       expect(config.anthropic_api_key).to eq("test-anthropic-key")
+    end
+
+    it "allows setting and getting Azure config" do
+      config.azure_api_base = "https://example.openai.azure.com"
+      config.azure_api_key = "test-azure-key"
+      config.azure_ai_auth_token = "test-azure-token"
+
+      expect(config.azure_api_base).to eq("https://example.openai.azure.com")
+      expect(config.azure_api_key).to eq("test-azure-key")
+      expect(config.azure_ai_auth_token).to eq("test-azure-token")
     end
 
     it "allows setting and getting gemini_api_key" do
@@ -284,6 +314,18 @@ RSpec.describe Agents::Configuration do
 
     it "returns truthy when bedrock_api_key is set" do
       config.bedrock_api_key = "test-key"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when Azure API key and base are set" do
+      config.azure_api_base = "https://example.openai.azure.com"
+      config.azure_api_key = "test-key"
+      expect(config).to be_configured
+    end
+
+    it "returns truthy when Azure auth token and base are set" do
+      config.azure_api_base = "https://example.openai.azure.com"
+      config.azure_ai_auth_token = "test-token"
       expect(config).to be_configured
     end
   end

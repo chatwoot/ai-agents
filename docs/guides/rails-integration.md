@@ -24,10 +24,23 @@ Configure your LLM providers in an initializer:
 # config/initializers/ai_agents.rb
 Agents.configure do |config|
   config.openai_api_key = Rails.application.credentials.openai_api_key
+  config.azure_api_base = Rails.application.credentials.azure_api_base
+  config.azure_api_key = Rails.application.credentials.azure_api_key
   config.anthropic_api_key = Rails.application.credentials.anthropic_api_key
   config.default_model = 'gpt-4o-mini'
   config.debug = Rails.env.development?
 end
+```
+
+For Azure custom deployment names, pass the provider at the agent level:
+
+```ruby
+support = Agents::Agent.new(
+  name: "Support",
+  model: "my-azure-deployment",
+  provider: :azure,
+  assume_model_exists: true
+)
 ```
 
 ## ActiveRecord Integration
