@@ -32,6 +32,19 @@ Agents.configure do |config|
 end
 ```
 
+Rails apps that already use OpenAI-compatible endpoints can also route agent calls through a governed control plane such as [Tuning Engines](https://www.tuningengines.com/):
+
+```ruby
+# config/initializers/ai_agents.rb
+Agents.configure do |config|
+  config.openai_api_key = Rails.application.credentials.dig(:tuning_engines, :api_key)
+  config.openai_api_base = "https://api.tuningengines.com/v1"
+  config.default_model = "gpt-4o-mini"
+end
+```
+
+This keeps AI Agents responsible for orchestration, handoffs, tools, and Rails persistence while the gateway centralizes routing, policy controls, audit logs, traces, approvals, and cost visibility.
+
 For Azure custom deployment names, pass the provider at the agent level:
 
 ```ruby
