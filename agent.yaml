@@ -1,0 +1,40 @@
+spec_version: "0.1.0"
+name: ai-agents
+version: 0.11.0
+description: >
+  A provider-agnostic Ruby SDK for building sophisticated multi-agent AI workflows.
+  Enables developers to create specialized AI agents that collaborate via seamless
+  handoffs, share context across conversation turns, integrate custom tools, and
+  emit real-time callbacks — all from a thread-safe, idiomatic Ruby interface.
+  Works with OpenAI, Anthropic, Gemini, and any LLM provider supported by RubyLLM.
+author: chatwoot
+license: MIT
+
+model:
+  preferred: anthropic:claude-sonnet-4-6
+  fallback:
+    - openai:gpt-4o
+  constraints:
+    temperature: 0.3
+    max_tokens: 8192
+
+skills:
+  - multi-agent-orchestration
+  - tool-integration
+  - agent-handoffs
+  - shared-context
+  - structured-output
+
+runtime:
+  max_turns: 50
+  timeout: 600
+
+compliance:
+  risk_tier: standard
+  supervision:
+    human_in_the_loop: none
+    kill_switch: true
+  recordkeeping:
+    audit_logging: true
+  data_governance:
+    pii_handling: redact
