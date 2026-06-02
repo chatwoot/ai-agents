@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      model:
+        description: "OpenRouter model id to run the smoke suite against (overrides the default)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -16,8 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUN_LIVE_LLM: "true"
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # OpenRouter model. Defaults to the namespaced openai/gpt-4.1-nano, which
+      # resolves to the :openrouter provider and supports tool calling and
+      # vision for the full live suite. Override per-run via the workflow_dispatch
+      # input, or persistently via an OPENROUTER_MODEL repo variable.
+      OPENROUTER_MODEL: ${{ inputs.model || vars.OPENROUTER_MODEL || 'openai/gpt-4.1-nano' }}
       LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
       LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
       LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
@@ -32,8 +41,8 @@ jobs:
 
       - name: Verify secrets
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY is not configured; live LLM smoke tests skipped." >&2
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "OPENROUTER_API_KEY is not configured; live LLM smoke tests skipped." >&2
             exit 1
           fi
 
