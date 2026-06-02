@@ -33,7 +33,7 @@ RSpec.describe "Live instrumentation smoke test", :live_llm do
   let(:in_memory_exporter) { OpenTelemetry::SDK::Trace::Export::InMemorySpanExporter.new }
 
   before do
-    configure_live_llm(model: ENV.fetch("OPENAI_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
+    configure_live_llm(model: ENV.fetch("OPENROUTER_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
     configure_otel(in_memory_exporter)
   end
 

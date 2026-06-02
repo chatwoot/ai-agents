@@ -14,7 +14,7 @@ RSpec.describe "Live response schema enforcement", :live_llm do
   let(:model) { live_model }
 
   before do
-    configure_live_llm(model: ENV.fetch("OPENAI_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
+    configure_live_llm(model: ENV.fetch("OPENROUTER_MODEL", LiveLLMHelper::DEFAULT_LIVE_MODEL))
   end
 
   it "returns JSON that matches a simple schema" do
