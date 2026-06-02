@@ -22,7 +22,8 @@ RSpec.describe "Live params passthrough", :live_llm do
 
       runner = Agents::Runner.with_agents(agent)
 
-      result = runner.run("Write at least 500 words.", params: { max_completion_tokens: 5 })
+      # 16 is the provider minimum for max_output_tokens; still truncates well under the assertion.
+      result = runner.run("Write at least 500 words.", params: { max_completion_tokens: 16 })
 
       expect(result.error).to be_nil
       expect(result.output.to_s.split.length).to be < 20
@@ -36,7 +37,7 @@ RSpec.describe "Live params passthrough", :live_llm do
         instructions: "Write a long essay about the history of computing.",
         model: model,
         temperature: 0,
-        params: { max_completion_tokens: 5 }
+        params: { max_completion_tokens: 16 } # provider minimum; still truncates output
       )
 
       runner = Agents::Runner.with_agents(agent)
