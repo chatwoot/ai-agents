@@ -227,6 +227,22 @@ agent = Agents::Agent.new(
 
 `provider` is optional for known, unambiguous registry models. Set it for custom deployment names and for model IDs that can exist under multiple providers, such as Azure and OpenAI deployments.
 
+### OpenAI-Compatible Enterprise Endpoints
+
+Teams that route agent traffic through an OpenAI-compatible control plane can
+configure the OpenAI key and base URL without changing agent code:
+
+```ruby
+Agents.configure do |config|
+  config.openai_api_key = ENV["OPENAI_API_KEY"]
+  config.openai_api_base = ENV.fetch("OPENAI_BASE_URL", "https://api.openai.com/v1")
+end
+```
+
+For example, a Rails app can point `OPENAI_BASE_URL` at an internal gateway or a
+governed endpoint such as Tuning Engines while keeping the default OpenAI
+behavior unchanged when the variable is not set.
+
 ## 🔍 Observability
 
 Optional OpenTelemetry instrumentation for tracing agent execution, compatible with
