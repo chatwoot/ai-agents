@@ -34,6 +34,22 @@ module Agents
   #       { 'langfuse.user.id' => ctx.context[:account_id].to_s }
   #     }
   #   )
+  #
+  # @example With custom generation attributes
+  #   class MyAttributeProvider
+  #     def call(ctx)
+  #       { 'langfuse.user.id' => ctx.context[:account_id].to_s }
+  #     end
+  #
+  #     def generation_attributes(_ctx, _chat, message)
+  #       { 'app.generation.has_tool_calls' => message.tool_calls&.any? }
+  #     end
+  #   end
+  #
+  #   Agents::Instrumentation.install(runner,
+  #     tracer: tracer,
+  #     attribute_provider: MyAttributeProvider.new
+  #   )
   module Instrumentation
     INSTALL_MUTEX = Mutex.new
     private_constant :INSTALL_MUTEX
@@ -52,7 +68,9 @@ module Agents
     # @param tracer [OpenTelemetry::Trace::Tracer] OTel tracer instance
     # @param trace_name [String] Name for the root span (default: "agents.run")
     # @param span_attributes [Hash] Static attributes applied to the root span
-    # @param attribute_provider [Proc, nil] Lambda receiving context_wrapper, returning dynamic attributes
+    # @param attribute_provider [#call, nil] Object receiving context_wrapper and returning dynamic root attributes.
+    #   If it also responds to #generation_attributes, that method receives context_wrapper, chat, and message,
+    #   and can return dynamic attributes for generation spans.
     # @return [Agents::AgentRunner, nil] The runner (for chaining), or nil if OTel is unavailable
     def self.install(runner, tracer:, trace_name: Constants::SPAN_RUN, span_attributes: {},
                      attribute_provider: nil)

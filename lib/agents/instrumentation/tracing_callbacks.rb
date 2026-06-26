@@ -31,6 +31,7 @@ module Agents
 
       def on_run_start(agent_name, input, context_wrapper)
         attributes = build_root_attributes(agent_name, input, context_wrapper)
+        child_attributes = build_child_langfuse_attributes(attributes)
 
         root_span = @tracer.start_span(@trace_name, attributes: attributes)
         root_context = OpenTelemetry::Trace.context_with_span(root_span)
@@ -38,6 +39,7 @@ module Agents
         store_tracing_state(context_wrapper,
                             root_span: root_span,
                             root_context: root_context,
+                            child_langfuse_attributes: child_attributes,
                             current_tool_span: nil,
                             current_agent_name: nil,
                             current_agent_span: nil,
@@ -84,6 +86,7 @@ module Agents
           ATTR_LANGFUSE_OBS_TYPE => "tool",
           ATTR_LANGFUSE_OBS_INPUT => serialize_output(args)
         }
+        attributes.merge!(tracing[:child_langfuse_attributes])
 
         parent = handoff_tool?(tool_name) ? tracing[:root_context] : parent_context(tracing)
         tool_span = @tracer.start_span(
@@ -145,10 +148,11 @@ module Agents
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        input = format_chat_messages(chat)
-        attrs = {}
-        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
-        llm_span = @tracer.start_span(@llm_span_name, with_parent: parent_context(tracing), attributes: attrs)
+        llm_span = @tracer.start_span(
+          @llm_span_name,
+          with_parent: parent_context(tracing),
+          attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
+        )
 
         llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
 
@@ -157,6 +161,14 @@ module Agents
         tracing[:last_agent_output] = output unless output.empty?
 
         llm_span.finish
+      end
+
+      def generation_span_attributes(tracing, chat, message, context_wrapper)
+        attrs = tracing[:child_langfuse_attributes].dup
+        input = format_chat_messages(chat)
+        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
+        apply_generation_dynamic_attributes(attrs, context_wrapper, chat, message)
+        attrs
       end
 
       def finish_dangling_spans(tracing)
@@ -250,19 +262,22 @@ module Agents
         finish_agent_span(tracing) # close previous agent span if missed
 
         span_name = format(@agent_span_name, agent_name)
-        attrs = { "agent.name" => agent_name }
-        input = tracing[:pending_llm_input]
-        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input && !input.empty?
-
         agent_span = @tracer.start_span(span_name,
                                         with_parent: tracing[:root_context],
-                                        attributes: attrs)
+                                        attributes: agent_span_attributes(tracing, agent_name))
         agent_context = OpenTelemetry::Trace.context_with_span(agent_span)
 
         tracing[:current_agent_name] = agent_name
         tracing[:current_agent_span] = agent_span
         tracing[:current_agent_context] = agent_context
         tracing[:last_agent_output] = nil
+      end
+
+      def agent_span_attributes(tracing, agent_name)
+        attrs = tracing[:child_langfuse_attributes].merge("agent.name" => agent_name)
+        input = tracing[:pending_llm_input]
+        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input && !input.empty?
+        attrs
       end
 
       def finish_agent_span(tracing)
@@ -297,6 +312,49 @@ module Agents
         attributes
       end
 
+      def build_child_langfuse_attributes(root_attributes)
+        root_attributes.each_with_object({}) do |(key, value), attrs|
+          next if value.nil?
+
+          if propagated_trace_attribute?(key)
+            attrs[key] = value
+            add_observation_metadata_mirror(attrs, key, value)
+          elsif key.start_with?(ATTR_LANGFUSE_OBS_METADATA_PREFIX)
+            attrs[key] = value
+          end
+        end
+      end
+
+      def propagated_trace_attribute?(key)
+        key == ATTR_LANGFUSE_USER_ID ||
+          key == ATTR_LANGFUSE_SESSION_ID ||
+          key == ATTR_LANGFUSE_TRACE_TAGS ||
+          key.start_with?(ATTR_LANGFUSE_TRACE_METADATA_PREFIX)
+      end
+
+      def add_observation_metadata_mirror(attrs, key, value)
+        metadata_key = case key
+                       when ATTR_LANGFUSE_USER_ID
+                         "user_id"
+                       when ATTR_LANGFUSE_SESSION_ID
+                         "session_id"
+                       when ATTR_LANGFUSE_TRACE_TAGS
+                         "trace_tags"
+                       else
+                         key.delete_prefix(ATTR_LANGFUSE_TRACE_METADATA_PREFIX)
+                       end
+
+        attrs[observation_metadata_key(metadata_key)] = serialize_metadata_value(value)
+      end
+
+      def observation_metadata_key(key)
+        "#{ATTR_LANGFUSE_OBS_METADATA_PREFIX}#{key}"
+      end
+
+      def serialize_metadata_value(value)
+        value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
+      end
+
       def apply_session_id(attributes, context_wrapper)
         session_id = context_wrapper&.context&.dig(:session_id)&.to_s
         attributes[ATTR_LANGFUSE_SESSION_ID] = session_id if session_id && !session_id.empty?
@@ -314,6 +372,13 @@ module Agents
         return unless @attribute_provider
 
         dynamic_attrs = @attribute_provider.call(context_wrapper)
+        attributes.merge!(dynamic_attrs) if dynamic_attrs.is_a?(Hash)
+      end
+
+      def apply_generation_dynamic_attributes(attributes, context_wrapper, chat, message)
+        return unless @attribute_provider.respond_to?(:generation_attributes)
+
+        dynamic_attrs = @attribute_provider.generation_attributes(context_wrapper, chat, message)
         attributes.merge!(dynamic_attrs) if dynamic_attrs.is_a?(Hash)
       end
 

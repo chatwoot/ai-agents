@@ -25,11 +25,13 @@ module Agents
       ATTR_LANGFUSE_TRACE_TAGS  = "langfuse.trace.tags"
       ATTR_LANGFUSE_TRACE_INPUT = "langfuse.trace.input"
       ATTR_LANGFUSE_TRACE_OUTPUT = "langfuse.trace.output"
+      ATTR_LANGFUSE_TRACE_METADATA_PREFIX = "langfuse.trace.metadata."
 
       # Langfuse observation-level attributes
       ATTR_LANGFUSE_OBS_TYPE   = "langfuse.observation.type"
       ATTR_LANGFUSE_OBS_INPUT  = "langfuse.observation.input"
       ATTR_LANGFUSE_OBS_OUTPUT = "langfuse.observation.output"
+      ATTR_LANGFUSE_OBS_METADATA_PREFIX = "langfuse.observation.metadata."
     end
   end
 end
