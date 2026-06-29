@@ -567,6 +567,14 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(llm_span).to have_received(:finish)
     end
 
+    it "sets request temperature on generation spans when provided" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper, 0.2)
+
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.temperature", 0.2)
+    end
+
     it "propagates root Langfuse metadata to LLM generation spans" do
       cb = callbacks_with_langfuse_metadata
       fresh_context = build_context(session_id: "acct_1_conv_2")
@@ -739,6 +747,15 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         callbacks.on_chat_created(chat, "TestAgent", nil, context_wrapper)
 
         expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.request.model", anything)
+      end
+
+      it "skips setting temperature attribute when temperature is nil" do
+        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.request.temperature", anything)
       end
     end
 

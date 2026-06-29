@@ -83,6 +83,7 @@ RSpec.describe "Live instrumentation smoke test", :live_llm do
 
       gen_attrs = gen_spans.last.attributes
       expect(gen_attrs["gen_ai.request.model"]).not_to be_nil
+      expect(gen_attrs["gen_ai.request.temperature"]).to eq(0)
       expect(gen_attrs["gen_ai.usage.input_tokens"]).to be > 0
       expect(gen_attrs["gen_ai.usage.output_tokens"]).to be > 0
       expect(gen_attrs["langfuse.observation.output"]).not_to be_nil
