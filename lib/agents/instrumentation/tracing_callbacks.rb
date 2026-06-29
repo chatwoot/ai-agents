@@ -18,6 +18,15 @@ module Agents
     class TracingCallbacks
       include Constants
 
+      CHILD_LANGFUSE_EXCLUDED_ATTRIBUTES = [
+        ATTR_LANGFUSE_TRACE_INPUT,
+        ATTR_LANGFUSE_TRACE_OUTPUT,
+        ATTR_LANGFUSE_OBS_INPUT,
+        ATTR_LANGFUSE_OBS_OUTPUT,
+        ATTR_LANGFUSE_OBS_TYPE
+      ].freeze
+      private_constant :CHILD_LANGFUSE_EXCLUDED_ATTRIBUTES
+
       def initialize(tracer:, trace_name: SPAN_RUN, span_attributes: {}, attribute_provider: nil)
         @tracer = tracer
         @trace_name = trace_name
@@ -315,17 +324,22 @@ module Agents
       def build_child_langfuse_attributes(root_attributes)
         root_attributes.each_with_object({}) do |(key, value), attrs|
           next if value.nil?
+          next unless child_langfuse_attribute?(key)
 
-          if propagated_trace_attribute?(key)
-            attrs[key] = value
-            add_observation_metadata_mirror(attrs, key, value)
-          elsif key.start_with?(ATTR_LANGFUSE_OBS_METADATA_PREFIX)
-            attrs[key] = value
-          end
+          attrs[key] = value
+          add_observation_metadata_mirror(attrs, key, value) if mirrored_observation_metadata_attribute?(key)
         end
       end
 
-      def propagated_trace_attribute?(key)
+      def child_langfuse_attribute?(key)
+        key.start_with?(ATTR_LANGFUSE_PREFIX) && !child_langfuse_excluded_attribute?(key)
+      end
+
+      def child_langfuse_excluded_attribute?(key)
+        CHILD_LANGFUSE_EXCLUDED_ATTRIBUTES.include?(key)
+      end
+
+      def mirrored_observation_metadata_attribute?(key)
         key == ATTR_LANGFUSE_USER_ID ||
           key == ATTR_LANGFUSE_SESSION_ID ||
           key == ATTR_LANGFUSE_TRACE_TAGS ||
@@ -333,18 +347,21 @@ module Agents
       end
 
       def add_observation_metadata_mirror(attrs, key, value)
-        metadata_key = case key
-                       when ATTR_LANGFUSE_USER_ID
-                         "user_id"
-                       when ATTR_LANGFUSE_SESSION_ID
-                         "session_id"
-                       when ATTR_LANGFUSE_TRACE_TAGS
-                         "trace_tags"
-                       else
-                         key.delete_prefix(ATTR_LANGFUSE_TRACE_METADATA_PREFIX)
-                       end
-
+        metadata_key = observation_metadata_mirror_key(key)
         attrs[observation_metadata_key(metadata_key)] = serialize_metadata_value(value)
+      end
+
+      def observation_metadata_mirror_key(key)
+        case key
+        when ATTR_LANGFUSE_USER_ID
+          "user_id"
+        when ATTR_LANGFUSE_SESSION_ID
+          "session_id"
+        when ATTR_LANGFUSE_TRACE_TAGS
+          "trace_tags"
+        else
+          key.delete_prefix(ATTR_LANGFUSE_TRACE_METADATA_PREFIX)
+        end
       end
 
       def observation_metadata_key(key)

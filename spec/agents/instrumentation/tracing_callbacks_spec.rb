@@ -76,7 +76,10 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     lambda do |_ctx|
       {
         "langfuse.user.id" => "user_42",
-        "langfuse.trace.metadata.assistant_id" => "123"
+        "langfuse.trace.metadata.assistant_id" => "123",
+        "langfuse.release" => "2026.06.29",
+        "langfuse.version" => "sha-abc123",
+        "langfuse.observation.type" => "should_not_propagate"
       }
     end
   end
@@ -172,12 +175,16 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         "langfuse.session.id" => "acct_1_conv_2",
         "langfuse.trace.tags" => ["captain_v2"],
         "langfuse.trace.metadata.assistant_id" => "123",
+        "langfuse.release" => "2026.06.29",
+        "langfuse.version" => "sha-abc123",
         "langfuse.observation.metadata.user_id" => "user_42",
         "langfuse.observation.metadata.session_id" => "acct_1_conv_2",
         "langfuse.observation.metadata.trace_tags" => ["captain_v2"].to_json,
         "langfuse.observation.metadata.assistant_id" => "123"
       )
       expect(child_attrs).not_to include("langfuse.trace.input")
+      expect(child_attrs).not_to include("langfuse.observation.input")
+      expect(child_attrs).not_to include("langfuse.observation.type")
     end
 
     it "does NOT set gen_ai.request.model on the root span" do
@@ -575,6 +582,8 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
           "langfuse.session.id" => "acct_1_conv_2",
           "langfuse.trace.tags" => '["captain_v2"]',
           "langfuse.trace.metadata.assistant_id" => "123",
+          "langfuse.release" => "2026.06.29",
+          "langfuse.version" => "sha-abc123",
           "langfuse.observation.metadata.user_id" => "user_42",
           "langfuse.observation.metadata.session_id" => "acct_1_conv_2",
           "langfuse.observation.metadata.trace_tags" => '["captain_v2"]',

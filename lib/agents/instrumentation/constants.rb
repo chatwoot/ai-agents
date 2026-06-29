@@ -22,6 +22,7 @@ module Agents
       # Langfuse trace-level attributes
       ATTR_LANGFUSE_USER_ID     = "langfuse.user.id"
       ATTR_LANGFUSE_SESSION_ID  = "langfuse.session.id"
+      ATTR_LANGFUSE_PREFIX      = "langfuse."
       ATTR_LANGFUSE_TRACE_TAGS  = "langfuse.trace.tags"
       ATTR_LANGFUSE_TRACE_INPUT = "langfuse.trace.input"
       ATTR_LANGFUSE_TRACE_OUTPUT = "langfuse.trace.output"
