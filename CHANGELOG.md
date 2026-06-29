@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Propagate Langfuse trace metadata and filter attributes from root traces to child agent, tool, and generation spans, while keeping span-specific input/output attributes local to each span.
 - Support optional generation-level attributes via `attribute_provider#generation_attributes(context_wrapper, chat, message)`.
-- Add `gen_ai.request.temperature` to generation spans when an agent temperature is configured.
 
 ## [0.11.0] - 2026-05-27
 

@@ -15,7 +15,6 @@ module Agents
 
       # GenAI semantic conventions (ONLY on generation spans)
       ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
-      ATTR_GEN_AI_REQUEST_TEMPERATURE = "gen_ai.request.temperature"
       ATTR_GEN_AI_PROVIDER      = "gen_ai.provider.name"
       ATTR_GEN_AI_USAGE_INPUT   = "gen_ai.usage.input_tokens"
       ATTR_GEN_AI_USAGE_OUTPUT  = "gen_ai.usage.output_tokens"

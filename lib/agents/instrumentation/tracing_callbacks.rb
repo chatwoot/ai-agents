@@ -77,14 +77,12 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      def on_chat_created(chat, agent_name, model, context_wrapper, temperature = nil)
+      def on_chat_created(chat, agent_name, model, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        request_attributes = { model: model, temperature: temperature }
-
         chat.on_end_message do |message|
-          handle_end_message(chat, agent_name, request_attributes, message, context_wrapper)
+          handle_end_message(chat, agent_name, model, message, context_wrapper)
         end
       end
 
@@ -153,7 +151,7 @@ module Agents
 
       private
 
-      def handle_end_message(chat, _agent_name, request_attributes, message, context_wrapper)
+      def handle_end_message(chat, _agent_name, model, message, context_wrapper)
         return unless message.respond_to?(:role) && message.role == :assistant
 
         tracing = tracing_state(context_wrapper)
@@ -165,7 +163,7 @@ module Agents
           attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
         )
 
-        set_llm_request_attributes(llm_span, request_attributes)
+        llm_span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
 
         output = llm_output_text(message)
         set_llm_response_attributes(llm_span, message, output)
@@ -180,14 +178,6 @@ module Agents
         attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
         apply_generation_dynamic_attributes(attrs, context_wrapper, chat, message)
         attrs
-      end
-
-      def set_llm_request_attributes(span, request_attributes)
-        model = request_attributes[:model]
-        temperature = request_attributes[:temperature]
-
-        span.set_attribute(ATTR_GEN_AI_REQUEST_MODEL, model) if model
-        span.set_attribute(ATTR_GEN_AI_REQUEST_TEMPERATURE, temperature) unless temperature.nil?
       end
 
       def finish_dangling_spans(tracing)
