@@ -15,6 +15,7 @@ module Agents
 
       # GenAI semantic conventions (ONLY on generation spans)
       ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+      ATTR_GEN_AI_REQUEST_TEMPERATURE = "gen_ai.request.temperature"
       ATTR_GEN_AI_PROVIDER      = "gen_ai.provider.name"
       ATTR_GEN_AI_USAGE_INPUT   = "gen_ai.usage.input_tokens"
       ATTR_GEN_AI_USAGE_OUTPUT  = "gen_ai.usage.output_tokens"
@@ -22,14 +23,17 @@ module Agents
       # Langfuse trace-level attributes
       ATTR_LANGFUSE_USER_ID     = "langfuse.user.id"
       ATTR_LANGFUSE_SESSION_ID  = "langfuse.session.id"
+      ATTR_LANGFUSE_PREFIX      = "langfuse."
       ATTR_LANGFUSE_TRACE_TAGS  = "langfuse.trace.tags"
       ATTR_LANGFUSE_TRACE_INPUT = "langfuse.trace.input"
       ATTR_LANGFUSE_TRACE_OUTPUT = "langfuse.trace.output"
+      ATTR_LANGFUSE_TRACE_METADATA_PREFIX = "langfuse.trace.metadata."
 
       # Langfuse observation-level attributes
       ATTR_LANGFUSE_OBS_TYPE   = "langfuse.observation.type"
       ATTR_LANGFUSE_OBS_INPUT  = "langfuse.observation.input"
       ATTR_LANGFUSE_OBS_OUTPUT = "langfuse.observation.output"
+      ATTR_LANGFUSE_OBS_METADATA_PREFIX = "langfuse.observation.metadata."
     end
   end
 end

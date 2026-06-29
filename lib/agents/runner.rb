@@ -115,7 +115,9 @@ module Agents
       configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
       restore_conversation_history(chat, context_wrapper)
       input_already_in_history = last_message_matches?(chat, input)
-      context_wrapper.callback_manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper)
+      context_wrapper.callback_manager.emit_chat_created(
+        chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature
+      )
 
       loop do
         current_turn += 1
@@ -178,7 +180,7 @@ module Agents
           current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
           apply_params(chat, current_params)
           context_wrapper.callback_manager.emit_chat_created(
-            chat, current_agent.name, current_agent.model, context_wrapper
+            chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature
           )
 
           # Force the new agent to respond to the conversation context

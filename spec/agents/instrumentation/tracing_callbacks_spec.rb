@@ -68,6 +68,70 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     allow(agent_span).to receive_messages(set_attribute: nil, finish: nil)
   end
 
+  def build_context(context = {})
+    instance_double(Agents::RunContext, context: context, callback_manager: instance_double(Agents::CallbackManager))
+  end
+
+  def langfuse_metadata_provider
+    lambda do |_ctx|
+      {
+        "langfuse.user.id" => "user_42",
+        "langfuse.trace.metadata.assistant_id" => "123",
+        "langfuse.release" => "2026.06.29",
+        "langfuse.version" => "sha-abc123",
+        "langfuse.observation.type" => "should_not_propagate"
+      }
+    end
+  end
+
+  def callbacks_with_langfuse_metadata(trace_tags: '["captain_v2"]')
+    described_class.new(
+      tracer: tracer,
+      span_attributes: { "langfuse.trace.tags" => trace_tags },
+      attribute_provider: langfuse_metadata_provider
+    )
+  end
+
+  def start_langfuse_metadata_run(callbacks, context)
+    allow(tracer).to receive(:start_span).and_return(root_span, agent_span)
+    callbacks.on_run_start("TestAgent", "Hello", context)
+    callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context)
+    allow(tracer).to receive(:start_span).and_return(llm_span)
+  end
+
+  def configure_tool_flow_chat(chat, system_message, user_message, assistant_message)
+    tool_call_msg = instance_double(
+      RubyLLM::Message,
+      role: :assistant,
+      content: nil,
+      input_tokens: 100,
+      output_tokens: 20,
+      tool_call?: true,
+      tool_calls: {
+        "c1" => instance_double(RubyLLM::ToolCall, name: "faq_lookup", arguments: { query: "refund" })
+      }
+    )
+    tool_result_msg = instance_double(RubyLLM::Message, role: :tool, content: "Refund policy: 30 days")
+    messages_call = 0
+
+    allow(chat).to receive(:messages) do
+      messages_call += 1
+      next [system_message, user_message, tool_call_msg] if messages_call == 1
+
+      [system_message, user_message, tool_call_msg, tool_result_msg, assistant_message]
+    end
+    allow(chat).to receive(:on_end_message).and_yield(tool_call_msg).and_yield(assistant_message)
+  end
+
+  def capture_generation_span_attributes
+    generation_attrs = []
+    allow(tracer).to receive(:start_span) do |name, **opts|
+      generation_attrs << opts[:attributes] if name == "agents.run.generation"
+      llm_span
+    end
+    generation_attrs
+  end
+
   describe "#on_run_start" do
     it "opens a root span with agents.run name" do
       allow(tracer).to receive(:start_span).and_return(root_span)
@@ -91,10 +155,36 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       tracing = context_wrapper.context[:__otel_tracing]
       expect(tracing[:root_span]).to eq(root_span)
+      expect(tracing[:child_langfuse_attributes]).to eq({})
       expect(tracing[:current_tool_span]).to be_nil
       expect(tracing[:current_agent_name]).to be_nil
       expect(tracing[:current_agent_span]).to be_nil
       expect(tracing[:current_agent_context]).to be_nil
+    end
+
+    it "prepares Langfuse trace metadata for child observation spans" do
+      cb = callbacks_with_langfuse_metadata(trace_tags: ["captain_v2"])
+      ctx = build_context(session_id: "acct_1_conv_2")
+      allow(tracer).to receive(:start_span).and_return(root_span)
+
+      cb.on_run_start("TestAgent", "Hello", ctx)
+
+      child_attrs = ctx.context[:__otel_tracing][:child_langfuse_attributes]
+      expect(child_attrs).to include(
+        "langfuse.user.id" => "user_42",
+        "langfuse.session.id" => "acct_1_conv_2",
+        "langfuse.trace.tags" => ["captain_v2"],
+        "langfuse.trace.metadata.assistant_id" => "123",
+        "langfuse.release" => "2026.06.29",
+        "langfuse.version" => "sha-abc123",
+        "langfuse.observation.metadata.user_id" => "user_42",
+        "langfuse.observation.metadata.session_id" => "acct_1_conv_2",
+        "langfuse.observation.metadata.trace_tags" => ["captain_v2"].to_json,
+        "langfuse.observation.metadata.assistant_id" => "123"
+      )
+      expect(child_attrs).not_to include("langfuse.trace.input")
+      expect(child_attrs).not_to include("langfuse.observation.input")
+      expect(child_attrs).not_to include("langfuse.observation.type")
     end
 
     it "does NOT set gen_ai.request.model on the root span" do
@@ -477,34 +567,68 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(llm_span).to have_received(:finish)
     end
 
-    it "includes tool results in input when tools ran between LLM calls" do
-      tool_call_msg = instance_double(RubyLLM::Message, role: :assistant, content: nil,
-                                                        input_tokens: 100, output_tokens: 20,
-                                                        tool_call?: true,
-                                                        tool_calls: { "c1" => instance_double(RubyLLM::ToolCall,
-                                                                                              name: "faq_lookup",
-                                                                                              arguments: { query: "refund" }) })
-      tool_result_msg = instance_double(RubyLLM::Message, role: :tool, content: "Refund policy: 30 days")
+    it "sets request temperature on generation spans when provided" do
+      allow(tracer).to receive(:start_span).and_return(llm_span)
 
-      # Track which messages the chat has at each point
-      messages_call = 0
-      allow(chat).to receive(:messages) do
-        messages_call += 1
-        if messages_call == 1
-          [system_message, user_message, tool_call_msg]
-        else
-          [system_message, user_message, tool_call_msg, tool_result_msg, assistant_message]
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper, 0.2)
+
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.temperature", 0.2)
+    end
+
+    it "propagates root Langfuse metadata to LLM generation spans" do
+      cb = callbacks_with_langfuse_metadata
+      fresh_context = build_context(session_id: "acct_1_conv_2")
+      start_langfuse_metadata_run(cb, fresh_context)
+
+      cb.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.generation",
+        with_parent: anything,
+        attributes: hash_including(
+          "langfuse.user.id" => "user_42",
+          "langfuse.session.id" => "acct_1_conv_2",
+          "langfuse.trace.tags" => '["captain_v2"]',
+          "langfuse.trace.metadata.assistant_id" => "123",
+          "langfuse.release" => "2026.06.29",
+          "langfuse.version" => "sha-abc123",
+          "langfuse.observation.metadata.user_id" => "user_42",
+          "langfuse.observation.metadata.session_id" => "acct_1_conv_2",
+          "langfuse.observation.metadata.trace_tags" => '["captain_v2"]',
+          "langfuse.observation.metadata.assistant_id" => "123"
+        )
+      )
+    end
+
+    it "adds caller-provided generation attributes" do
+      provider = Class.new do
+        def call(_ctx)
+          {}
+        end
+
+        def generation_attributes(_ctx, _chat, message)
+          { "app.generation.has_tool_calls" => message.tool_calls&.any? }
         end
       end
+      cb = described_class.new(tracer: tracer, attribute_provider: provider.new)
+      fresh_context = build_context
+      allow(tracer).to receive(:start_span).and_return(root_span, agent_span)
+      cb.on_run_start("TestAgent", "Hello", fresh_context)
+      cb.on_agent_thinking("TestAgent", "What is your refund policy?", fresh_context)
+      allow(tracer).to receive(:start_span).and_return(llm_span)
 
-      allow(chat).to receive(:on_end_message).and_yield(tool_call_msg).and_yield(assistant_message)
+      cb.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
 
-      # Capture the attributes from each start_span call
-      span_inputs = []
-      allow(tracer).to receive(:start_span) do |name, **opts|
-        span_inputs << opts.dig(:attributes, "langfuse.observation.input") if name == "agents.run.generation"
-        llm_span
-      end
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.generation",
+        with_parent: anything,
+        attributes: hash_including("app.generation.has_tool_calls" => false)
+      )
+    end
+
+    it "includes tool results in input when tools ran between LLM calls" do
+      configure_tool_flow_chat(chat, system_message, user_message, assistant_message)
+      generation_attrs = capture_generation_span_attributes
 
       callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
@@ -522,7 +646,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         { role: "tool", content: "Refund policy: 30 days" }
       ].to_json
 
-      expect(span_inputs).to eq([first_input, second_input])
+      expect(generation_attrs.map { |attrs| attrs["langfuse.observation.input"] }).to eq([first_input, second_input])
     end
 
     it "sets token usage attributes on the LLM span" do
@@ -623,6 +747,15 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         callbacks.on_chat_created(chat, "TestAgent", nil, context_wrapper)
 
         expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.request.model", anything)
+      end
+
+      it "skips setting temperature attribute when temperature is nil" do
+        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(tracer).to receive(:start_span).and_return(llm_span)
+
+        callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+        expect(llm_span).not_to have_received(:set_attribute).with("gen_ai.request.temperature", anything)
       end
     end
 
