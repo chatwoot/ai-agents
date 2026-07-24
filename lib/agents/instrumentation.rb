@@ -99,7 +99,7 @@ module Agents
     # Register all tracing callback handlers on the runner.
     def self.register_callbacks(runner, callbacks)
       TRACED_EVENTS.each do |event|
-        runner.public_send(:"on_#{event}") { |*args| callbacks.public_send(:"on_#{event}", *args) }
+        runner.public_send(:"on_#{event}", &callbacks.method(:"on_#{event}"))
       end
     end
     private_class_method :register_callbacks

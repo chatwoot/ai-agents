@@ -61,10 +61,10 @@ module Agents
   # 4. The tool signals the handoff through context
   # 5. The Runner detects this and switches to the new agent
   #
-  # ## Loop Prevention
-  # The library prevents infinite handoff loops by processing only the first handoff
-  # tool call in any LLM response. This is handled automatically by the Chat class
-  # which detects handoff tools and processes them separately from regular tools.
+  # ## Concurrent Handoff Selection
+  # Only one handoff may be pending at a time. The first handoff accepted by
+  # RunContext wins. This does not prevent sequential handoff loops across
+  # multiple agent turns.
   #
   # ## Why Tools Instead of Instructions
   # Using tools for handoffs has several advantages:
@@ -92,9 +92,9 @@ module Agents
   #
   # @example Multiple handoff handling
   #   # Single LLM response with multiple handoff calls:
-  #   # Call 1: handoff_to_support() -> Processed and executed
-  #   # Call 2: handoff_to_billing() -> Ignored (only first handoff processed)
-  #   # Result: Only transfers to Support Agent
+  #   # First handoff accepted by RunContext -> Processed and executed
+  #   # Later handoff executions -> Rejected while one is pending
+  #   # With concurrent execution, model emission order does not determine the winner
   class HandoffTool < Tool
     attr_reader :target_agent
 

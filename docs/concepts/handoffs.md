@@ -29,6 +29,8 @@ Only one handoff can be pending at a time. The first handoff accepted by the run
 
 "First" refers to execution order, not necessarily the order of tool calls in the model response. Applications that require model-order priority should ensure their tool executor preserves that order.
 
+This selection rule does not prevent sequential loops across agent turns. Use distinct agent scopes and an application-level turn or handoff limit when cyclic routing is possible.
+
 ## Why Use Tools for Handoffs?
 
 Using tools for handoffs has several advantages over simply instructing the LLM to hand off the conversation:
@@ -95,6 +97,8 @@ triage.register_handoff(
 The tool factory receives `source_agent:` and `target_agent:` keyword arguments. It must return an `Agents::HandoffTool` configured for the registered target. A custom tool defines its own parameters and calls the protected `prepare_handoff` method with any optional `reason`, `metadata`, and halt `message`.
 
 The acceptance hook receives the current `RunContext` and the complete handoff information before the destination agent is configured. Hook failures fail the run instead of silently continuing with partially applied context.
+
+Configure all handoff relationships before using an agent with a runner. Do not mutate `handoffs`, `handoff_agents`, or replace relationships while a run is in progress; runtime relationship reconfiguration is not supported.
 
 ### Callback Data
 

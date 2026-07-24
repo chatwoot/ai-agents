@@ -7,6 +7,7 @@ require_relative "../../lib/agents/instrumentation"
 module OpenTelemetry
   module Trace
     class Tracer; end
+    class Span; end
   end
 end
 
@@ -36,6 +37,14 @@ RSpec.describe Agents::Instrumentation do
       let(:tracer) { instance_double(OpenTelemetry::Trace::Tracer) }
       let(:agent) { Agents::Agent.new(name: "Test", instructions: "test") }
       let(:runner) { Agents::Runner.with_agents(agent) }
+      let(:root_span) { instance_double(OpenTelemetry::Trace::Span, add_event: nil) }
+      let(:context_wrapper) do
+        Agents::RunContext.new({ __otel_tracing: { root_span: root_span } })
+      end
+      let(:handoff_callback_manager) do
+        callback = runner.instance_variable_get(:@callbacks).fetch(:agent_handoff).first
+        Agents::CallbackManager.new(agent_handoff: [callback])
+      end
 
       before do
         allow(described_class).to receive(:otel_available?).and_return(true)
@@ -64,6 +73,29 @@ RSpec.describe Agents::Instrumentation do
         traced_events.each do |event|
           expect(runner).to respond_to(:"on_#{event}")
         end
+      end
+
+      it "keeps handoff tracing compatible when metadata is emitted" do
+        described_class.install(runner, tracer: tracer)
+
+        expect do
+          handoff_callback_manager.emit_agent_handoff(
+            "Triage",
+            "Billing",
+            "capability_match",
+            context_wrapper,
+            { customer_message: "do not export me" }
+          )
+        end.not_to output(/Callback error/).to_stderr
+
+        expect(root_span).to have_received(:add_event).with(
+          "agents.run.handoff",
+          attributes: {
+            "handoff.from" => "Triage",
+            "handoff.to" => "Billing",
+            "handoff.reason" => "capability_match"
+          }
+        )
       end
     end
   end
