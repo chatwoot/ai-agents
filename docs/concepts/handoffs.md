@@ -23,9 +23,11 @@ Here's how the handoff process works:
 4.  **The Runner switches agents:** The `Runner` detects the `pending_handoff` flag and switches the `current_agent` to the new agent.
 5.  **The conversation continues:** The conversation continues with the new agent, which now has access to the full conversation history.
 
-### Loop Prevention
+### Concurrent Handoff Selection
 
-To prevent infinite handoff loops, the library automatically processes only the first handoff tool call in any LLM response. If multiple handoff tools are called in a single response, only the first one is executed and subsequent calls are ignored. This prevents conflicting handoff states and ensures clean agent transitions.
+Only one handoff can be pending at a time. The first handoff accepted by the run context wins, and later handoff executions cannot overwrite it. This guarantee is thread-safe even when a tool executor runs calls concurrently.
+
+"First" refers to execution order, not necessarily the order of tool calls in the model response. Applications that require model-order priority should ensure their tool executor preserves that order.
 
 ## Why Use Tools for Handoffs?
 
@@ -58,6 +60,60 @@ result = Agents::Runner.run(triage_agent, "I have a problem with my bill.")
 
 In this example, the `triage_agent` will automatically hand off the conversation to the `billing_agent` when the user asks a question about their bill. This allows you to create a seamless user experience where the user is always talking to the most qualified agent for their needs.
 
+## Custom Handoff Tools
+
+`register_handoffs` remains the simplest option and continues to create parameterless `HandoffTool` instances. Use `register_handoff` when one relationship needs a custom schema, operational metadata, or an acceptance hook.
+
+```ruby
+class DelegationTool < Agents::HandoffTool
+  description "Delegate work with the context needed by the destination agent"
+
+  param :reason, type: "string", desc: "Why this destination is required"
+  param :summary, type: "string", desc: "Relevant operational context"
+
+  def perform(tool_context, reason:, summary:)
+    prepare_handoff(
+      tool_context,
+      reason: reason,
+      metadata: { summary: summary },
+      message: "Delegating to #{target_agent.name}"
+    )
+  end
+end
+
+triage.register_handoff(
+  billing,
+  tool_factory: lambda do |source_agent:, target_agent:|
+    DelegationTool.new(target_agent)
+  end,
+  on_handoff: lambda do |run_context, handoff_info|
+    run_context.context[:delegation] = handoff_info[:metadata]
+  end
+)
+```
+
+The tool factory receives `source_agent:` and `target_agent:` keyword arguments. It must return an `Agents::HandoffTool` configured for the registered target. A custom tool defines its own parameters and calls the protected `prepare_handoff` method with any optional `reason`, `metadata`, and halt `message`.
+
+The acceptance hook receives the current `RunContext` and the complete handoff information before the destination agent is configured. Hook failures fail the run instead of silently continuing with partially applied context.
+
+### Callback Data
+
+The `agent_handoff` callback now receives two optional trailing values:
+
+```ruby
+lambda do |from_agent, to_agent, reason, run_context, metadata|
+  # Observe the accepted handoff.
+end
+```
+
+Existing strict lambdas with the original three or four arguments remain compatible because callback dispatch slices trailing arguments to the callback's accepted arity.
+
+### Lifetime and Trust Boundary
+
+Handoff metadata is temporary execution state. The runner consumes it during the current handoff and does not automatically add it to the conversation history, system prompt, or a future run. Persist only the durable facts your application actually needs.
+
+Metadata may contain model-generated or user-derived content. Treat it as untrusted operational data. A hook that injects metadata into a destination prompt should state explicitly that the data cannot override the destination agent's role, guardrails, tool requirements, or authorization rules.
+
 ## Troubleshooting Handoffs
 
 ### Infinite Handoff Loops
@@ -78,4 +134,4 @@ In this example, the `triage_agent` will automatically hand off the conversation
 
 ### Multiple Handoffs in One Response
 
-The library automatically handles cases where an LLM tries to call multiple handoff tools in a single response. Only the first handoff will be processed, and subsequent calls will be ignored. This is normal behavior and prevents conflicting handoff states.
+The library atomically accepts one pending handoff. Any later handoff tool execution receives a rejection result and cannot replace the accepted destination. With concurrent executors, the first tool execution accepted by the run context wins.

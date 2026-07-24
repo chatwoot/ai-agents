@@ -45,6 +45,48 @@ RSpec.describe Agents::RunContext do
     end
   end
 
+  describe "handoff state" do
+    it "accepts only one pending handoff across concurrent callers" do
+      ready = Queue.new
+      start = Queue.new
+      results = Queue.new
+      threads = 10.times.map do |id|
+        Thread.new do
+          ready << true
+          start.pop
+          accepted = run_context.prepare_handoff(target_agent: id, timestamp: Time.now)
+          results << [id, accepted]
+        end
+      end
+      threads.size.times { ready.pop }
+      threads.size.times { start << true }
+      threads.each(&:join)
+
+      attempts = threads.size.times.map { results.pop }
+      winner = attempts.find { |(_, accepted)| accepted }
+
+      expect(attempts.count { |(_, accepted)| accepted }).to eq(1)
+      expect(run_context.context[:pending_handoff][:target_agent]).to eq(winner.first)
+    end
+
+    it "atomically consumes the pending handoff" do
+      handoff = { target_agent: "Billing", timestamp: Time.now }
+      run_context.prepare_handoff(handoff)
+
+      expect(run_context.take_pending_handoff).to eq(handoff)
+      expect(run_context.take_pending_handoff).to be_nil
+      expect(run_context.context).not_to have_key(:pending_handoff)
+    end
+
+    it "clears pending handoff state" do
+      run_context.prepare_handoff(target_agent: "Billing", timestamp: Time.now)
+
+      run_context.clear_pending_handoff
+
+      expect(run_context.context).not_to have_key(:pending_handoff)
+    end
+  end
+
   describe "context isolation" do
     let(:base_context) { { shared_key: "shared_value" } }
 

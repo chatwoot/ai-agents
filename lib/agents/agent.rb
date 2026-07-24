@@ -50,8 +50,8 @@ require_relative "helpers/hash_normalizer"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :provider, :assume_model_exists, :tools, :handoff_agents, :temperature,
-                :response_schema, :headers, :params
+    attr_reader :name, :instructions, :model, :provider, :assume_model_exists, :tools, :handoff_agents, :handoffs,
+                :temperature, :response_schema, :headers, :params
 
     # Initialize a new Agent instance
     #
@@ -75,6 +75,7 @@ module Agents
       @assume_model_exists = assume_model_exists
       @tools = tools.dup
       @handoff_agents = []
+      @handoffs = []
       @temperature = temperature
       @response_schema = response_schema
       @headers = Helpers::HashNormalizer.normalize(headers, label: "headers", freeze_result: true)
@@ -98,11 +99,9 @@ module Agents
     #
     # @return [Array<Agents::Tool>] All tools available to the agent
     def all_tools
-      @mutex.synchronize do
-        # Compute handoff tools dynamically
-        handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
-        @tools + handoff_tools
-      end
+      relationships = @mutex.synchronize { @handoffs.dup }
+      handoff_tools = relationships.map { |handoff| handoff.build_tool(source_agent: self) }
+      @tools + handoff_tools
     end
 
     # Register agents that this agent can hand off to.
@@ -123,10 +122,47 @@ module Agents
     #   support.register_handoffs(triage)
     def register_handoffs(*agents)
       @mutex.synchronize do
-        @handoff_agents.concat(agents)
-        @handoff_agents.uniq! # Prevent duplicates
+        agents.each do |agent|
+          next if @handoff_agents.include?(agent)
+
+          @handoff_agents << agent
+          @handoffs << Handoff.new(agent)
+        end
       end
       self
+    end
+
+    # Register one handoff relationship with optional extension points.
+    # Registering the same target again replaces its relationship in place.
+    #
+    # @param agent [Agents::Agent] Destination agent
+    # @param tool_factory [Proc, nil] Builds an Agents::HandoffTool for this relationship
+    # @param on_handoff [Proc, nil] Called with RunContext and accepted handoff information
+    # @return [self] Returns self for method chaining
+    def register_handoff(agent, tool_factory: nil, on_handoff: nil)
+      relationship = Handoff.new(agent, tool_factory: tool_factory, on_handoff: on_handoff)
+
+      @mutex.synchronize do
+        index = @handoff_agents.index(agent)
+        if index
+          @handoffs[index] = relationship
+        else
+          @handoff_agents << agent
+          @handoffs << relationship
+        end
+      end
+      self
+    end
+
+    # Return the relationship configured for a target agent.
+    #
+    # @param agent [Agents::Agent] Destination agent
+    # @return [Agents::Handoff, nil] Configured relationship
+    def handoff_for(agent)
+      @mutex.synchronize do
+        index = @handoff_agents.index(agent)
+        index ? @handoffs[index] : nil
+      end
     end
 
     # Creates a new agent instance with modified attributes while preserving immutability.
@@ -168,19 +204,25 @@ module Agents
     # @option changes [Hash, nil] :response_schema JSON schema for structured output
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
-      self.class.new(
+      handoff_agents_changed = changes.key?(:handoff_agents)
+      cloned = self.class.new(
         name: changes.fetch(:name, @name),
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
         provider: changes.fetch(:provider, @provider),
         assume_model_exists: changes.fetch(:assume_model_exists, @assume_model_exists),
         tools: changes.fetch(:tools, @tools.dup),
-        handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
+        handoff_agents: handoff_agents_changed ? changes[:handoff_agents] : [],
         temperature: changes.fetch(:temperature, @temperature),
         response_schema: changes.fetch(:response_schema, @response_schema),
         headers: changes.fetch(:headers, @headers),
         params: changes.fetch(:params, @params)
       )
+
+      return cloned if handoff_agents_changed
+
+      copy_handoffs_to(cloned)
+      cloned
     end
 
     # Get the system prompt for the agent, potentially customized based on runtime context.
@@ -252,6 +294,19 @@ module Agents
         description: description,
         output_extractor: output_extractor
       )
+    end
+
+    private
+
+    def copy_handoffs_to(cloned)
+      relationships = @mutex.synchronize { @handoffs.dup }
+      relationships.each do |handoff|
+        cloned.register_handoff(
+          handoff.target_agent,
+          tool_factory: handoff.tool_factory,
+          on_handoff: handoff.on_handoff
+        )
+      end
     end
   end
 end

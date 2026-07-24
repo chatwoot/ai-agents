@@ -147,7 +147,7 @@ module Agents
 
         # Check for handoff via RubyLLM's halt mechanism
         if response.is_a?(RubyLLM::Tool::Halt) && context_wrapper.context[:pending_handoff]
-          handoff_info = context_wrapper.context.delete(:pending_handoff)
+          handoff_info = context_wrapper.take_pending_handoff
           next_agent = handoff_info[:target_agent]
 
           # Validate that the target agent is in our registry
@@ -157,6 +157,8 @@ module Agents
             return finalize_run(chat, context_wrapper, current_agent, output: nil, error: error)
           end
 
+          handoff_relationship(current_agent, next_agent)&.call_hook(context_wrapper, handoff_info)
+
           # Save current conversation state before switching
           save_conversation_state(chat, context_wrapper, current_agent)
 
@@ -164,8 +166,13 @@ module Agents
           context_wrapper.callback_manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
 
           # Emit agent handoff event
-          context_wrapper.callback_manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff",
-                                                              context_wrapper)
+          context_wrapper.callback_manager.emit_agent_handoff(
+            current_agent.name,
+            next_agent.name,
+            handoff_info[:reason] || "handoff",
+            context_wrapper,
+            handoff_info[:metadata]
+          )
 
           # Switch to new agent - store agent name for persistence
           current_agent = next_agent
@@ -383,7 +390,7 @@ module Agents
       context_wrapper.context[:last_updated] = Time.now
 
       # Clean up temporary handoff state
-      context_wrapper.context.delete(:pending_handoff)
+      context_wrapper.clear_pending_handoff
     end
 
     def assign_agent_name_to_new_assistant_messages(chat, current_agent, start_index)
@@ -485,13 +492,12 @@ module Agents
     # @param context_wrapper [RunContext] Thread-safe context wrapper for tool execution
     # @return [Array<ToolWrapper>] Array of wrapped tools ready for RubyLLM
     def build_agent_tools(agent, context_wrapper)
-      all_tools = []
-
-      # Add handoff tools
-      agent.handoff_agents.each do |target_agent|
-        handoff_tool = HandoffTool.new(target_agent)
-        all_tools << ToolWrapper.new(handoff_tool, context_wrapper)
-      end
+      handoff_tools = if agent.is_a?(Agent)
+                        agent.handoffs.map { |handoff| handoff.build_tool(source_agent: agent) }
+                      else
+                        agent.handoff_agents.map { |target_agent| HandoffTool.new(target_agent) }
+                      end
+      all_tools = handoff_tools.map { |tool| ToolWrapper.new(tool, context_wrapper) }
 
       # Add regular tools
       agent.tools.each do |tool|
@@ -499,6 +505,12 @@ module Agents
       end
 
       all_tools
+    end
+
+    def handoff_relationship(agent, target_agent)
+      return unless agent.is_a?(Agent)
+
+      agent.handoff_for(target_agent)
     end
   end
 end

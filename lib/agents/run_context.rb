@@ -67,6 +67,33 @@ module Agents
       @usage = Usage.new
       @callbacks = callbacks || {}
       @callback_manager = CallbackManager.new(@callbacks)
+      @handoff_mutex = Mutex.new
+    end
+
+    # Store the first handoff accepted during the current execution step.
+    # Concurrent calls are serialized so later handoffs cannot overwrite it.
+    #
+    # @param handoff_info [Hash] Target and optional handoff data
+    # @return [Boolean] true when accepted, false when another handoff is pending
+    def prepare_handoff(handoff_info)
+      @handoff_mutex.synchronize do
+        return false if @context[:pending_handoff]
+
+        @context[:pending_handoff] = handoff_info
+        true
+      end
+    end
+
+    # Atomically remove and return the pending handoff.
+    #
+    # @return [Hash, nil] The pending handoff information
+    def take_pending_handoff
+      @handoff_mutex.synchronize { @context.delete(:pending_handoff) }
+    end
+
+    # Clear temporary handoff state after a run is finalized.
+    def clear_pending_handoff
+      @handoff_mutex.synchronize { @context.delete(:pending_handoff) }
     end
 
     # Usage tracks token consumption across all LLM calls within a single run.
