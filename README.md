@@ -16,7 +16,7 @@ A delightful provider agnostic Ruby SDK for building multi-agent AI workflows wi
 ## ✨ Features
 
 - **🤖 Multi-Agent Orchestration**: Create specialized AI agents that work together
-- **🔄 Seamless Handoffs**: Transparent agent-to-agent transfers (users never know!)
+- **🔄 Seamless Handoffs**: Transparent transfers with optional custom schemas, metadata, and hooks
 - **🛠️ Tool Integration**: Agents can use custom tools and functions
 - **📊 Structured Output**: JSON schema-validated responses for reliable data extraction
 - **💾 Shared Context**: State management across agent interactions
@@ -154,6 +154,8 @@ triage.register_handoffs(billing, support)
 billing.register_handoffs(triage)
 support.register_handoffs(triage)
 ```
+
+Individual relationships can use a custom `Agents::HandoffTool` through `register_handoff`. This supports typed handoff parameters and an acceptance hook while keeping `register_handoffs` fully backward compatible. See [Custom Handoff Tools](docs/concepts/handoffs.md#custom-handoff-tools).
 
 ### Context Management & Persistence
 

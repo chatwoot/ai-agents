@@ -125,7 +125,9 @@ module Agents
     # Register a callback for agent handoff events.
     # Called when control is transferred from one agent to another.
     #
-    # @param block [Proc] Callback block that receives (from_agent, to_agent, reason)
+    # @param block [Proc] Callback block that receives
+    #   (from_agent, to_agent, reason, context_wrapper, metadata)
+    #   Trailing arguments remain compatible with callbacks that accept fewer values.
     # @return [self] For method chaining
     def on_agent_handoff(&block)
       return self unless block

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Allow individual agent relationships to register custom `HandoffTool` factories and acceptance hooks.
+- Carry optional handoff reasons and metadata into hooks and `agent_handoff` callbacks without persisting them to conversation history.
+
+### Fixed
+- Prevent concurrently executed handoff tools from overwriting the first accepted pending handoff.
+
 ## [0.12.0] - 2026-06-29
 
 ### Added

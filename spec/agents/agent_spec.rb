@@ -169,6 +169,47 @@ RSpec.describe Agents::Agent do
     end
   end
 
+  describe "#register_handoff" do
+    let(:agent) { described_class.new(name: "Test Agent") }
+    let(:handoff_agent) { instance_double(described_class, name: "Handoff Agent") }
+
+    it "registers a custom handoff relationship" do
+      factory = lambda do |target_agent:, source_agent:|
+        expect(target_agent).to be(handoff_agent)
+        expect(source_agent).to be(agent)
+        Agents::HandoffTool.new(target_agent)
+      end
+      hook = ->(_context, _handoff_info) {}
+
+      result = agent.register_handoff(handoff_agent, tool_factory: factory, on_handoff: hook)
+
+      expect(result).to be(agent)
+      expect(agent.handoff_agents).to eq([handoff_agent])
+      expect(agent.handoff_for(handoff_agent)).to have_attributes(tool_factory: factory, on_handoff: hook)
+      expect(agent.all_tools.last).to be_a(Agents::HandoffTool)
+    end
+
+    it "replaces the relationship without duplicating the target" do
+      original_factory = ->(target_agent:, **) { Agents::HandoffTool.new(target_agent) }
+      replacement_factory = ->(target_agent:, **) { Agents::HandoffTool.new(target_agent) }
+
+      agent.register_handoff(handoff_agent, tool_factory: original_factory)
+      agent.register_handoff(handoff_agent, tool_factory: replacement_factory)
+
+      expect(agent.handoff_agents).to eq([handoff_agent])
+      expect(agent.handoff_for(handoff_agent).tool_factory).to be(replacement_factory)
+    end
+
+    it "does not overwrite a custom relationship through bulk registration" do
+      factory = ->(target_agent:, **) { Agents::HandoffTool.new(target_agent) }
+
+      agent.register_handoff(handoff_agent, tool_factory: factory)
+      agent.register_handoffs(handoff_agent)
+
+      expect(agent.handoff_for(handoff_agent).tool_factory).to be(factory)
+    end
+  end
+
   describe "#all_tools" do
     let(:agent) { described_class.new(name: "Test Agent", tools: [test_tool]) }
     let(:handoff_agent) { instance_double(described_class, name: "Handoff Agent") }
@@ -228,6 +269,27 @@ RSpec.describe Agents::Agent do
       expect(cloned.handoff_agents).to eq([other_agent])
       expect(cloned.headers).to eq("X-Test": "value")
       expect(cloned.headers).to be_frozen
+    end
+
+    it "preserves custom handoff relationships when cloning" do
+      factory = ->(target_agent:, **) { Agents::HandoffTool.new(target_agent) }
+      hook = ->(_context, _handoff_info) {}
+      original_agent.register_handoff(other_agent, tool_factory: factory, on_handoff: hook)
+
+      cloned = original_agent.clone
+
+      expect(cloned.handoff_for(other_agent)).to have_attributes(tool_factory: factory, on_handoff: hook)
+    end
+
+    it "uses default relationships when handoff agents are explicitly overridden" do
+      replacement = instance_double(described_class, name: "Replacement")
+      factory = ->(target_agent:, **) { Agents::HandoffTool.new(target_agent) }
+      original_agent.register_handoff(other_agent, tool_factory: factory)
+
+      cloned = original_agent.clone(handoff_agents: [replacement])
+
+      expect(cloned.handoff_agents).to eq([replacement])
+      expect(cloned.handoff_for(replacement).tool_factory).to be_nil
     end
 
     it "overrides specific attributes" do
