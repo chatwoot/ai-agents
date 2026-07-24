@@ -450,6 +450,57 @@ RSpec.describe Agents::Runner do
       end
     end
 
+    context "with prebuilt RubyLLM content in history" do
+      it "preserves typed image content during normalization" do
+        content = RubyLLM::Content.new(
+          "Here is the original screenshot",
+          ["https://example.com/original.png"]
+        )
+
+        normalized_content = described_class.new.send(:build_content, content)
+
+        expect(normalized_content).to equal(content)
+        expect(normalized_content.text).to eq("Here is the original screenshot")
+        expect(normalized_content.attachments.first.source.to_s).to eq("https://example.com/original.png")
+      end
+
+      it "preserves typed PDF content during normalization" do
+        content = RubyLLM::Content.new(
+          "Use the attached guide",
+          ["https://example.com/guide.pdf"]
+        )
+
+        normalized_content = described_class.new.send(:build_content, content)
+
+        expect(normalized_content).to equal(content)
+        expect(normalized_content.text).to eq("Use the attached guide")
+        expect(normalized_content.attachments.first.source.to_s).to eq("https://example.com/guide.pdf")
+      end
+
+      it "round trips extracted typed history without nesting its content" do
+        content = RubyLLM::Content.new(
+          "Compare these attachments",
+          ["https://example.com/screenshot.png", "https://example.com/guide.pdf"]
+        )
+        source_message = RubyLLM::Message.new(role: :user, content: content)
+        source_chat = instance_double(RubyLLM::Chat, messages: [source_message])
+        history = Agents::Helpers::MessageExtractor.extract_messages(source_chat, agent)
+        context_wrapper = Agents::RunContext.new({ conversation_history: history })
+        runner_instance = described_class.new
+        restored_chat = instance_double(RubyLLM::Chat)
+        restored_messages = []
+        allow(restored_chat).to receive(:add_message) { |message| restored_messages << message }
+
+        runner_instance.send(:restore_conversation_history, restored_chat, context_wrapper)
+
+        restored_content = restored_messages.first.content
+        expect(restored_content.text).to eq("Compare these attachments")
+        expect(restored_content.attachments.map { |attachment| attachment.source.to_s }).to eq(
+          ["https://example.com/screenshot.png", "https://example.com/guide.pdf"]
+        )
+      end
+    end
+
     context "with tool message history" do
       let(:context_with_tool_history) do
         {
