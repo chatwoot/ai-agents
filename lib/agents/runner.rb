@@ -338,9 +338,10 @@ module Agents
       params
     end
 
-    # Build RubyLLM::Content from stored content, handling multimodal arrays with image attachments.
+    # Normalize stored content for RubyLLM, preserving prebuilt content and handling multimodal arrays.
     # Multimodal arrays follow the OpenAI content format: [{type: 'text', text: '...'}, {type: 'image_url', ...}]
     def build_content(content_value)
+      return content_value if content_value.is_a?(RubyLLM::Content)
       return RubyLLM::Content.new(content_value) unless content_value.is_a?(Array)
 
       text_parts = content_value.filter_map { |p| p[:text] || p["text"] if (p[:type] || p["type"]) == "text" }
