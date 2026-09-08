@@ -264,7 +264,7 @@ Create Rails-specific tools for database operations:
 class CustomerLookupTool < Agents::Tool
   name "lookup_customer"
   description "Look up customer information by email or ID"
-  param :identifier, type: "string", desc: "Email address or customer ID"
+  parameter :identifier, type: "string", description: "Email address or customer ID"
 
   def perform(tool_context, identifier:)
     # Access Rails models safely
@@ -286,7 +286,7 @@ end
 class BillingTool < Agents::Tool
   name "get_billing_info"
   description "Retrieve billing information for a customer"
-  param :user_id, type: "integer", desc: "Customer user ID"
+  parameter :user_id, type: "integer", description: "Customer user ID"
 
   def perform(tool_context, user_id:)
     user = User.find(user_id)

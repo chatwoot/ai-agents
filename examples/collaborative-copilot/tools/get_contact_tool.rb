@@ -6,7 +6,7 @@ module Copilot
   # Tool for retrieving contact/customer information
   class GetContactTool < Agents::Tool
     description "Get customer profile and contact information"
-    param :contact_id, type: "string", desc: "ID of the contact to retrieve"
+    parameter :contact_id, type: "string", description: "ID of the contact to retrieve"
 
     def perform(tool_context, contact_id:)
       data_file = File.join(__dir__, "../data/contacts.json")

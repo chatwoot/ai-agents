@@ -73,7 +73,7 @@ end
 
 RSpec.describe Agents::RunContext::Usage do
   let(:usage) { described_class.new }
-  let(:usage_struct) { Struct.new(:input_tokens, :output_tokens, :total_tokens) }
+  let(:usage_struct) { RubyLLM::Message }
 
   describe "#initialize" do
     it "initializes all token counters to zero" do
@@ -85,7 +85,7 @@ RSpec.describe Agents::RunContext::Usage do
 
   describe "#add" do
     context "with valid usage object" do
-      let(:llm_usage) { usage_struct.new(100, 50, 150) }
+      let(:llm_usage) { usage_struct.new(role: :assistant, content: "", tokens: RubyLLM::Tokens.new(input: 100, output: 50)) }
 
       it "adds input tokens to running total" do
         usage.add(llm_usage)
@@ -114,7 +114,8 @@ RSpec.describe Agents::RunContext::Usage do
 
     context "with nil values" do
       it "handles nil values gracefully" do
-        nil_usage = usage_struct.new(nil, nil, nil)
+        nil_usage = usage_struct.new(role: :assistant, content: "",
+                                     tokens: RubyLLM::Tokens.new(input: nil, output: nil))
 
         expect { usage.add(nil_usage) }.not_to raise_error
         expect(usage.input_tokens).to eq(0)
@@ -123,7 +124,8 @@ RSpec.describe Agents::RunContext::Usage do
       end
 
       it "handles partial nil values" do
-        partial_usage = usage_struct.new(50, nil, nil)
+        partial_usage = usage_struct.new(role: :assistant, content: "",
+                                         tokens: RubyLLM::Tokens.new(input: 50, output: nil))
 
         usage.add(partial_usage)
         expect(usage.input_tokens).to eq(50)

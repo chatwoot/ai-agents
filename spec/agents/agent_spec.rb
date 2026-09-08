@@ -18,7 +18,7 @@ RSpec.describe Agents::Agent do
       expect(agent.assume_model_exists).to be false
       expect(agent.tools).to eq([])
       expect(agent.handoff_agents).to eq([])
-      expect(agent.temperature).to eq(0.7)
+      expect(agent.temperature).to be_nil
       expect(agent.headers).to eq({})
       expect(agent.headers).to be_frozen
       expect(agent.params).to eq({})
@@ -464,6 +464,7 @@ RSpec.describe Agents::Agent do
         mock_result = instance_double(
           Agents::RunResult,
           output: "Echoed: test input",
+          chat: nil,
           error: nil
         )
 

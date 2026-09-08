@@ -32,19 +32,20 @@ RSpec.describe Agents::HandoffTool do
   end
 
   describe "#perform" do
-    it "returns halt with transfer message" do
-      tool_context = instance_double(Agents::ToolContext)
-      run_context = instance_double(Agents::RunContext)
-      context_hash = {}
+    it "records the target and returns a normal tool result" do
+      tool_context = Agents::ToolContext.new(run_context: Agents::RunContext.new(context))
 
-      allow(tool_context).to receive(:run_context).and_return(run_context)
-      allow(run_context).to receive(:context).and_return(context_hash)
+      expect(handoff_tool.perform(tool_context)).to eq("Transferring to Support Agent")
+      expect(context[:pending_handoff]).to eq(target_agent: target_agent.name)
+    end
 
-      result = handoff_tool.perform(tool_context)
+    it "keeps the first handoff when several tools request one" do
+      tool_context = Agents::ToolContext.new(run_context: Agents::RunContext.new(context))
+      handoff_tool.perform(tool_context)
+      another = described_class.new(Agents::Agent.new(name: "Billing"))
 
-      expect(result).to be_a(RubyLLM::Tool::Halt)
-      expect(result.content).to eq("I'll transfer you to Support Agent who can better assist you with this.")
-      expect(context_hash[:pending_handoff]).to include(target_agent: target_agent)
+      expect(another.perform(tool_context)).to eq("Handoff already requested")
+      expect(context[:pending_handoff]).to eq(target_agent: target_agent.name)
     end
   end
 
@@ -54,6 +55,3 @@ RSpec.describe Agents::HandoffTool do
     end
   end
 end
-
-# TODO: HandoffResult and AgentResponse classes need to be implemented
-# These were referenced in the original design but aren't part of current implementation

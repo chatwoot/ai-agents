@@ -66,7 +66,7 @@ module Agents
         start_agent_span(tracing, agent_name)
       end
 
-      # No-op: LLM spans are handled by on_end_message hook (see on_chat_created).
+      # No-op: LLM spans are handled by after_message hook (see on_chat_created).
       # Kept because the callback interface requires it.
       def on_llm_call_complete(_agent_name, _model, _response, _context_wrapper); end
 
@@ -81,10 +81,13 @@ module Agents
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        request_attributes = { model: model, temperature: temperature }
+        tracing[:llm_request_attributes] = { model: model, temperature: temperature }
+        return if tracing[:chat].equal?(chat)
 
-        chat.on_end_message do |message|
-          handle_end_message(chat, agent_name, request_attributes, message, context_wrapper)
+        tracing[:chat] = chat
+
+        chat.after_message do |message|
+          handle_end_message(chat, agent_name, tracing[:llm_request_attributes], message, context_wrapper)
         end
       end
 
@@ -219,11 +222,11 @@ module Agents
       end
 
       def set_llm_response_attributes(span, response, output)
-        if response.respond_to?(:input_tokens) && response.input_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.input_tokens)
+        if response.respond_to?(:tokens) && response.tokens.input
+          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.tokens.input)
         end
-        if response.respond_to?(:output_tokens) && response.output_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.output_tokens)
+        if response.respond_to?(:tokens) && response.tokens.output
+          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.tokens.output)
         end
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
       end

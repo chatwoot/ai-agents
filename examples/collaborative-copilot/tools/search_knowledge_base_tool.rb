@@ -6,9 +6,10 @@ module Copilot
   # Tool for searching knowledge base articles and documentation
   class SearchKnowledgeBaseTool < Agents::Tool
     description "Search help documentation and knowledge base for solutions"
-    param :query, type: "string", desc: "Search terms or keywords to find relevant articles"
-    param :category, type: "string",
-                     desc: "Optional: filter by category (troubleshooting, account, development, billing)", required: false
+    parameter :query, type: "string", description: "Search terms or keywords to find relevant articles"
+    parameter :category, type: "string",
+                         description: "Optional: filter by category (troubleshooting, account, development, billing)",
+                         required: false
 
     def perform(_tool_context, query:, category: nil)
       data_file = File.join(__dir__, "../data/knowledge_base.json")

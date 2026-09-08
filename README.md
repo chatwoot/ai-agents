@@ -128,9 +128,9 @@ agent.register_handoffs(technical_support, billing)
 ```ruby
 class EmailTool < Agents::Tool
   description "Send emails to customers"
-  param :to, type: "string", desc: "Email address"
-  param :subject, type: "string", desc: "Email subject"
-  param :body, type: "string", desc: "Email body"
+  parameter :to, type: "string", description: "Email address"
+  parameter :subject, type: "string", description: "Email subject"
+  parameter :body, type: "string", description: "Email body"
 
   def perform(tool_context, to:, subject:, body:)
     # Send email logic here

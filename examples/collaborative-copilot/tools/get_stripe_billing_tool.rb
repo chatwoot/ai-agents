@@ -6,7 +6,7 @@ module Copilot
   # Tool for retrieving Stripe billing information
   class GetStripeBillingTool < Agents::Tool
     description "Get customer billing information and payment history from Stripe"
-    param :customer_email, type: "string", desc: "Customer email to look up billing info"
+    parameter :customer_email, type: "string", description: "Customer email to look up billing info"
 
     def perform(tool_context, customer_email:)
       data_file = File.join(__dir__, "../data/stripe_billing.json")

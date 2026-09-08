@@ -6,8 +6,8 @@ module Copilot
   # Tool for searching through conversation history to find similar cases
   class SearchConversationsTool < Agents::Tool
     description "Search past conversations for similar cases and resolutions"
-    param :query, type: "string", desc: "Search terms (keywords, tags, or issue description)"
-    param :contact_id, type: "string", desc: "Optional: limit search to specific contact", required: false
+    parameter :query, type: "string", description: "Search terms (keywords, tags, or issue description)"
+    parameter :contact_id, type: "string", description: "Optional: limit search to specific contact", required: false
 
     def perform(_tool_context, query:, contact_id: nil)
       data_file = File.join(__dir__, "../data/conversations.json")

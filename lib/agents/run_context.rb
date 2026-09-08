@@ -95,16 +95,16 @@ module Agents
 
       # Add usage metrics from an LLM response to the running totals.
       # Only tracks usage for responses that have token data (e.g., RubyLLM::Message).
-      # Safely skips responses without token methods (e.g., RubyLLM::Tool::Halt).
+      # Safely skips values without token data.
       #
       # @param response [RubyLLM::Message] A RubyLLM::Message object with token usage data
       # @example Adding usage from an LLM response
       #   usage.add(llm_response)
       def add(response)
-        return unless response.respond_to?(:input_tokens)
+        return unless response.respond_to?(:tokens)
 
-        input = response.input_tokens || 0
-        output = response.output_tokens || 0
+        input = response.tokens.input || 0
+        output = response.tokens.output || 0
 
         @input_tokens += input
         @output_tokens += output

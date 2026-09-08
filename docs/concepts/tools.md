@@ -33,7 +33,7 @@ You create tools by creating a class that inherits from `Agents::Tool` and imple
 class WeatherTool < Agents::Tool
   name "get_weather"
   description "Get the current weather for a location."
-  param :location, type: "string", desc: "The city and state, e.g., San Francisco, CA"
+  parameter :location, type: "string", description: "The city and state, e.g., San Francisco, CA"
 
   def perform(tool_context, location:)
     # Access the API key from the shared context

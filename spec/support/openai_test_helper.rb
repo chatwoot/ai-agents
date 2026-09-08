@@ -114,6 +114,8 @@ module OpenAITestHelper
   def setup_openai_test_config
     RubyLLM.configure do |config|
       config.openai_api_key = "test"
+      config.openai_protocol = :chat_completions
+      config.log_level = :fatal
     end
   end
 

@@ -2,9 +2,9 @@
 
 require "spec_helper"
 require "json"
-require "ruby_llm/schema"
+require "schematist"
 
-class PongSchema < RubyLLM::Schema
+class PongSchema < Schematist::Schema
   string :answer, description: "The single word response"
 end
 

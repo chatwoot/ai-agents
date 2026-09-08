@@ -4,9 +4,9 @@ Assessment date: September 8, 2026.
 
 There is substantial scope to slim ai-agents down. The recommended direction is to make it primarily responsible for **handoff policy, agent identity, and shared application state**, with RubyLLM owning more of the execution, message handling, and accounting.
 
-This assessment covers our implementation, the intervening release notes, and the v2 release candidate's source. It is based on source inspection; a v2 upgrade has not been implemented or tested.
+This assessment covers the original implementation, the intervening release notes, and the v2 release candidate's source. Implementation progress and verification are recorded below.
 
-## Current version and release path
+## Baseline version and release path
 
 We currently have **RubyLLM 1.14.0** in [Gemfile.lock](Gemfile.lock). Our [gemspec](ai-agents.gemspec) allows newer 1.x releases through `~> 1.14`, but excludes v2. **2.0.0.rc1 was published on September 8, 2026.** [Release](https://github.com/crmne/ruby_llm/releases/tag/v2.0.0.rc1)
 
@@ -72,6 +72,16 @@ Implementation progress:
   `Agents.configuration` share `RubyLLM.config`; the duplicate `Agents::Configuration`
   class and its `configured?` helper are removed. Use `config.log_level = :debug`
   instead of `config.debug = true`. Defaults now come from RubyLLM.
+- The dependency is now pinned to `2.0.0.rc1`. Schematist replaces ruby_llm-schema;
+  tools use `parameter`/`description`, and native callbacks use `after_message`.
+- Runner uses `generate` and `run_tools`. `max_turns` now limits actual generations,
+  including handoffs, and usage includes intermediate model responses. Handoffs
+  finish the current tool round before switching and explicitly clear old settings.
+- Structured results read `response.parsed`; the default temperature is now `nil`.
+  `RunResult#chat` exposes the native chat, including pending approval inspection.
+  Agent tools report unsupported nested approvals explicitly.
+- The offline suite passes against rc1. Existing OpenAI fixtures explicitly select
+  Chat Completions; production configuration retains RubyLLM's Responses default.
 
 1. **V2 execution compatibility:** stepping, handoffs, tool contracts, structured results, and explicit configuration switching.
 2. **Remove duplicated infrastructure:** native accounting, event-based tracing, message serialization, and provider configuration.

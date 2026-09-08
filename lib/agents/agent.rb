@@ -62,12 +62,12 @@ module Agents
     # @param assume_model_exists [Boolean] Whether RubyLLM should skip registry validation for custom model IDs
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
+    # @param temperature [Float, nil] Omit to use the model's default temperature.
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
     # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
     def initialize(name:, instructions: nil, model: "gpt-4.1-mini", provider: nil, assume_model_exists: false,
-                   tools: [], handoff_agents: [], temperature: 0.7, response_schema: nil, headers: nil, params: nil)
+                   tools: [], handoff_agents: [], temperature: nil, response_schema: nil, headers: nil, params: nil)
       @name = name
       @instructions = instructions
       @model = model

@@ -20,7 +20,7 @@
 #   class WeatherTool < Agents::Tool
 #     name "get_weather"
 #     description "Get current weather for a location"
-#     param :location, type: "string", desc: "City name or coordinates"
+#     parameter :location, type: "string", description: "City name or coordinates"
 #
 #     def perform(tool_context, location:)
 #       # All state comes from parameters - no instance variables!

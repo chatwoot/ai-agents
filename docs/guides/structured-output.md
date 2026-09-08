@@ -41,12 +41,12 @@ result = runner.run("I love the new product features, especially the API and das
 # }
 ```
 
-## RubyLLM::Schema (Recommended)
+## Schematist::Schema (Recommended)
 
-For more complex schemas, use `RubyLLM::Schema` which provides a cleaner Ruby DSL:
+For more complex schemas, use `Schematist::Schema` which provides a cleaner Ruby DSL:
 
 ```ruby
-class ContactSchema < RubyLLM::Schema
+class ContactSchema < Schematist::Schema
   string :name, description: "Full name of the person"
   string :email, description: "Email address"
   string :phone, description: "Phone number", required: false

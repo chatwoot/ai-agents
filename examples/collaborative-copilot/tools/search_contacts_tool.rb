@@ -6,8 +6,9 @@ module Copilot
   # Tool for searching contacts to find patterns and related customers
   class SearchContactsTool < Agents::Tool
     description "Search contacts to find patterns, related customers, or specific profiles"
-    param :query, type: "string", desc: "Search terms (name, email, company, or tags)"
-    param :plan, type: "string", desc: "Optional: filter by plan type (Basic, Pro, Enterprise)", required: false
+    parameter :query, type: "string", description: "Search terms (name, email, company, or tags)"
+    parameter :plan, type: "string", description: "Optional: filter by plan type (Basic, Pro, Enterprise)",
+                     required: false
 
     def perform(_tool_context, query:, plan: nil)
       data_file = File.join(__dir__, "../data/contacts.json")

@@ -184,7 +184,7 @@ module Agents
 
     # Register a callback for chat created events.
     # Called when a RubyLLM Chat object is created or reconfigured after handoff.
-    # Useful for registering per-message hooks (e.g. on_end_message) on the chat.
+    # Useful for registering per-message hooks (e.g. after_message) on the chat.
     #
     # @param block [Proc] Callback block that receives (chat, agent_name, model, context_wrapper)
     # @return [self] For method chaining

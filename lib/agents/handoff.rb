@@ -12,10 +12,8 @@ module Agents
   # 4. The tool signals the handoff through context
   # 5. The Runner detects this and switches to the new agent
   #
-  # ## Loop Prevention
-  # The library prevents infinite handoff loops by processing only the first handoff
-  # tool call in any LLM response. This is handled automatically by the Chat class
-  # which detects handoff tools and processes them separately from regular tools.
+  # Only the first handoff in a tool round selects the next agent. Runner's model-call
+  # budget bounds repeated handoffs across rounds.
   #
   # ## Why Tools Instead of Instructions
   # Using tools for handoffs has several advantages:
@@ -69,19 +67,13 @@ module Agents
       @tool_description
     end
 
-    # Use RubyLLM's halt mechanism to stop continuation after handoff
-    # Store handoff info in context for Runner to detect and process
+    # The caller switches agents after RubyLLM finishes recording the tool round.
+    # https://rubyllm.com/next/agentic-workflows/#agent-handoffs
     def perform(tool_context)
-      # Store handoff information in context for Runner to detect
-      # TODO: The following is a race condition that needs to be addressed in future versions
-      # If multiple handoff tools execute concurrently, they overwrite each other's pending_handoff data.
-      tool_context.run_context.context[:pending_handoff] = {
-        target_agent: @target_agent,
-        timestamp: Time.now
-      }
+      return "Handoff already requested" if tool_context.context[:pending_handoff]
 
-      # Return halt to stop LLM continuation
-      halt("I'll transfer you to #{@target_agent.name} who can better assist you with this.")
+      tool_context.context[:pending_handoff] = { target_agent: @target_agent.name }
+      "Transferring to #{@target_agent.name}"
     end
 
     # NOTE: RubyLLM will handle schema generation internally when needed

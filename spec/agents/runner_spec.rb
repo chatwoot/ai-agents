@@ -49,7 +49,8 @@ RSpec.describe Agents::Runner do
     instance_double(Agents::Tool,
                     name: "test_tool",
                     description: "A test tool",
-                    parameters: {},
+                    parameters_schema: {},
+                    provider_options: {},
                     call: "tool result")
   end
 
@@ -95,172 +96,51 @@ RSpec.describe Agents::Runner do
         expect(result.context).to include(:last_updated)
       end
 
-      it "creates RubyLLM chat with provider and assume_model_exists from the agent" do
-        azure_agent = instance_double(
-          Agents::Agent,
-          name: "AzureAgent",
-          model: "deployment-name",
-          provider: :azure,
-          assume_model_exists: true,
-          tools: [],
-          handoff_agents: [],
-          temperature: 0.7,
-          response_schema: nil,
-          get_system_prompt: "You are a helpful assistant",
-          headers: {},
-          params: {}
-        )
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello from Azure",
-                                                          input_tokens: 10, output_tokens: 5)
+      it "passes deployment settings to RubyLLM" do
+        configured = agent
+        allow(configured).to receive_messages(model: "deployment-name", provider: :azure, assume_model_exists: true)
+        chat = RubyLLM.chat(model: "gpt-4o")
+        allow(RubyLLM).to receive(:chat).and_return(chat)
 
-        expect(RubyLLM::Chat).to receive(:new).with(
-          model: "deployment-name",
-          provider: :azure,
-          assume_model_exists: true
-        ).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat, ask: mock_response)
+        result = runner.run(configured, "Hello")
 
-        result = runner.run(azure_agent, "Hello")
-
-        expect(result.output).to eq("Hello from Azure")
+        expect(result.success?).to be true
+        expect(RubyLLM).to have_received(:chat).with(model: "deployment-name", provider: :azure,
+                                                     assume_model_exists: true)
       end
     end
 
-    context "with custom headers" do
-      it "passes runtime headers to RubyLLM chat" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with headers",
-                                                          input_tokens: 10, output_tokens: 5)
-        headers = { "X-Test" => "value" }
+    context "with request options" do
+      before { stub_simple_chat("Hello") }
 
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
-
-        expect(mock_chat).to receive(:with_headers).with("X-Test": "value").and_return(mock_chat)
-
-        result = runner.run(agent, "Hello", headers: headers)
-
-        expect(result.output).to eq("Hello with headers")
-      end
-
-      it "applies agent default headers when runtime headers are absent" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent headers",
-                                                          input_tokens: 10, output_tokens: 5)
-
-        allow(agent).to receive(:headers).and_return({ "X-Agent" => "agent-value" })
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
-
-        expect(mock_chat).to receive(:with_headers).with("X-Agent": "agent-value").and_return(mock_chat)
+      it "applies agent headers and provider options" do
+        allow(agent).to receive_messages(headers: { "X-Agent": "default" }, params: { service_tier: "flex" })
 
         result = runner.run(agent, "Hello")
 
-        expect(result.output).to eq("Hello with agent headers")
+        expect(result.success?).to be true
+        expect(result.chat.headers).to eq("X-Agent": "default")
+        expect(result.chat.provider_options).to eq(service_tier: "flex")
       end
 
-      it "merges headers giving runtime precedence over agent defaults" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged headers",
-                                                          input_tokens: 10, output_tokens: 5)
-        runtime_headers = {
-          "X-Shared" => "runtime",
-          "X-Runtime-Only" => "runtime-only"
-        }
+      it "gives runtime options precedence while retaining unrelated agent defaults" do
+        allow(agent).to receive_messages(headers: { "X-Shared": "agent", "X-Agent": "default" },
+                                         params: { service_tier: "flex", top_p: 0.9 })
 
-        allow(agent).to receive(:headers).and_return({ "X-Shared" => "agent", "X-Agent-Only" => "agent-only" })
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat, with_model: mock_chat, ask: mock_response)
+        result = runner.run(agent, "Hello", headers: { "X-Shared" => "runtime" },
+                                            params: { service_tier: "default" })
 
-        expect(mock_chat).to receive(:with_headers).with(
-          "X-Shared": "runtime",
-          "X-Agent-Only": "agent-only",
-          "X-Runtime-Only": "runtime-only"
-        ).and_return(mock_chat)
-
-        result = runner.run(agent, "Hello", headers: runtime_headers)
-
-        expect(result.output).to eq("Hello with merged headers")
-      end
-    end
-
-    context "with custom params" do
-      it "passes runtime params to RubyLLM chat" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with params",
-                                                          input_tokens: 10, output_tokens: 5)
-        params = { service_tier: "default" }
-
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat,
-                                             with_model: mock_chat, ask: mock_response)
-
-        result = runner.run(agent, "Hello", params: params)
-
-        expect(result.output).to eq("Hello with params")
-        expect(mock_chat).to have_received(:with_params).with(service_tier: "default")
+        expect(result.success?).to be true
+        expect(result.chat.headers).to eq("X-Shared": "runtime", "X-Agent": "default")
+        expect(result.chat.provider_options).to eq(service_tier: "default", top_p: 0.9)
       end
 
-      it "applies agent default params when runtime params are absent" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with agent params",
-                                                          input_tokens: 10, output_tokens: 5)
+      it "applies runtime options without agent defaults" do
+        result = runner.run(agent, "Hello", headers: { "X-Runtime" => "value" }, params: { top_p: 0.5 })
 
-        allow(agent).to receive(:params).and_return({ service_tier: "flex" })
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat,
-                                             with_model: mock_chat, ask: mock_response)
-
-        result = runner.run(agent, "Hello")
-
-        expect(result.output).to eq("Hello with agent params")
-        expect(mock_chat).to have_received(:with_params).with(service_tier: "flex")
-      end
-
-      it "merges params giving runtime precedence over agent defaults" do
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: false, content: "Hello with merged params",
-                                                          input_tokens: 10, output_tokens: 5)
-        runtime_params = { service_tier: "default", max_tokens: 1000 }
-
-        allow(agent).to receive(:params).and_return({ service_tier: "flex", top_p: 0.9 })
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(mock_chat).to receive(:add_message)
-        allow(mock_chat).to receive(:with_params).and_return(mock_chat)
-        allow(Agents::Helpers::MessageExtractor).to receive(:extract_messages).and_return([])
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat,
-                                             with_model: mock_chat, ask: mock_response)
-
-        result = runner.run(agent, "Hello", params: runtime_params)
-
-        expect(result.output).to eq("Hello with merged params")
-        expect(mock_chat).to have_received(:with_params).with(
-          service_tier: "default",
-          top_p: 0.9,
-          max_tokens: 1000
-        )
+        expect(result.success?).to be true
+        expect(result.chat.headers).to eq("X-Runtime": "value")
+        expect(result.chat.provider_options).to eq(top_p: 0.5)
       end
     end
 
@@ -400,9 +280,8 @@ RSpec.describe Agents::Runner do
 
         user_msg = messages_added.find { |m| m.role == :user }
         expect(user_msg).not_to be_nil
-        expect(user_msg.content).to be_a(RubyLLM::Content)
-        expect(user_msg.content.text).to eq("Here is my error screenshot")
-        expect(user_msg.content.attachments.first.source.to_s).to eq("https://example.com/error.png")
+        expect(user_msg.content).to eq("Here is my error screenshot")
+        expect(user_msg.attachments.first.source.to_s).to eq("https://example.com/error.png")
       end
 
       context "with string-keyed multimodal content" do
@@ -425,9 +304,8 @@ RSpec.describe Agents::Runner do
           runner_instance.send(:restore_conversation_history, mock_chat, context_wrapper)
 
           user_msg = messages_added.first
-          expect(user_msg.content).to be_a(RubyLLM::Content)
-          expect(user_msg.content.text).to eq("Check this image")
-          expect(user_msg.content.attachments.first.source.to_s).to eq("https://example.com/img.png")
+          expect(user_msg.content).to eq("Check this image")
+          expect(user_msg.attachments.first.source.to_s).to eq("https://example.com/img.png")
         end
       end
 
@@ -719,7 +597,7 @@ RSpec.describe Agents::Runner do
           expect(result.success?).to be true
           tool_message = result.messages.find { |msg| msg[:role] == :tool }
           expect(tool_message).not_to be_nil
-          expect(tool_message[:content]).to eq({ status: "success", data: { temperature: 72 } })
+          expect(JSON.parse(tool_message[:content])).to eq("status" => "success", "data" => { "temperature" => 72 })
           expect(tool_message[:tool_call_id]).to eq("call_hash")
         end
       end
@@ -793,7 +671,7 @@ RSpec.describe Agents::Runner do
         )
 
         # Run with history containing tool_calls
-        runner.run(agent, "Verify", context: context_with_tool_history)
+        runner.send(:restore_conversation_history, mock_chat, Agents::RunContext.new(context_with_tool_history))
 
         # Find the restored assistant message that had tool_calls in history
         assistant_msg = restored_messages.find do |m|
@@ -865,16 +743,11 @@ RSpec.describe Agents::Runner do
           stub_simple_chat("Done")
         end
 
-        it "skips tool results that appear before their tool_calls" do
-          # Current behavior: drop out-of-order tool results because we only accept tool messages
-          # after the matching assistant tool_call has been restored. Alternative options:
-          # 1) pre-scan history to collect tool_call_ids, or
-          # 2) buffer tool results until their tool_call appears later.
+        it "rejects new input while an out-of-order result leaves a call pending" do
           result = runner.run(agent, "Continue", context: context_with_out_of_order_tool_history)
 
-          expect(result.success?).to be true
-          tool_messages = result.messages.select { |msg| msg[:role] == :tool }
-          expect(tool_messages).to be_empty
+          expect(result.error).to be_a(RubyLLM::PendingToolCallsError)
+          expect(result.messages.none? { |msg| msg[:role] == :tool }).to be true
         end
       end
     end
@@ -942,7 +815,7 @@ RSpec.describe Agents::Runner do
         context_wrapper = Agents::RunContext.new({})
 
         allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat)
+                                             with_tools: mock_chat, with_schema: mock_chat, with_tool_options: mock_chat)
         allow(mock_chat).to receive(:with_model).and_return(mock_chat)
         allow(runner).to receive(:build_agent_tools).with(handoff_agent, context_wrapper).and_return([])
 
@@ -951,7 +824,7 @@ RSpec.describe Agents::Runner do
         expect(mock_chat).to have_received(:with_model).with(
           "deployment-name",
           provider: :azure,
-          assume_exists: true
+          assume_model_exists: true
         )
       end
 
@@ -1013,27 +886,14 @@ RSpec.describe Agents::Runner do
     end
 
     context "when max_turns is exceeded" do
-      it "raises MaxTurnsExceeded and returns error result" do
-        # Mock chat to always return tool_call? = true, causing infinite loop
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_response = instance_double(RubyLLM::Message, tool_call?: true,
-                                                          input_tokens: 10, output_tokens: 5)
+      it "bounds actual model requests, including tool rounds" do
+        stub_tool_call_chat(tool_calls: [{ id: "call_repeat", name: "unknown_tool", arguments: {} }])
 
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(runner).to receive_messages(
-          configure_chat_for_agent: mock_chat,
-          restore_conversation_history: nil,
-          save_conversation_state: nil
-        )
-        allow(mock_chat).to receive_messages(ask: mock_response, complete: mock_response)
+        result = runner.run(agent, "Keep working", max_turns: 2)
 
-        result = runner.run(agent, "Start infinite loop", max_turns: 2)
-
-        expect(result.failed?).to be true
         expect(result.error).to be_a(Agents::Runner::MaxTurnsExceeded)
         expect(result.output).to include("Exceeded maximum turns: 2")
-        expect(result.context).to be_a(Hash)
-        expect(result.messages).to eq([])
+        expect(WebMock).to have_requested(:post, "https://api.openai.com/v1/chat/completions").twice
       end
     end
 
@@ -1081,26 +941,21 @@ RSpec.describe Agents::Runner do
       end
     end
 
-    context "when halt response occurs without handoff" do
-      it "returns halt content as final response" do
-        # Mock chat to return a halt without pending_handoff
-        mock_chat = instance_double(RubyLLM::Chat)
-        mock_halt = instance_double(RubyLLM::Tool::Halt, content: "Processing complete", is_a?: true)
+    context "when a tool requires approval" do
+      it "returns the paused chat without executing the tool or reporting success" do
+        tool_class = Class.new(Agents::Tool) do
+          requires_approval
+          def name = "publish"
+          def perform(_context) = raise("Must wait for approval")
+        end
+        allow(agent).to receive(:tools).and_return([tool_class.new])
+        stub_tool_call_chat(tool_calls: [{ id: "publish_1", name: "publish", arguments: {} }])
 
-        allow(mock_halt).to receive(:is_a?).with(RubyLLM::Tool::Halt).and_return(true)
-        allow(RubyLLM::Chat).to receive(:new).and_return(mock_chat)
-        allow(runner).to receive_messages(
-          configure_chat_for_agent: mock_chat,
-          restore_conversation_history: nil,
-          save_conversation_state: nil
-        )
-        allow(mock_chat).to receive(:ask).and_return(mock_halt)
+        result = runner.run(agent, "Publish")
 
-        result = runner.run(agent, "Test halt")
-
-        expect(result.success?).to be true
-        expect(result.output).to eq("Processing complete")
-        expect(result.context).to be_a(Hash)
+        expect(result.error).to be_nil
+        expect(result.success?).to be false
+        expect(result.chat.awaiting_approval?).to be true
       end
     end
 
@@ -1226,7 +1081,7 @@ RSpec.describe Agents::Runner do
       end
     end
 
-    context "lifecycle callbacks" do
+    context "with lifecycle callbacks" do
       let(:runner) { described_class.new }
       let(:callbacks_called) { [] }
       let(:callbacks) do

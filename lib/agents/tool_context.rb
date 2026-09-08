@@ -52,15 +52,16 @@
 # new object creation for each execution.
 module Agents
   class ToolContext
-    attr_reader :run_context, :retry_count
+    attr_reader :run_context, :retry_count, :tool_call
 
     # Initialize a new ToolContext wrapping a RunContext
     #
     # @param run_context [Agents::RunContext] The run context containing shared execution state
     # @param retry_count [Integer] Number of times this tool execution has been retried (default: 0)
-    def initialize(run_context:, retry_count: 0)
+    def initialize(run_context:, retry_count: 0, tool_call: nil)
       @run_context = run_context
       @retry_count = retry_count
+      @tool_call = tool_call
     end
 
     # Convenient access to the shared context hash from the RunContext.

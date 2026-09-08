@@ -66,6 +66,7 @@ RSpec.describe Agents::AgentTool do
       instance_double(
         Agents::RunResult,
         output: "Test response",
+        chat: nil,
         error: nil
       )
     end
@@ -142,7 +143,8 @@ RSpec.describe Agents::AgentTool do
       no_output_result = instance_double(
         Agents::RunResult,
         output: nil,
-        error: nil
+        error: nil,
+        chat: nil
       )
       allow(mock_runner).to receive(:run).and_return(no_output_result)
 
@@ -157,6 +159,14 @@ RSpec.describe Agents::AgentTool do
       result = agent_tool.perform(tool_context, input: "Test")
 
       expect(result).to eq("Error executing Test Agent: Runtime error")
+    end
+
+    it "reports unsupported child approvals instead of returning empty success" do
+      chat = instance_double(RubyLLM::Chat, awaiting_approval?: true)
+      allow(mock_result).to receive(:chat).and_return(chat)
+
+      expect(agent_tool.perform(tool_context, input: "Publish"))
+        .to eq("Agent execution paused: approval is not supported inside agent tools")
     end
 
     context "with output extractor" do
@@ -242,11 +252,9 @@ RSpec.describe Agents::AgentTool do
     end
 
     it "has the correct parameter definition" do
-      # This tests that the param class method worked correctly
-      parameters = agent_tool.class.instance_variable_get(:@parameters)
-      expect(parameters).to have_key(:input)
-      expect(parameters[:input].name).to eq(:input)
-      expect(parameters[:input].type).to eq("string")
+      schema = agent_tool.parameters_schema
+      expect(schema["properties"]["input"]["type"]).to eq("string")
+      expect(schema["required"]).to include("input")
     end
 
     it "responds to execute method from parent Tool class" do

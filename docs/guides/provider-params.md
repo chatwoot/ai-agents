@@ -7,7 +7,7 @@ nav_order: 7
 
 # Provider-Specific Parameters
 
-Provider-specific parameters let you pass additional options directly into the LLM request payload via RubyLLM's `with_params` method. This is useful for features like OpenAI's `service_tier`, Anthropic's `reasoning_effort`, or any other provider-specific option that isn't exposed as a first-class SDK attribute.
+Provider-specific parameters let you pass additional options directly into the LLM request payload via RubyLLM's `with_provider_options` method. This is useful for features like OpenAI's `service_tier`, Anthropic's `reasoning_effort`, or any other provider-specific option that isn't exposed as a first-class SDK attribute.
 
 ## Basic Usage
 

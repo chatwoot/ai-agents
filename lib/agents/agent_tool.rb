@@ -40,7 +40,7 @@ module Agents
     attr_reader :wrapped_agent, :tool_name, :tool_description, :output_extractor
 
     # Default parameter for agent tools
-    param :input, type: "string", desc: "Input message for the agent"
+    parameter :input, type: "string", description: "Input message for the agent"
 
     # Initialize an AgentTool that wraps an agent as a callable tool
     #
@@ -83,6 +83,7 @@ module Agents
       )
 
       return "Agent execution failed: #{result.error.message}" if result.error
+      return "Agent execution paused: approval is not supported inside agent tools" if result.chat&.awaiting_approval?
 
       # Extract output
       if @output_extractor
