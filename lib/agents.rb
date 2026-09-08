@@ -8,6 +8,7 @@
 require "ruby_llm"
 require_relative "agents/version"
 
+# Multi-agent orchestration built on RubyLLM.
 module Agents
   class Error < StandardError; end
 
@@ -27,84 +28,15 @@ module Agents
     # Logger for debugging (can be set by users)
     attr_accessor :logger
 
-    # Configure both Agents and RubyLLM in one block
-    def configure
-      yield(configuration) if block_given?
-      configure_ruby_llm!
+    # Keep one source of provider settings, including options added by RubyLLM.
+    # https://rubyllm.com/configuration/
+    def configure(&block)
+      RubyLLM.configure(&block) if block
       configuration
     end
 
     def configuration
-      @configuration ||= Configuration.new
-    end
-
-    private
-
-    def configure_ruby_llm!
-      RubyLLM.configure do |config|
-        configure_providers(config)
-        configure_general_settings(config)
-      end
-    end
-
-    def configure_providers(config)
-      # OpenAI configuration
-      apply_if_present(config, :openai_api_key)
-      apply_if_present(config, :openai_api_base)
-      apply_if_present(config, :openai_organization_id)
-      apply_if_present(config, :openai_project_id)
-
-      # Other providers
-      apply_if_present(config, :anthropic_api_key)
-      apply_if_present(config, :azure_api_base)
-      apply_if_present(config, :azure_api_key)
-      apply_if_present(config, :azure_ai_auth_token)
-      apply_if_present(config, :gemini_api_key)
-      apply_if_present(config, :deepseek_api_key)
-      apply_if_present(config, :openrouter_api_key)
-      apply_if_present(config, :ollama_api_base)
-
-      # AWS Bedrock configuration
-      apply_if_present(config, :bedrock_api_key)
-      apply_if_present(config, :bedrock_secret_key)
-      apply_if_present(config, :bedrock_region)
-      apply_if_present(config, :bedrock_session_token)
-    end
-
-    def configure_general_settings(config)
-      config.default_model = configuration.default_model
-      config.log_level = configuration.debug == true ? :debug : :info
-      apply_if_present(config, :request_timeout)
-    end
-
-    def apply_if_present(config, key)
-      value = configuration.send(key)
-      config.send("#{key}=", value) if value
-    end
-  end
-
-  class Configuration
-    # Provider API keys and configuration
-    attr_accessor :openai_api_key, :openai_api_base, :openai_organization_id, :openai_project_id
-    attr_accessor :anthropic_api_key, :azure_api_base, :azure_api_key, :azure_ai_auth_token, :gemini_api_key,
-                  :deepseek_api_key, :openrouter_api_key, :ollama_api_base, :bedrock_api_key, :bedrock_secret_key,
-                  :bedrock_region, :bedrock_session_token
-
-    # General configuration
-    attr_accessor :request_timeout, :default_model, :debug
-
-    def initialize
-      @default_model = "gpt-4o-mini"
-      @request_timeout = 120
-      @debug = false
-    end
-
-    # Check if at least one provider is configured
-    # @return [Boolean] True if any provider has an API key
-    def configured?
-      @openai_api_key || @anthropic_api_key || @gemini_api_key ||
-        @deepseek_api_key || @openrouter_api_key || @ollama_api_base ||
-        @bedrock_api_key || (@azure_api_base && (@azure_api_key || @azure_ai_auth_token))
+      RubyLLM.config
     end
   end
 end

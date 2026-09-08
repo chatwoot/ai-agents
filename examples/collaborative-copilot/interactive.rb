@@ -9,7 +9,7 @@ require_relative "agents/copilot_orchestrator"
 Agents.configure do |config|
   config.openai_api_key = ENV["OPENAI_API_KEY"]
   config.default_model = "gpt-4o-mini"
-  config.debug = false
+  config.log_level = :info
 end
 
 puts "=== Support Copilot Demo ==="

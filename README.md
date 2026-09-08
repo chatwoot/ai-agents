@@ -205,7 +205,7 @@ Agents.configure do |config|
   config.request_timeout = 120
 
   # Debugging
-  config.debug = true
+  config.log_level = :debug
 end
 ```
 

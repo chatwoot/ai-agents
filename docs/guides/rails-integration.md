@@ -28,7 +28,7 @@ Agents.configure do |config|
   config.azure_api_key = Rails.application.credentials.azure_api_key
   config.anthropic_api_key = Rails.application.credentials.anthropic_api_key
   config.default_model = 'gpt-4o-mini'
-  config.debug = Rails.env.development?
+  config.log_level = Rails.env.development? ? :debug : :info
 end
 ```
 

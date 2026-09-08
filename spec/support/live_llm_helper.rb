@@ -12,7 +12,7 @@ module LiveLLMHelper
       config.openrouter_api_key = ENV["OPENROUTER_API_KEY"]
       config.default_model = model
       config.request_timeout = Integer(ENV.fetch("OPENROUTER_REQUEST_TIMEOUT", 30))
-      config.debug = false
+      config.log_level = :info
     end
   end
 
