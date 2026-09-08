@@ -135,15 +135,26 @@ RSpec.describe Agents::RunContext::Usage do
     end
   end
 
-  describe "token counter modification" do
-    it "allows direct modification of token counters" do
-      usage.input_tokens = 500
-      usage.output_tokens = 250
-      usage.total_tokens = 750
+  describe "native accounting" do
+    it "keeps unknown buckets distinct from reported zero" do
+      expect(usage.tokens.input).to be_nil
+      expect(usage.cost.total).to be_nil
+      usage.record(tokens: RubyLLM::Tokens.new(input: 0))
+      expect(usage.tokens.input).to eq(0)
+      expect(usage.tokens.output).to be_nil
+    end
 
-      expect(usage.input_tokens).to eq(500)
-      expect(usage.output_tokens).to eq(250)
-      expect(usage.total_tokens).to eq(750)
+    it "aggregates cache and thinking buckets and native costs" do
+      response = RubyLLM::Message.new(role: :assistant, content: "Done", model: "gpt-4o",
+                                     tokens: RubyLLM::Tokens.new(input: 100, output: 20, cache_read: 10, thinking: 5))
+      usage.add(response)
+      child = described_class.new
+      child.add(response)
+      usage.merge(child)
+
+      expect(usage.tokens.cache_read).to eq(20)
+      expect(usage.tokens.thinking).to eq(10)
+      expect(usage.cost.total).to be_within(0.000001).of(response.cost.total * 2)
     end
   end
 end

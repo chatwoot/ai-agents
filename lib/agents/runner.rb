@@ -95,7 +95,11 @@ module Agents
       runtime_params = Helpers::HashNormalizer.normalize(params, label: "params")
 
       chat = RubyLLM.chat(model: current_agent.model, provider: current_agent.provider,
-                          assume_model_exists: current_agent.assume_model_exists)
+                         assume_model_exists: current_agent.assume_model_exists)
+      original_llm_context = chat.context
+      config = (original_llm_context&.config || RubyLLM.config).dup
+      config.instrumenter = NativeInstrumenter.new(context_wrapper, config.instrumenter)
+      chat.with_context(RubyLLM::Context.new(config))
       configure_chat_for_agent(chat, current_agent, context_wrapper)
       apply_request_options(chat, current_agent, runtime_headers, runtime_params)
       restore_conversation_history(chat, context_wrapper)
@@ -139,7 +143,6 @@ module Agents
                                     context_wrapper)
         response = chat.generate
         Helpers::MessageExtractor.assign_agent_name(response, current_agent.name)
-        track_usage(response, context_wrapper)
         manager.emit_llm_call_complete(current_agent.name, current_agent.model, response, context_wrapper)
       end
 
@@ -152,6 +155,8 @@ module Agents
       finalize_run(chat, context_wrapper, current_agent, output: "Conversation ended: #{e.message}", error: e)
     rescue StandardError => e
       finalize_run(chat, context_wrapper, current_agent, output: nil, error: e)
+    ensure
+      chat&.with_context(original_llm_context)
     end
 
     private
@@ -285,12 +290,6 @@ module Agents
     def apply_request_options(chat, agent, runtime_headers, runtime_params)
       chat.with_headers(Helpers::HashNormalizer.merge(agent.headers, runtime_headers))
       chat.with_provider_options(Helpers::HashNormalizer.merge(agent.params, runtime_params))
-    end
-
-    def track_usage(response, context_wrapper)
-      return unless context_wrapper&.usage
-
-      context_wrapper.usage.add(response)
     end
 
     # Builds thread-safe tool wrappers for an agent's tools and handoff tools.

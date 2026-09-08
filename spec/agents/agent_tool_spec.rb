@@ -65,6 +65,7 @@ RSpec.describe Agents::AgentTool do
     let(:mock_result) do
       instance_double(
         Agents::RunResult,
+        usage: Agents::RunContext::Usage.new,
         output: "Test response",
         chat: nil,
         error: nil
@@ -129,6 +130,7 @@ RSpec.describe Agents::AgentTool do
     it "returns error message when agent execution fails" do
       error_result = instance_double(
         Agents::RunResult,
+        usage: Agents::RunContext::Usage.new,
         output: nil,
         error: StandardError.new("Something went wrong")
       )
@@ -142,6 +144,7 @@ RSpec.describe Agents::AgentTool do
     it "returns fallback message when agent returns no output" do
       no_output_result = instance_double(
         Agents::RunResult,
+        usage: Agents::RunContext::Usage.new,
         output: nil,
         error: nil,
         chat: nil

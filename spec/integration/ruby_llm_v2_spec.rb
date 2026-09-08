@@ -45,6 +45,44 @@ RSpec.describe Agents::Runner do
     expect(result.usage.output_tokens).to eq(13)
   end
 
+  it "counts nested agent attempts exactly once in the parent run" do
+    agent = specialist.clone(tools: [specialist.as_tool(name: "consult")])
+    stub_chat_sequence(
+      { tool_calls: [{ name: "consult", arguments: { input: "Question" } }] },
+      "Child answer", "Final answer"
+    )
+
+    result = described_class.with_agents(agent).run("Help")
+
+    expect(result.error).to be_nil
+    expect(result.usage.entries.size).to eq(3)
+    expect(result.usage.input_tokens).to eq(40)
+  end
+
+  it "does not count restored messages in a new run" do
+    stub_chat_sequence("First", "Second")
+    runner = described_class.with_agents(specialist)
+    first = runner.run("Help")
+
+    second = runner.run("More", context: first.context)
+
+    expect(second.error).to be_nil
+    expect(second.usage.entries.size).to eq(1)
+    expect(second.usage.input_tokens).to eq(first.usage.input_tokens)
+  end
+
+  it "retains billable usage if a native response callback fails" do
+    stub_simple_chat("Done")
+    runner = described_class.with_agents(specialist)
+    runner.on_chat_created { |chat| chat.after_message { raise "Callback failed" } }
+
+    result = runner.run("Help")
+
+    expect(result.error.message).to eq("Callback failed")
+    expect(result.usage.input_tokens).to eq(10)
+    expect(result.chat.context).to be_nil
+  end
+
   it "stops before another generation when a handoff exhausts the budget" do
     stub_chat_sequence({ tool_calls: [{ name: "handoff_to_specialist", arguments: {} }] }, "Must not run")
 

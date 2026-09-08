@@ -463,6 +463,7 @@ RSpec.describe Agents::Agent do
         mock_runner = instance_double(Agents::Runner)
         mock_result = instance_double(
           Agents::RunResult,
+          usage: Agents::RunContext::Usage.new,
           output: "Echoed: test input",
           chat: nil,
           error: nil

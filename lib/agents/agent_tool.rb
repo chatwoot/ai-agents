@@ -82,6 +82,7 @@ module Agents
         max_turns: 3  # CONSTRAINT: Limited turns for tool execution
       )
 
+      tool_context.usage.merge(result.usage)
       return "Agent execution failed: #{result.error.message}" if result.error
       return "Agent execution paused: approval is not supported inside agent tools" if result.chat&.awaiting_approval?
 

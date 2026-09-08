@@ -44,6 +44,7 @@ end
 # Core components
 require_relative "agents/result"
 require_relative "agents/run_context"
+require_relative "agents/native_instrumenter"
 require_relative "agents/tool_context"
 require_relative "agents/tool"
 require_relative "agents/handoff"

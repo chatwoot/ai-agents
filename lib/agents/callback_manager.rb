@@ -22,6 +22,7 @@ module Agents
       agent_handoff
       llm_call_complete
       chat_created
+      native_event
     ].freeze
 
     def initialize(callbacks = {})

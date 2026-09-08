@@ -89,6 +89,11 @@ Implementation progress:
   Durable attachment history requires durable URL/path sources; IO and ActiveStorage
   objects still need application-managed persistence. Approval decisions are not
   part of message serialization.
+- Per-run accounting now records native `usage.ruby_llm` events, including failures
+  and nested agent calls. `usage.tokens` and `usage.cost` expose native aggregates;
+  unknown cost remains `nil`. Compatibility token readers remain, but mutable token
+  setters are removed. The application instrumenter is preserved and run-specific
+  instrumentation is detached before returning the chat.
 
 1. **V2 execution compatibility:** stepping, handoffs, tool contracts, structured results, and explicit configuration switching.
 2. **Remove duplicated infrastructure:** native accounting, event-based tracing, message serialization, and provider configuration.
