@@ -308,7 +308,8 @@ module Agents
 
       # Add regular tools
       agent.tools.each do |tool|
-        all_tools << ToolWrapper.new(tool, context_wrapper)
+        tool = tool.new if tool.is_a?(Class)
+        all_tools << (tool.is_a?(Tool) ? ToolWrapper.new(tool, context_wrapper) : tool)
       end
 
       all_tools

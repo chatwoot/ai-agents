@@ -88,7 +88,7 @@ module Agents
     #   def perform(tool_context, **params)
     #     # Tool makes its own LLM call
     #     response = llm.complete("Analyze: #{params[:data]}")
-    #     tool_context.usage.add(response.usage)
+    #     tool_context.usage.add(response)
     #
     #     response.content
     #   end

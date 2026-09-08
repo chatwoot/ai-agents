@@ -1046,6 +1046,7 @@ RSpec.describe Agents::Runner do
     end
 
     context "when agent has regular tools" do
+      let(:test_tool) { Agents::Tool.new }
       let(:agent_with_tools) do
         instance_double(Agents::Agent,
                         name: "ToolAgent",

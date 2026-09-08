@@ -83,6 +83,25 @@ RSpec.describe Agents::Runner do
     expect(result.chat.context).to be_nil
   end
 
+  it "runs a native tool with inferred parameters and emits one callback pair" do
+    tool = Class.new(RubyLLM::Tool) do
+      def name = "lookup"
+      def execute(id:) = "Found #{id}"
+    end
+    agent = specialist.clone(tools: [tool])
+    stub_chat_sequence({ tool_calls: [{ name: "lookup", arguments: { id: 123 } }] }, "Done")
+    events = []
+    runner = described_class.with_agents(agent)
+    runner.on_tool_start { |name, args| events << [:start, name, args] }
+    runner.on_tool_complete { |name, result| events << [:finish, name, result] }
+
+    result = runner.run("Find 123")
+
+    expect(result.error).to be_nil
+    expect(events).to eq([[:start, "lookup", { "id" => 123 }], [:finish, "lookup", "Found 123"]])
+    expect(result.chat.tools[:lookup]).to be_a(tool)
+  end
+
   it "stops before another generation when a handoff exhausts the budget" do
     stub_chat_sequence({ tool_calls: [{ name: "handoff_to_specialist", arguments: {} }] }, "Must not run")
 

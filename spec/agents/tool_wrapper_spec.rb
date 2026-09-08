@@ -29,12 +29,9 @@ RSpec.describe Agents::ToolWrapper do
     expect(wrapper.provider_options).to eq(tool.provider_options)
   end
 
-  it "emits completion callbacks for failed tools and re-raises" do
-    events = []
-    context = Agents::RunContext.new({}, callbacks: { tool_complete: [->(*args) { events << args }] })
+  it "lets RubyLLM handle tool failures" do
     allow(tool).to receive(:execute).and_raise("Unavailable")
 
     expect { described_class.new(tool, context).call(greeting: "Hi") }.to raise_error("Unavailable")
-    expect(events.first[0..1]).to eq([tool.name, "ERROR: Unavailable"])
   end
 end

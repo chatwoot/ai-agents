@@ -93,7 +93,7 @@ module Agents
     end
 
     # Callback event types that are forwarded from the runner to TracingCallbacks.
-    TRACED_EVENTS = CallbackManager::EVENT_TYPES - [:native_event]
+    TRACED_EVENTS = CallbackManager::EVENT_TYPES - %i[chat_created llm_call_complete]
     private_constant :TRACED_EVENTS
 
     # Register all tracing callback handlers on the runner.

@@ -66,10 +66,6 @@ module Agents
         start_agent_span(tracing, agent_name)
       end
 
-      # No-op: LLM spans are handled by after_message hook (see on_chat_created).
-      # Kept because the callback interface requires it.
-      def on_llm_call_complete(_agent_name, _model, _response, _context_wrapper); end
-
       def on_agent_complete(_agent_name, _result, _error, context_wrapper)
         tracing = tracing_state(context_wrapper)
         return unless tracing
@@ -77,17 +73,23 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      def on_chat_created(chat, agent_name, model, context_wrapper, temperature = nil)
+      # Native events bracket the provider operation, including errors and fallbacks.
+      # https://rubyllm.com/next/instrumentation/
+      def on_native_event(phase, name, payload, context_wrapper)
+        return unless name == "chat.ruby_llm"
+
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        tracing[:llm_request_attributes] = { model: model, temperature: temperature }
-        return if tracing[:chat].equal?(chat)
-
-        tracing[:chat] = chat
-
-        chat.after_message do |message|
-          handle_end_message(chat, agent_name, tracing[:llm_request_attributes], message, context_wrapper)
+        if phase == :start
+          attributes = tracing[:child_langfuse_attributes].dup
+          messages = payload[:input_messages] || []
+          attributes[ATTR_LANGFUSE_OBS_INPUT] = messages.map { |message| format_single_message(message) }.to_json
+          span = @tracer.start_span(@llm_span_name, with_parent: parent_context(tracing), attributes: attributes)
+          tracing[:current_llm_span] = span
+          set_llm_request_attributes(span, payload)
+        else
+          finish_generation(tracing, payload, context_wrapper)
         end
       end
 
@@ -156,33 +158,25 @@ module Agents
 
       private
 
-      def handle_end_message(chat, _agent_name, request_attributes, message, context_wrapper)
-        return unless message.respond_to?(:role) && message.role == :assistant
+      def finish_generation(tracing, payload, context_wrapper)
+        span = tracing[:current_llm_span]
+        return unless span
 
-        tracing = tracing_state(context_wrapper)
-        return unless tracing
-
-        llm_span = @tracer.start_span(
-          @llm_span_name,
-          with_parent: parent_context(tracing),
-          attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
-        )
-
-        set_llm_request_attributes(llm_span, request_attributes)
-
-        output = llm_output_text(message)
-        set_llm_response_attributes(llm_span, message, output)
-        tracing[:last_agent_output] = output unless output.empty?
-
-        llm_span.finish
-      end
-
-      def generation_span_attributes(tracing, chat, message, context_wrapper)
-        attrs = tracing[:child_langfuse_attributes].dup
-        input = format_chat_messages(chat)
-        attrs[ATTR_LANGFUSE_OBS_INPUT] = input if input
-        apply_generation_dynamic_attributes(attrs, context_wrapper, chat, message)
-        attrs
+        if (message = payload[:response])
+          output = llm_output_text(message)
+          set_llm_response_attributes(span, message, output)
+          tracing[:last_agent_output] = output unless output.empty?
+          attributes = {}
+          apply_generation_dynamic_attributes(attributes, context_wrapper, payload[:chat], message)
+          attributes.each { |key, value| span.set_attribute(key, value) unless value.nil? || value == "" }
+        end
+        if (error = payload[:error])
+          span.record_exception(error)
+          span.status = OpenTelemetry::Trace::Status.error(error.message)
+        end
+      ensure
+        span&.finish
+        tracing[:current_llm_span] = nil
       end
 
       def set_llm_request_attributes(span, request_attributes)
@@ -194,6 +188,8 @@ module Agents
       end
 
       def finish_dangling_spans(tracing)
+        tracing[:current_llm_span]&.finish
+        tracing[:current_llm_span] = nil
         if tracing[:current_tool_span]
           tracing[:current_tool_span].finish
           tracing[:current_tool_span] = nil
@@ -242,19 +238,13 @@ module Agents
         format_tool_calls(response)
       end
 
-      # Excludes the last message (current response) — returns what was sent to the LLM.
-      def format_chat_messages(chat)
-        return nil unless chat.respond_to?(:messages)
-
-        messages = chat.messages
-        return nil if messages.nil? || messages.empty?
-
-        messages[0...-1].map { |m| format_single_message(m) }.to_json
-      end
-
       def format_single_message(msg)
         text = serialize_output(msg.content)
         text = append_tool_calls(msg, text)
+        if msg.respond_to?(:attachments) && msg.attachments&.any?
+          sources = msg.attachments.map { |attachment| attachment.source.to_s }.join(", ")
+          text = [text, "Attachments: #{sources}"].reject(&:empty?).join("\n")
+        end
         { role: msg.role.to_s, content: text }
       end
 

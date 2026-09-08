@@ -94,6 +94,9 @@ Implementation progress:
   unknown cost remains `nil`. Compatibility token readers remain, but mutable token
   setters are removed. The application instrumenter is preserved and run-specific
   instrumentation is detached before returning the chat.
+- Generation spans now follow native request start/finish events, including errors.
+  Native tool events feed the existing tool callbacks. `ToolWrapper` only injects
+  application state; native `RubyLLM::Tool` instances and classes run directly.
 
 1. **V2 execution compatibility:** stepping, handoffs, tool contracts, structured results, and explicit configuration switching.
 2. **Remove duplicated infrastructure:** native accounting, event-based tracing, message serialization, and provider configuration.

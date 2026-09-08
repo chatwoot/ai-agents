@@ -19,14 +19,7 @@ module Agents
     # https://rubyllm.com/next/upgrading/#api-changes
     def call(tool_call: nil, **args)
       tool_context = ToolContext.new(run_context: @context_wrapper, tool_call: tool_call)
-      manager = @context_wrapper.callback_manager
-      manager.emit_tool_start(name, args, @context_wrapper)
-      result = @tool.execute(tool_context, **args.transform_keys(&:to_sym))
-      manager.emit_tool_complete(name, result, @context_wrapper)
-      result
-    rescue StandardError => e
-      manager.emit_tool_complete(name, "ERROR: #{e.message}", @context_wrapper)
-      raise
+      @tool.execute(tool_context, **args.transform_keys(&:to_sym))
     end
   end
 end
