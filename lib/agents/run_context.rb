@@ -12,6 +12,7 @@ module Agents
       @callback_manager = CallbackManager.new(@callbacks)
     end
 
+    # Native accounting facts for one run, including child-agent attempts.
     class Usage
       attr_reader :entries
 

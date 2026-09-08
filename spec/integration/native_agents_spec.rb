@@ -21,7 +21,9 @@ RSpec.describe Agents::Agent do
       provider_options top_p: 0.8
       schema type: "object", properties: { answer: { type: "string" } }, required: ["answer"]
     end
-    agent = described_class.new(name: "Support", chat: ->(context) { native_agent.new(customer: context.context[:customer]) })
+    agent = described_class.new(name: "Support", chat: ->(context) {
+      native_agent.new(customer: context.context[:customer])
+    })
     stub_simple_chat('{"answer":"Hello Alice"}')
 
     result = Agents::Runner.with_agents(agent).run("Hello", context: { customer: "Alice" })
@@ -54,6 +56,7 @@ RSpec.describe Agents::Agent do
     tool = Class.new(Agents::Tool) do
       requires_approval
       def name = "publish"
+
       def perform(context)
         context.state[:published] = true
         "Published"
@@ -62,9 +65,9 @@ RSpec.describe Agents::Agent do
     target = described_class.new(name: "Target", model: "gpt-4o-mini")
     source = described_class.new(name: "Source", model: "gpt-4o", handoff_agents: [target], tools: [tool.new])
     stub_chat_sequence({ tool_calls: [
-      { id: "handoff_1", name: "handoff_to_target", arguments: {} },
-      { id: "publish_1", name: "publish", arguments: {} }
-    ] }, "Done")
+                         { id: "handoff_1", name: "handoff_to_target", arguments: {} },
+                         { id: "publish_1", name: "publish", arguments: {} }
+                       ] }, "Done")
     runner = Agents::Runner.with_agents(source, target)
     paused = runner.run("Publish", headers: { "X-Tenant" => "1" }, params: { top_p: 0.8 })
 
@@ -157,10 +160,13 @@ RSpec.describe Agents::Agent do
     native_context = RubyLLM.context do |config|
       config.openai_protocol = RubyLLM::Configuration.new.openai_protocol
     end
-    agent = described_class.new(name: "Support", chat: ->(_context) { native_context.chat(model: "gpt-4o").with_tools(tool) })
+    agent = described_class.new(name: "Support", chat: ->(_context) {
+      native_context.chat(model: "gpt-4o").with_tools(tool)
+    })
     responses = [
       [{ type: "function_call", id: "fc_1", call_id: "call_1", name: "lookup", arguments: '{"id":123}' }],
-      [{ type: "message", id: "msg_1", role: "assistant", content: [{ type: "output_text", text: "Done", annotations: [] }] }]
+      [{ type: "message", id: "msg_1", role: "assistant",
+         content: [{ type: "output_text", text: "Done", annotations: [] }] }]
     ].map do |output|
       { status: 200, headers: { "Content-Type" => "application/json" },
         body: { id: "resp_1", object: "response", status: "completed", model: "gpt-4o", output: output,
@@ -187,5 +193,25 @@ RSpec.describe Agents::Agent do
     expect(result.error).to be_a(RubyLLM::CancelledError)
     expect(result.usage.entries).to be_empty
     expect(WebMock).not_to have_requested(:post, "https://api.openai.com/v1/chat/completions")
+  end
+
+  it "lets RubyLLM handle fallbacks and accounts for both provider attempts" do
+    native_context = RubyLLM.context { |config| config.max_retries = 0 }
+    agent = described_class.new(name: "Support", chat: lambda { |_context|
+      native_context.chat(model: "gpt-4o").with_fallbacks("gpt-4o-mini")
+    })
+    stub_simple_chat("Backup answer", model: "gpt-4o-mini")
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |request| JSON.parse(request.body)["model"] == "gpt-4o" }
+      .to_return(status: 503, body: { error: { message: "Unavailable" } }.to_json,
+                 headers: { "Content-Type" => "application/json" })
+
+    result = Agents::Runner.with_agents(agent).run("Help", max_turns: 1)
+
+    expect(result.error).to be_nil
+    expect(result.output).to eq("Backup answer")
+    expect(result.usage.entries.map { |entry| entry[:status] }).to eq(%i[failed succeeded])
+    expect(result.usage.input_tokens).to eq(10)
+    expect(result.usage.cost.total).to be_nil
   end
 end

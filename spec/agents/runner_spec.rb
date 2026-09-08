@@ -17,32 +17,34 @@ RSpec.describe Agents::Runner do
 
   let(:agent) do
     Agents::Agent.new(
-                    name: "TestAgent",
-                    model: "gpt-4o",
-                    provider: nil,
-                    assume_model_exists: false,
-                    tools: [],
-                    handoff_agents: [],
-                    temperature: 0.7,
-                    response_schema: nil,
-                    instructions: "You are a helpful assistant",
-                    headers: {},
-                    params: {})
+      name: "TestAgent",
+      model: "gpt-4o",
+      provider: nil,
+      assume_model_exists: false,
+      tools: [],
+      handoff_agents: [],
+      temperature: 0.7,
+      response_schema: nil,
+      instructions: "You are a helpful assistant",
+      headers: {},
+      params: {}
+    )
   end
 
   let(:handoff_agent) do
     Agents::Agent.new(
-                    name: "HandoffAgent",
-                    model: "gpt-4o",
-                    provider: nil,
-                    assume_model_exists: false,
-                    tools: [],
-                    handoff_agents: [],
-                    temperature: 0.7,
-                    response_schema: nil,
-                    instructions: "You are a specialist",
-                    headers: {},
-                    params: {})
+      name: "HandoffAgent",
+      model: "gpt-4o",
+      provider: nil,
+      assume_model_exists: false,
+      tools: [],
+      handoff_agents: [],
+      temperature: 0.7,
+      response_schema: nil,
+      instructions: "You are a specialist",
+      headers: {},
+      params: {}
+    )
   end
 
   let(:test_tool) do
@@ -773,17 +775,18 @@ RSpec.describe Agents::Runner do
     context "when handoff occurs" do
       let(:agent_with_handoffs) do
         Agents::Agent.new(
-                        name: "TriageAgent",
-                        model: "gpt-4o",
-                        provider: nil,
-                        assume_model_exists: false,
-                        tools: [],
-                        handoff_agents: [handoff_agent],
-                        temperature: 0.7,
-                        response_schema: nil,
-                        instructions: "You route users to specialists",
-                        headers: {},
-                        params: {})
+          name: "TriageAgent",
+          model: "gpt-4o",
+          provider: nil,
+          assume_model_exists: false,
+          tools: [],
+          handoff_agents: [handoff_agent],
+          temperature: 0.7,
+          response_schema: nil,
+          instructions: "You route users to specialists",
+          headers: {},
+          params: {}
+        )
       end
 
       before do
@@ -963,17 +966,18 @@ RSpec.describe Agents::Runner do
 
       let(:agent_with_schema) do
         Agents::Agent.new(
-                        name: "StructuredAgent",
-                        model: "gpt-4o",
-                        provider: nil,
-                        assume_model_exists: false,
-                        tools: [],
-                        handoff_agents: [],
-                        temperature: 0.7,
-                        response_schema: schema,
-                        instructions: "You provide structured responses",
-                        headers: {},
-                        params: {})
+          name: "StructuredAgent",
+          model: "gpt-4o",
+          provider: nil,
+          assume_model_exists: false,
+          tools: [],
+          handoff_agents: [],
+          temperature: 0.7,
+          response_schema: schema,
+          instructions: "You provide structured responses",
+          headers: {},
+          params: {}
+        )
       end
 
       it "includes response_schema in API request" do
@@ -1039,17 +1043,18 @@ RSpec.describe Agents::Runner do
       let(:test_tool) { Agents::Tool.new }
       let(:agent_with_tools) do
         Agents::Agent.new(
-                        name: "ToolAgent",
-                        model: "gpt-4o",
-                        provider: nil,
-                        assume_model_exists: false,
-                        tools: [test_tool],
-                        handoff_agents: [],
-                        temperature: 0.7,
-                        response_schema: nil,
-                        instructions: "You are an agent with tools",
-                        headers: {},
-                        params: {})
+          name: "ToolAgent",
+          model: "gpt-4o",
+          provider: nil,
+          assume_model_exists: false,
+          tools: [test_tool],
+          handoff_agents: [],
+          temperature: 0.7,
+          response_schema: nil,
+          instructions: "You are an agent with tools",
+          headers: {},
+          params: {}
+        )
       end
 
       it "wraps regular tools in ToolWrapper" do
@@ -1152,17 +1157,18 @@ RSpec.describe Agents::Runner do
 
       it "emits agent_complete before handoff" do
         agent_with_handoff = Agents::Agent.new(
-                                             name: "TriageAgent",
-                                             model: "gpt-4o",
-                                             provider: nil,
-                                             assume_model_exists: false,
-                                             tools: [],
-                                             handoff_agents: [handoff_agent],
-                                             temperature: 0.7,
-                                             response_schema: nil,
-                                             instructions: "You route users",
-                                             headers: {},
-                                             params: {})
+          name: "TriageAgent",
+          model: "gpt-4o",
+          provider: nil,
+          assume_model_exists: false,
+          tools: [],
+          handoff_agents: [handoff_agent],
+          temperature: 0.7,
+          response_schema: nil,
+          instructions: "You route users",
+          headers: {},
+          params: {}
+        )
 
         stub_chat_sequence(
           { tool_calls: [{ name: "handoff_to_handoffagent", arguments: "{}" }] },
@@ -1186,17 +1192,18 @@ RSpec.describe Agents::Runner do
 
       it "emits agent_complete and run_complete with error when handoff target not found" do
         agent_with_handoff = Agents::Agent.new(
-                                             name: "TriageAgent",
-                                             model: "gpt-4o",
-                                             provider: nil,
-                                             assume_model_exists: false,
-                                             tools: [],
-                                             handoff_agents: [handoff_agent],
-                                             temperature: 0.7,
-                                             response_schema: nil,
-                                             instructions: "You route users",
-                                             headers: {},
-                                             params: {})
+          name: "TriageAgent",
+          model: "gpt-4o",
+          provider: nil,
+          assume_model_exists: false,
+          tools: [],
+          handoff_agents: [handoff_agent],
+          temperature: 0.7,
+          response_schema: nil,
+          instructions: "You route users",
+          headers: {},
+          params: {}
+        )
 
         stub_request(:post, "https://api.openai.com/v1/chat/completions")
           .to_return(

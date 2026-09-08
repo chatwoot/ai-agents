@@ -81,7 +81,9 @@ module Agents
     # Keep native approval decisions on the live chat; do not rebuild them from history.
     def resume(result, **options)
       raise ArgumentError, "Cannot resume a result without a chat" unless result.chat
-      raise ArgumentError, "The result's active agent is not registered" unless @registry[result.context[:current_agent]]
+
+      raise ArgumentError,
+            "The result's active agent is not registered" unless @registry[result.context[:current_agent]]
 
       options = (result.request_options || {}).merge(options) do |key, previous, override|
         Helpers::HashNormalizer.merge(previous, Helpers::HashNormalizer.normalize(override, label: key.to_s))
@@ -133,7 +135,7 @@ module Agents
       last_agent_name = history.reverse.find do |msg|
         (msg[:role] || msg["role"]).to_s == "assistant" && (msg[:agent_name] || msg["agent_name"])
       end
-      last_agent_name = last_agent_name && (last_agent_name[:agent_name] || last_agent_name["agent_name"])
+      last_agent_name &&= (last_agent_name[:agent_name] || last_agent_name["agent_name"])
 
       # Try to resolve from registry, fall back to default if agent not found
       # This handles cases where agent names in history don't match current registry

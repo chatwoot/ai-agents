@@ -7,7 +7,7 @@ nav_order: 7
 
 # Provider-Specific Parameters
 
-Provider-specific parameters let you pass additional options directly into the LLM request payload via RubyLLM's `with_provider_options` method. This is useful for features like OpenAI's `service_tier`, Anthropic's `reasoning_effort`, or any other provider-specific option that isn't exposed as a first-class SDK attribute.
+Provider-specific parameters let you pass additional options directly into the LLM request payload via RubyLLM's `with_provider_options` method. This is useful for features like OpenAI's `service_tier`, other provider-specific settings, or any other provider-specific option that isn't exposed as a first-class SDK attribute.
 
 ## Basic Usage
 
@@ -21,7 +21,7 @@ agent = Agents::Agent.new(
   instructions: "You are a helpful assistant",
   params: {
     service_tier: "flex",
-    max_completion_tokens: 2048
+    max_output_tokens: 2048
   }
 )
 
@@ -47,7 +47,7 @@ result = runner.run(
   "Explain quantum computing",
   params: {
     service_tier: "default",
-    max_completion_tokens: 4096
+    max_output_tokens: 4096
   }
 )
 ```
@@ -72,7 +72,7 @@ result = runner.run(
   "Hello!",
   params: {
     service_tier: "default",       # Overrides agent's flex value
-    max_completion_tokens: 1000    # Additional param
+    max_output_tokens: 1000    # Additional param
   }
 )
 
@@ -80,7 +80,7 @@ result = runner.run(
 # {
 #   service_tier: "default",          # Runtime value wins
 #   top_p: 0.9,                       # From agent
-#   max_completion_tokens: 1000       # From runtime
+#   max_output_tokens: 1000       # From runtime
 # }
 ```
 

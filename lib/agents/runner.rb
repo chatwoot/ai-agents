@@ -115,9 +115,7 @@ module Agents
         if (handoff = context_wrapper.context[:pending_handoff])
           target_name = handoff[:target_agent] || handoff["target_agent"]
           next_agent = registry[target_name]
-          unless next_agent
-            raise AgentNotFoundError, "Handoff failed: Agent '#{target_name}' not found in registry"
-          end
+          raise AgentNotFoundError, "Handoff failed: Agent '#{target_name}' not found in registry" unless next_agent
 
           context_wrapper.context[:conversation_history] =
             Helpers::MessageExtractor.extract_messages(chat, current_agent)
@@ -158,7 +156,7 @@ module Agents
       finalize_run(chat, context_wrapper, current_agent, output: output, request_options: request_options)
     rescue MaxTurnsExceeded => e
       finalize_run(chat, context_wrapper, current_agent, output: "Conversation ended: #{e.message}", error: e,
-                   request_options: request_options)
+                                                         request_options: request_options)
     rescue StandardError => e
       finalize_run(chat, context_wrapper, current_agent, output: nil, error: e, request_options: request_options)
     ensure
@@ -276,6 +274,5 @@ module Agents
       last_msg = chat.messages.last
       last_msg && last_msg.role == :user && last_msg.content.to_s == input.to_s
     end
-
   end
 end

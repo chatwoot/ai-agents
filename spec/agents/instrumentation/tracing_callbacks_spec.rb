@@ -529,7 +529,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation", with_parent: anything,
-        attributes: hash_including("langfuse.observation.input" =>
+                                 attributes: hash_including("langfuse.observation.input" =>
           [{ role: "user", content: "Attachments: https://example.com/image.png" }].to_json)
       )
     end

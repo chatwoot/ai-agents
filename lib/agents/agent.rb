@@ -70,7 +70,8 @@ module Agents
     def initialize(name:, instructions: nil, model: nil, provider: nil, assume_model_exists: false,
                    tools: [], handoff_agents: [], temperature: nil, response_schema: nil, headers: nil, params: nil,
                    chat: nil)
-      if chat && ([instructions, model, provider, temperature, response_schema, headers, params].any? || assume_model_exists)
+      if chat && ([instructions, model, provider, temperature, response_schema, headers,
+                   params].any? || assume_model_exists)
         raise ArgumentError, "Configure model settings in the chat factory, not on Agents::Agent"
       end
 
@@ -119,7 +120,9 @@ module Agents
       if chat_factory
         chat = chat_factory.call(context)
         chat = chat.chat if chat.is_a?(RubyLLM::Agent)
-        raise ArgumentError, "Chat factory must return a RubyLLM::Chat or RubyLLM::Agent" unless chat.is_a?(RubyLLM::Chat)
+        unless chat.is_a?(RubyLLM::Chat)
+          raise ArgumentError, "Chat factory must return a RubyLLM::Chat or RubyLLM::Agent"
+        end
 
         return chat
       end

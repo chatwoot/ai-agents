@@ -7,6 +7,10 @@ nav_order: 5
 
 # Structured Output
 
+`result.output` contains parsed JSON when a schema is configured. RubyLLM v2
+messages themselves contain JSON text in `content`; use `message.parsed` to read
+the structured value. Saved conversation history retains the text.
+
 Structured output ensures AI agents return responses in a predictable JSON format that conforms to a specified schema. This is useful for building reliable integrations, data extraction workflows, and applications that need consistent response formats.
 
 ## Basic Usage

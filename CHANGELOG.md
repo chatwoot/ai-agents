@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Pin RubyLLM to `2.0.0.rc1` and migrate tools and schemas to the v2 APIs.
+- Delegate global provider configuration to RubyLLM, removing `Agents::Configuration` and `configured?`.
+- Default model comes from RubyLLM configuration; temperature defaults to `nil`. Use `log_level` instead of `debug`.
+- Drive native generation/tool steps, counting intermediate, failed, and nested-agent usage through native events.
+- Persist native message fields and agent attribution. Emitted tool calls are now an ID-keyed Hash; legacy histories remain readable.
+- Build fresh target chats at handoffs and trace native operation boundaries, preserving Langfuse metadata.
+
+### Added
+
+- Native agent/chat configuration factories and direct native tools, with the existing instance API retained.
+- Native token/cost aggregates at `result.usage.tokens` and `result.usage.cost`.
+- Live chat access and in-process approval resume through `result.chat` and `runner.resume(result)`.
+
+See [v2-migration.md](v2-migration.md) for compatibility changes, limitations, and verification.
+
 ## [0.12.0] - 2026-06-29
 
 ### Added

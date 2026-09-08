@@ -7,6 +7,11 @@ nav_order: 7
 
 # OpenTelemetry Instrumentation
 
+RubyLLM v2 request events now define generation span start/finish, including
+provider failures and fallbacks. Tool callbacks also come from native tool events.
+SDK callbacks still isolate handler failures. Only generation spans carry model
+attributes, keeping Langfuse container spans out of cost calculations.
+
 Trace agent execution, LLM calls, tool usage, and handoffs using OpenTelemetry. Compatible with [Langfuse](https://langfuse.com) and any OTel-compatible backend.
 
 ## Overview

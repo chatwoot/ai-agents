@@ -18,10 +18,11 @@ This project is in early development. While thread safety is a core design goal 
 
 *   **`name`**: A unique name for the agent, used for identification and in handoffs.
 *   **`instructions`**: The system prompt that guides the agent's behavior. This can be a static string or a `Proc` that dynamically generates instructions based on the current context.
-*   **`model`**: The language model the agent will use (e.g., `"gpt-4.1-mini"`).
-*   **`tools`**: An array of `Agents::Tool` instances that the agent can use to perform actions.
+*   **`model`**: The language model to use. When omitted, RubyLLM's configured default applies.
+*   **`tools`**: Native `RubyLLM::Tool` classes/instances or state-aware `Agents::Tool` implementations.
 *   **`handoff_agents`**: An array of other agents that this agent can hand off conversations to.
-*   **`temperature`**: Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
+*   **`temperature`**: Optional sampling temperature. Defaults to `nil`, leaving the model's default unchanged.
+*   **`chat`**: A factory receiving `RunContext` and returning a fresh `RubyLLM::Chat` or native agent instance. Configure model settings inside the factory; retain names, handoffs, and optional SDK tools on this agent.
 
 ### Example
 

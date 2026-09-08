@@ -146,7 +146,7 @@ RSpec.describe Agents::RunContext::Usage do
 
     it "aggregates cache and thinking buckets and native costs" do
       response = RubyLLM::Message.new(role: :assistant, content: "Done", model: "gpt-4o",
-                                     tokens: RubyLLM::Tokens.new(input: 100, output: 20, cache_read: 10, thinking: 5))
+                                      tokens: RubyLLM::Tokens.new(input: 100, output: 20, cache_read: 10, thinking: 5))
       usage.add(response)
       child = described_class.new
       child.add(response)

@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "base64"
+require "stringio"
+
 module Agents
   module Helpers
     # RubyLLM owns the wire format; we only add agent attribution.
@@ -25,6 +28,14 @@ module Agents
           next if message.role == :system
 
           attributes = message.to_h
+          if message.attachments.any?
+            attributes[:attachments] = message.attachments.map do |attachment|
+              next attachment.to_h unless attachment.source.respond_to?(:read)
+
+              { type: attachment.type, filename: attachment.filename,
+                source: "data:#{attachment.mime_type};base64,#{Base64.strict_encode64(attachment.content)}" }
+            end
+          end
           if message.role == :assistant
             author = attributed_agent_name_for(message) || current_agent&.name
             attributes[:agent_name] = author if author
@@ -51,7 +62,7 @@ module Agents
 
         # rc1 serializes attachment sources but does not rehydrate those hashes.
         attributes[:attachments] = attributes[:attachments]&.map do |attachment|
-          attachment.is_a?(Hash) ? attachment[:source] || attachment["source"] : attachment
+          restore_attachment(attachment)
         end
 
         message = RubyLLM::Message.new({ content: nil }.merge(attributes))
@@ -69,7 +80,19 @@ module Agents
           end
         }
       end
-      private_class_method :legacy_content
+
+      # V2 accepts IO attachments, not legacy data URLs. Keep inline bytes durable
+      # when a restored image is saved again, rather than serializing an IO object.
+      def restore_attachment(attachment)
+        attributes = attachment.is_a?(Hash) ? attachment.transform_keys(&:to_sym) : { source: attachment }
+        source = attributes[:source]
+        match = source.match(/\Adata:([^;,]+);base64,(.*)\z/m) if source.is_a?(String)
+        return source unless match
+
+        filename = attributes[:filename] || "attachment.#{match[1].split("/").last.split("+").first}"
+        RubyLLM::Attachment.new(StringIO.new(Base64.strict_decode64(match[2])), filename: filename)
+      end
+      private_class_method :legacy_content, :restore_attachment
     end
   end
 end

@@ -8,7 +8,7 @@ This assessment covers the original implementation, the intervening release note
 
 ## Baseline version and release path
 
-We currently have **RubyLLM 1.14.0** in [Gemfile.lock](Gemfile.lock). Our [gemspec](ai-agents.gemspec) allows newer 1.x releases through `~> 1.14`, but excludes v2. **2.0.0.rc1 was published on September 8, 2026.** [Release](https://github.com/crmne/ruby_llm/releases/tag/v2.0.0.rc1)
+The starting point was **RubyLLM 1.14.0**, with a `~> 1.14` gemspec requirement. The implementation now pins **2.0.0.rc1**, published on September 8, 2026. [Release](https://github.com/crmne/ruby_llm/releases/tag/v2.0.0.rc1)
 
 | Release | What matters for ai-agents |
 |---|---|
@@ -86,8 +86,9 @@ Implementation progress:
   agent attribution. Legacy array-shaped tool calls, structured content, and image
   content blocks are normalized on import. JSON context round trips are supported.
   Emitted `result.messages` tool calls are now an ID-keyed Hash, not an Array.
-  Durable attachment history requires durable URL/path sources; IO and ActiveStorage
-  objects still need application-managed persistence. Approval decisions are not
+  URL/path attachment sources and inline image bytes are preserved; IO attachments
+  serialize as data URLs. ActiveStorage and provider-uploaded file objects still
+  need application-managed persistence. Approval decisions are not
   part of message serialization.
 - Per-run accounting now records native `usage.ruby_llm` events, including failures
   and nested agent calls. `usage.tokens` and `usage.cost` expose native aggregates;
@@ -106,6 +107,9 @@ Implementation progress:
   list of options to reset. `on_chat_created` therefore receives a new chat at each
   handoff. Supplied chats retain their configuration and native approval decisions;
   approve/deny through `result.chat`, then call `runner.resume(result)`.
+  Resume retains runtime headers/params, including across a later handoff; explicit
+  resume options override them. These request options stay on the result, not in
+  serializable application context.
 - `max_turns` limits `generate` steps. Native retries/fallback attempts remain
   RubyLLM's responsibility and are included in usage accounting. Approval resume
   uses the live chat in-process; persisted approvals and Rails storage remain

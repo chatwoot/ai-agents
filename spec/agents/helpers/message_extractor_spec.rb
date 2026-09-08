@@ -29,7 +29,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
 
   it "preserves attachment-only messages" do
     message = RubyLLM::Message.new(role: :user, content: nil,
-                                  attachments: ["https://example.com/image.png"])
+                                   attachments: ["https://example.com/image.png"])
 
     expect(round_trip(message).attachments.first.to_h).to eq(message.attachments.first.to_h)
   end
@@ -92,6 +92,19 @@ RSpec.describe Agents::Helpers::MessageExtractor do
 
     expect(message.content).to eq("Describe this")
     expect(message.attachments.size).to eq(1)
+  end
+
+  it "preserves legacy base64 images through repeated JSON round trips" do
+    bytes = File.binread(File.expand_path("../../fixtures/dice_transparency.png", __dir__))
+    data_url = "data:image/png;base64,#{Base64.strict_encode64(bytes)}"
+    message = described_class.restore_message(
+      role: :user, content: [{ type: "image_url", image_url: { url: data_url } }]
+    )
+
+    restored = round_trip(round_trip(message))
+
+    expect(restored.attachments.first.content).to eq(bytes)
+    expect(restored.attachments.first.mime_type).to eq("image/png")
   end
 
   it "ignores absent attribution" do
