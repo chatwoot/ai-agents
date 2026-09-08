@@ -16,7 +16,7 @@ RSpec.describe Agents::Runner do
   end
 
   let(:agent) do
-    instance_double(Agents::Agent,
+    Agents::Agent.new(
                     name: "TestAgent",
                     model: "gpt-4o",
                     provider: nil,
@@ -25,13 +25,13 @@ RSpec.describe Agents::Runner do
                     handoff_agents: [],
                     temperature: 0.7,
                     response_schema: nil,
-                    get_system_prompt: "You are a helpful assistant",
+                    instructions: "You are a helpful assistant",
                     headers: {},
                     params: {})
   end
 
   let(:handoff_agent) do
-    instance_double(Agents::Agent,
+    Agents::Agent.new(
                     name: "HandoffAgent",
                     model: "gpt-4o",
                     provider: nil,
@@ -40,7 +40,7 @@ RSpec.describe Agents::Runner do
                     handoff_agents: [],
                     temperature: 0.7,
                     response_schema: nil,
-                    get_system_prompt: "You are a specialist",
+                    instructions: "You are a specialist",
                     headers: {},
                     params: {})
   end
@@ -772,7 +772,7 @@ RSpec.describe Agents::Runner do
 
     context "when handoff occurs" do
       let(:agent_with_handoffs) do
-        instance_double(Agents::Agent,
+        Agents::Agent.new(
                         name: "TriageAgent",
                         model: "gpt-4o",
                         provider: nil,
@@ -781,7 +781,7 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [handoff_agent],
                         temperature: 0.7,
                         response_schema: nil,
-                        get_system_prompt: "You route users to specialists",
+                        instructions: "You route users to specialists",
                         headers: {},
                         params: {})
       end
@@ -805,26 +805,16 @@ RSpec.describe Agents::Runner do
         expect(result.context[:current_agent]).to eq("HandoffAgent")
       end
 
-      it "switches handoff chat to the target agent model and provider" do
-        allow(handoff_agent).to receive_messages(
-          model: "deployment-name",
-          provider: :azure,
-          assume_model_exists: true
-        )
-        mock_chat = instance_double(RubyLLM::Chat)
-        context_wrapper = Agents::RunContext.new({})
+      it "builds the handoff target with its model and provider" do
+        target = Agents::Agent.new(name: "Azure", model: "deployment-name", provider: :azure,
+                                   assume_model_exists: true)
+        chat = RubyLLM.chat(model: "gpt-4o")
+        allow(RubyLLM).to receive(:chat).and_return(chat)
 
-        allow(mock_chat).to receive_messages(with_instructions: mock_chat, with_temperature: mock_chat,
-                                             with_tools: mock_chat, with_schema: mock_chat, with_tool_options: mock_chat)
-        allow(mock_chat).to receive(:with_model).and_return(mock_chat)
-        allow(runner).to receive(:build_agent_tools).with(handoff_agent, context_wrapper).and_return([])
+        target.build_chat(Agents::RunContext.new({}))
 
-        runner.send(:configure_chat_for_agent, mock_chat, handoff_agent, context_wrapper, replace: true)
-
-        expect(mock_chat).to have_received(:with_model).with(
-          "deployment-name",
-          provider: :azure,
-          assume_model_exists: true
+        expect(RubyLLM).to have_received(:chat).with(
+          model: "deployment-name", provider: :azure, assume_model_exists: true
         )
       end
 
@@ -881,7 +871,7 @@ RSpec.describe Agents::Runner do
         expect(result.error.message).to eq("Handoff failed: Agent 'HandoffAgent' not found in registry")
         expect(result.output).to be_nil
         expect(result.context[:current_agent]).to eq("TriageAgent")
-        expect(result.context[:pending_handoff]).to be_nil # Should clear pending handoff
+        expect(result.context[:pending_handoff]).to eq(target_agent: "HandoffAgent")
       end
     end
 
@@ -948,10 +938,10 @@ RSpec.describe Agents::Runner do
           def name = "publish"
           def perform(_context) = raise("Must wait for approval")
         end
-        allow(agent).to receive(:tools).and_return([tool_class.new])
+        approval_agent = agent.clone(tools: [tool_class.new])
         stub_tool_call_chat(tool_calls: [{ id: "publish_1", name: "publish", arguments: {} }])
 
-        result = runner.run(agent, "Publish")
+        result = runner.run(approval_agent, "Publish")
 
         expect(result.error).to be_nil
         expect(result.success?).to be false
@@ -972,7 +962,7 @@ RSpec.describe Agents::Runner do
       end
 
       let(:agent_with_schema) do
-        instance_double(Agents::Agent,
+        Agents::Agent.new(
                         name: "StructuredAgent",
                         model: "gpt-4o",
                         provider: nil,
@@ -981,7 +971,7 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [],
                         temperature: 0.7,
                         response_schema: schema,
-                        get_system_prompt: "You provide structured responses",
+                        instructions: "You provide structured responses",
                         headers: {},
                         params: {})
       end
@@ -1048,7 +1038,7 @@ RSpec.describe Agents::Runner do
     context "when agent has regular tools" do
       let(:test_tool) { Agents::Tool.new }
       let(:agent_with_tools) do
-        instance_double(Agents::Agent,
+        Agents::Agent.new(
                         name: "ToolAgent",
                         model: "gpt-4o",
                         provider: nil,
@@ -1057,7 +1047,7 @@ RSpec.describe Agents::Runner do
                         handoff_agents: [],
                         temperature: 0.7,
                         response_schema: nil,
-                        get_system_prompt: "You are an agent with tools",
+                        instructions: "You are an agent with tools",
                         headers: {},
                         params: {})
       end
@@ -1161,7 +1151,7 @@ RSpec.describe Agents::Runner do
       end
 
       it "emits agent_complete before handoff" do
-        agent_with_handoff = instance_double(Agents::Agent,
+        agent_with_handoff = Agents::Agent.new(
                                              name: "TriageAgent",
                                              model: "gpt-4o",
                                              provider: nil,
@@ -1170,7 +1160,7 @@ RSpec.describe Agents::Runner do
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
                                              response_schema: nil,
-                                             get_system_prompt: "You route users",
+                                             instructions: "You route users",
                                              headers: {},
                                              params: {})
 
@@ -1195,7 +1185,7 @@ RSpec.describe Agents::Runner do
       end
 
       it "emits agent_complete and run_complete with error when handoff target not found" do
-        agent_with_handoff = instance_double(Agents::Agent,
+        agent_with_handoff = Agents::Agent.new(
                                              name: "TriageAgent",
                                              model: "gpt-4o",
                                              provider: nil,
@@ -1204,7 +1194,7 @@ RSpec.describe Agents::Runner do
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
                                              response_schema: nil,
-                                             get_system_prompt: "You route users",
+                                             instructions: "You route users",
                                              headers: {},
                                              params: {})
 

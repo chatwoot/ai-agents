@@ -110,6 +110,32 @@ result = runner.run("What is the pricing for the premium fibre plan?", context: 
 
 ### Agent Definition
 
+Use native RubyLLM configuration when starting a new agent. The factory receives
+the run context and must return a fresh chat or native agent instance:
+
+```ruby
+class SupportLLM < RubyLLM::Agent
+  model "gpt-4o"
+  instructions "Help customers with their accounts."
+  tools AccountLookup
+end
+
+support = Agents::Agent.new(name: "Support", chat: ->(_context) { SupportLLM.new })
+runner = Agents::Runner.with_agents(support)
+result = runner.run("Help with my account")
+
+if result.awaiting_approval?
+  # Present the requested action to the user before approving or denying it.
+  result.chat.approve(result.chat.pending_approvals.first)
+  result = runner.resume(result)
+end
+```
+
+Configure models, schemas, caching, fallbacks, and server tools on RubyLLM. Keep
+agent identity and handoffs here. Native `RubyLLM::Tool` classes or instances can
+be used directly; `Agents::Tool` remains available for shared-state injection.
+The instance configuration API below remains supported for existing applications.
+
 ```ruby
 # Create agents as instances
 agent = Agents::Agent.new(

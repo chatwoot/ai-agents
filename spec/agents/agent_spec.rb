@@ -13,7 +13,7 @@ RSpec.describe Agents::Agent do
 
       expect(agent.name).to eq("Test Agent")
       expect(agent.instructions).to be_nil
-      expect(agent.model).to eq("gpt-4.1-mini")
+      expect(agent.model).to be_nil
       expect(agent.provider).to be_nil
       expect(agent.assume_model_exists).to be false
       expect(agent.tools).to eq([])

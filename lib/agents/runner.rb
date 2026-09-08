@@ -85,7 +85,8 @@ module Agents
     # @param callbacks [Hash] Optional callbacks for real-time event notifications
     # @return [RunResult] The result containing output, messages, and usage
     def run(starting_agent, input, context: {}, registry: {}, max_turns: DEFAULT_MAX_TURNS, headers: nil, params: nil,
-            callbacks: {})
+            callbacks: {}, chat: nil)
+      chat_contexts = {}
       current_agent = starting_agent
       context_wrapper = RunContext.new(deep_copy_context(context), callbacks: callbacks)
       context_wrapper.context[:current_agent] = current_agent.name
@@ -93,18 +94,13 @@ module Agents
       manager.emit_run_start(current_agent.name, input, context_wrapper)
       runtime_headers = Helpers::HashNormalizer.normalize(headers, label: "headers")
       runtime_params = Helpers::HashNormalizer.normalize(params, label: "params")
+      request_options = { headers: runtime_headers, params: runtime_params }
 
-      chat = RubyLLM.chat(model: current_agent.model, provider: current_agent.provider,
-                         assume_model_exists: current_agent.assume_model_exists)
-      original_llm_context = chat.context
-      config = (original_llm_context&.config || RubyLLM.config).dup
-      config.instrumenter = NativeInstrumenter.new(context_wrapper, config.instrumenter)
-      chat.with_context(RubyLLM::Context.new(config))
-      configure_chat_for_agent(chat, current_agent, context_wrapper)
-      apply_request_options(chat, current_agent, runtime_headers, runtime_params)
-      restore_conversation_history(chat, context_wrapper)
-      manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper,
-                                current_agent.temperature)
+      supplied_chat = chat
+      chat ||= current_agent.build_chat(context_wrapper)
+      prepare_chat(chat, current_agent, context_wrapper, runtime_headers, runtime_params, chat_contexts)
+      restore_conversation_history(chat, context_wrapper) unless supplied_chat
+      manager.emit_chat_created(chat, current_agent.name, chat.model.id, context_wrapper, chat.temperature)
       chat.ask_later(input) if input && !last_message_matches?(chat, input)
       turns = 0
 
@@ -116,7 +112,7 @@ module Agents
         # A handoff must wait until every call in the old agent's round is settled.
         break if chat.awaiting_approval?
 
-        if (handoff = context_wrapper.context.delete(:pending_handoff))
+        if (handoff = context_wrapper.context[:pending_handoff])
           target_name = handoff[:target_agent] || handoff["target_agent"]
           next_agent = registry[target_name]
           unless next_agent
@@ -125,14 +121,23 @@ module Agents
 
           context_wrapper.context[:conversation_history] =
             Helpers::MessageExtractor.extract_messages(chat, current_agent)
+          context_wrapper.context[:current_agent] = next_agent.name
+          begin
+            # New native configuration prevents provider options leaking across agents.
+            next_chat = next_agent.build_chat(context_wrapper)
+            chat.messages.reject { |message| message.role == :system }.each { |message| next_chat.add_message(message) }
+            prepare_chat(next_chat, next_agent, context_wrapper, runtime_headers, runtime_params, chat_contexts)
+          rescue StandardError
+            context_wrapper.context[:current_agent] = current_agent.name
+            raise
+          end
+
           manager.emit_agent_complete(current_agent.name, nil, nil, context_wrapper)
           manager.emit_agent_handoff(current_agent.name, next_agent.name, "handoff", context_wrapper)
           current_agent = next_agent
-          context_wrapper.context[:current_agent] = current_agent.name
-          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
-          apply_request_options(chat, current_agent, runtime_headers, runtime_params)
-          manager.emit_chat_created(chat, current_agent.name, current_agent.model, context_wrapper,
-                                    current_agent.temperature)
+          chat = next_chat
+          context_wrapper.context.delete(:pending_handoff)
+          manager.emit_chat_created(chat, current_agent.name, chat.model.id, context_wrapper, chat.temperature)
         end
         break if chat.complete?
 
@@ -143,20 +148,21 @@ module Agents
                                     context_wrapper)
         response = chat.generate
         Helpers::MessageExtractor.assign_agent_name(response, current_agent.name)
-        manager.emit_llm_call_complete(current_agent.name, current_agent.model, response, context_wrapper)
+        manager.emit_llm_call_complete(current_agent.name, chat.model.id, response, context_wrapper)
       end
 
       response = chat.messages.reverse.find { |message| message.role == :assistant }
       output = if response && !chat.awaiting_approval?
-                 current_agent.response_schema ? response.parsed : response.content
+                 chat.schema ? response.parsed : response.content
                end
-      finalize_run(chat, context_wrapper, current_agent, output: output)
+      finalize_run(chat, context_wrapper, current_agent, output: output, request_options: request_options)
     rescue MaxTurnsExceeded => e
-      finalize_run(chat, context_wrapper, current_agent, output: "Conversation ended: #{e.message}", error: e)
+      finalize_run(chat, context_wrapper, current_agent, output: "Conversation ended: #{e.message}", error: e,
+                   request_options: request_options)
     rescue StandardError => e
-      finalize_run(chat, context_wrapper, current_agent, output: nil, error: e)
+      finalize_run(chat, context_wrapper, current_agent, output: nil, error: e, request_options: request_options)
     ensure
-      chat&.with_context(original_llm_context)
+      chat_contexts.each { |instrumented_chat, original| instrumented_chat.with_context(original) }
     end
 
     private
@@ -170,7 +176,7 @@ module Agents
     # @param output [String, nil] The output text for the result
     # @param error [StandardError, nil] Optional error to attach to the result
     # @return [RunResult]
-    def finalize_run(chat, context_wrapper, current_agent, output:, error: nil)
+    def finalize_run(chat, context_wrapper, current_agent, output:, error: nil, request_options: nil)
       save_conversation_state(chat, context_wrapper, current_agent) if chat
 
       result = RunResult.new(
@@ -179,7 +185,8 @@ module Agents
         usage: context_wrapper.usage,
         error: error,
         context: context_wrapper.context,
-        chat: chat
+        chat: chat,
+        request_options: request_options
       )
 
       context_wrapper.callback_manager.emit_agent_complete(current_agent.name, result, error, context_wrapper)
@@ -237,39 +244,22 @@ module Agents
       context_wrapper.context[:last_updated] = Time.now
     end
 
-    # Configures a RubyLLM chat instance with agent-specific settings.
-    # Replaces settings explicitly while preserving conversation history during handoffs.
-    #
-    # @param chat [RubyLLM::Chat] The chat instance to configure
-    # @param agent [Agents::Agent] The agent whose configuration to apply
-    # @param context_wrapper [RunContext] Thread-safe context wrapper
-    # @param replace [Boolean] Whether to replace existing configuration (true for handoffs, false for initial setup)
-    # @return [RubyLLM::Chat] The configured chat instance
-    def configure_chat_for_agent(chat, agent, context_wrapper, replace: false)
-      # Get system prompt (may be dynamic)
-      system_prompt = agent.get_system_prompt(context_wrapper)
+    def prepare_chat(chat, agent, context_wrapper, runtime_headers, runtime_params, chat_contexts)
+      chat_contexts[chat] = chat.context
+      config = (chat.context&.config || RubyLLM.config).dup
+      config.instrumenter = NativeInstrumenter.new(context_wrapper, config.instrumenter)
+      chat.with_context(RubyLLM::Context.new(config))
+      chat.with_headers(Helpers::HashNormalizer.merge(chat.headers, runtime_headers))
+      chat.with_provider_options(Helpers::HashNormalizer.merge(chat.provider_options, runtime_params))
 
-      # Combine all tools - both handoff and regular tools need wrapping
-      all_tools = build_agent_tools(agent, context_wrapper)
-
-      # Switch model if different (important for handoffs between agents using different models)
-      if replace
-        chat.with_model(
-          agent.model,
-          provider: agent.provider,
-          assume_model_exists: agent.assume_model_exists
-        )
+      tools = (chat.tools.values + agent.all_tools).map do |tool|
+        tool = tool.new if tool.is_a?(Class)
+        tool = tool.tool if tool.is_a?(ToolWrapper)
+        tool.is_a?(Tool) ? ToolWrapper.new(tool, context_wrapper) : tool
       end
-
-      # Configure chat with instructions, temperature, tools, and schema
-      chat.with_instructions(system_prompt)
-      chat.with_temperature(agent.temperature)
-      chat.with_tools(nil).with_tools(*all_tools)
-      # Shared application state and handoff selection are sequential within a run.
+      chat.with_tools(nil).with_tools(*tools)
+      # Application state and first-handoff selection require sequential tools.
       chat.with_tool_options(concurrency: false)
-      chat.with_schema(agent.response_schema)
-
-      chat
     end
 
     # Check if the last message in the chat already matches the user's input.
@@ -287,32 +277,5 @@ module Agents
       last_msg && last_msg.role == :user && last_msg.content.to_s == input.to_s
     end
 
-    def apply_request_options(chat, agent, runtime_headers, runtime_params)
-      chat.with_headers(Helpers::HashNormalizer.merge(agent.headers, runtime_headers))
-      chat.with_provider_options(Helpers::HashNormalizer.merge(agent.params, runtime_params))
-    end
-
-    # Builds thread-safe tool wrappers for an agent's tools and handoff tools.
-    #
-    # @param agent [Agents::Agent] The agent whose tools to wrap
-    # @param context_wrapper [RunContext] Thread-safe context wrapper for tool execution
-    # @return [Array<ToolWrapper>] Array of wrapped tools ready for RubyLLM
-    def build_agent_tools(agent, context_wrapper)
-      all_tools = []
-
-      # Add handoff tools
-      agent.handoff_agents.each do |target_agent|
-        handoff_tool = HandoffTool.new(target_agent)
-        all_tools << ToolWrapper.new(handoff_tool, context_wrapper)
-      end
-
-      # Add regular tools
-      agent.tools.each do |tool|
-        tool = tool.new if tool.is_a?(Class)
-        all_tools << (tool.is_a?(Tool) ? ToolWrapper.new(tool, context_wrapper) : tool)
-      end
-
-      all_tools
-    end
   end
 end

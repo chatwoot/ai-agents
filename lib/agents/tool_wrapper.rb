@@ -7,6 +7,8 @@ module Agents
   class ToolWrapper
     extend Forwardable
 
+    attr_reader :tool
+
     def_delegators :@tool, :name, :description, :parameters_schema, :provider_options,
                    :requires_approval?, :approval_resolver
 

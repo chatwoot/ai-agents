@@ -97,6 +97,20 @@ Implementation progress:
 - Generation spans now follow native request start/finish events, including errors.
   Native tool events feed the existing tool callbacks. `ToolWrapper` only injects
   application state; native `RubyLLM::Tool` instances and classes run directly.
+- `Agent.new(name:, chat: ->(run_context) { NativeAgent.new(...) })` delegates
+  configuration to native agents/chats without mirroring their DSL. The existing
+  instance configuration API remains supported. The default model now comes from
+  RubyLLM configuration. Factories must return fresh chats; their model settings
+  cannot be mixed with legacy agent configuration keywords.
+- Handoffs build a fresh target chat and retain the transcript, avoiding a growing
+  list of options to reset. `on_chat_created` therefore receives a new chat at each
+  handoff. Supplied chats retain their configuration and native approval decisions;
+  approve/deny through `result.chat`, then call `runner.resume(result)`.
+- `max_turns` limits `generate` steps. Native retries/fallback attempts remain
+  RubyLLM's responsibility and are included in usage accounting. Approval resume
+  uses the live chat in-process; persisted approvals and Rails storage remain
+  application concerns. Native agent factories reuse configuration, not the native
+  agent instance's `rescue_from` execution wrapper.
 
 1. **V2 execution compatibility:** stepping, handoffs, tool contracts, structured results, and explicit configuration switching.
 2. **Remove duplicated infrastructure:** native accounting, event-based tracing, message serialization, and provider configuration.

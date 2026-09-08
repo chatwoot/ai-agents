@@ -58,7 +58,7 @@ module Agents
     # @param headers [Hash, nil] Custom HTTP headers to pass through to the underlying LLM provider
     # @param params [Hash, nil] Provider-specific parameters to pass through to the underlying LLM (e.g., service_tier)
     # @return [RunResult] Execution result with output, messages, and updated context
-    def run(input, context: {}, max_turns: Runner::DEFAULT_MAX_TURNS, headers: nil, params: nil)
+    def run(input = nil, context: {}, max_turns: Runner::DEFAULT_MAX_TURNS, headers: nil, params: nil, chat: nil)
       context = context.transform_keys(&:to_sym)
       # Determine which agent should handle this conversation
       # Uses conversation history to maintain continuity across handoffs
@@ -73,8 +73,20 @@ module Agents
         max_turns: max_turns,
         headers: headers,
         params: params,
-        callbacks: @callbacks
+        callbacks: @callbacks,
+        **(chat ? { chat: chat } : {})
       )
+    end
+
+    # Keep native approval decisions on the live chat; do not rebuild them from history.
+    def resume(result, **options)
+      raise ArgumentError, "Cannot resume a result without a chat" unless result.chat
+      raise ArgumentError, "The result's active agent is not registered" unless @registry[result.context[:current_agent]]
+
+      options = (result.request_options || {}).merge(options) do |key, previous, override|
+        Helpers::HashNormalizer.merge(previous, Helpers::HashNormalizer.normalize(override, label: key.to_s))
+      end
+      run(nil, context: result.context, chat: result.chat, **options)
     end
 
     # All callbacks share registration, synchronization, and chaining semantics.

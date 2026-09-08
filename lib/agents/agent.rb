@@ -51,13 +51,13 @@ require_relative "helpers/hash_normalizer"
 module Agents
   class Agent
     attr_reader :name, :instructions, :model, :provider, :assume_model_exists, :tools, :handoff_agents, :temperature,
-                :response_schema, :headers, :params
+                :response_schema, :headers, :params, :chat_factory
 
     # Initialize a new Agent instance
     #
     # @param name [String] The name of the agent
     # @param instructions [String, Proc, nil] Static string or dynamic Proc that returns instructions
-    # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
+    # @param model [String, nil] The LLM model, defaulting to RubyLLM configuration
     # @param provider [Symbol, String, nil] Optional RubyLLM provider override
     # @param assume_model_exists [Boolean] Whether RubyLLM should skip registry validation for custom model IDs
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
@@ -66,8 +66,15 @@ module Agents
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
     # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", provider: nil, assume_model_exists: false,
-                   tools: [], handoff_agents: [], temperature: nil, response_schema: nil, headers: nil, params: nil)
+    # @param chat [#call, nil] Factory receiving RunContext and returning a fresh native chat or agent
+    def initialize(name:, instructions: nil, model: nil, provider: nil, assume_model_exists: false,
+                   tools: [], handoff_agents: [], temperature: nil, response_schema: nil, headers: nil, params: nil,
+                   chat: nil)
+      if chat && ([instructions, model, provider, temperature, response_schema, headers, params].any? || assume_model_exists)
+        raise ArgumentError, "Configure model settings in the chat factory, not on Agents::Agent"
+      end
+
+      @chat_factory = chat
       @name = name
       @instructions = instructions
       @model = model
@@ -103,6 +110,26 @@ module Agents
         handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
         @tools + handoff_tools
       end
+    end
+
+    # Native agents own their configuration; this SDK adds identity, state, and handoffs.
+    # A factory must build a fresh chat for each execution, never return a shared chat.
+    # https://rubyllm.com/next/agents/
+    def build_chat(context)
+      if chat_factory
+        chat = chat_factory.call(context)
+        chat = chat.chat if chat.is_a?(RubyLLM::Agent)
+        raise ArgumentError, "Chat factory must return a RubyLLM::Chat or RubyLLM::Agent" unless chat.is_a?(RubyLLM::Chat)
+
+        return chat
+      end
+
+      RubyLLM.chat(model: model, provider: provider, assume_model_exists: assume_model_exists)
+             .with_instructions(get_system_prompt(context))
+             .with_temperature(temperature)
+             .with_schema(response_schema)
+             .with_headers(headers)
+             .with_provider_options(params)
     end
 
     # Register agents that this agent can hand off to.
@@ -178,8 +205,9 @@ module Agents
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
         temperature: changes.fetch(:temperature, @temperature),
         response_schema: changes.fetch(:response_schema, @response_schema),
-        headers: changes.fetch(:headers, @headers),
-        params: changes.fetch(:params, @params)
+        headers: changes.fetch(:headers, chat_factory ? nil : @headers),
+        params: changes.fetch(:params, chat_factory ? nil : @params),
+        chat: changes.fetch(:chat, @chat_factory)
       )
     end
 
