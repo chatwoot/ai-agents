@@ -3,319 +3,102 @@
 require "spec_helper"
 
 RSpec.describe Agents::Helpers::MessageExtractor do
-  let(:current_agent) { instance_double(Agents::Agent, name: "TestAgent") }
+  let(:agent) { Agents::Agent.new(name: "Support") }
 
-  describe ".assign_agent_name" do
-    let(:message) do
-      instance_double(RubyLLM::Message,
-                      role: :assistant,
-                      content: "I'll route this.",
-                      tool_call?: false,
-                      tool_calls: nil)
-    end
-
-    it "stores attribution that extraction can read back" do
-      described_class.assign_agent_name(message, "Triage")
-
-      result = described_class.extract_messages(instance_double(RubyLLM::Chat, messages: [message]), current_agent)
-
-      expect(result).to eq([
-                             {
-                               role: :assistant,
-                               content: "I'll route this.",
-                               agent_name: "Triage"
-                             }
-                           ])
-    end
-
-    it "does nothing when message is nil" do
-      expect { described_class.assign_agent_name(nil, "Triage") }.not_to raise_error
-    end
-
-    it "does nothing when agent name is nil" do
-      described_class.assign_agent_name(message, nil)
-
-      expect(described_class.attributed_agent_name_for(message)).to be_nil
-    end
+  def round_trip(message)
+    chat = instance_double(RubyLLM::Chat, messages: [message])
+    stored = described_class.extract_messages(chat, agent)
+    described_class.restore_message(JSON.parse(stored.to_json).first)
   end
 
-  describe ".extract_messages" do
-    context "when chat has no messages method" do
-      let(:chat) { double("chat without messages") }
+  it "preserves the native message format through JSON persistence" do
+    message = RubyLLM::Message.new(
+      role: :assistant, content: "Answer", model: "gpt-4o",
+      thinking: "Reasoning", thinking_signature: "signature",
+      raw_reasoning: { "id" => "reason_1" },
+      raw_content: [{ "type" => "text", "text" => "Answer" }],
+      citations: [{ type: "url", url: "https://example.com", title: "Source" }],
+      finish_reason: :stop, input_tokens: 10, output_tokens: 5, cache_until_here: true
+    )
 
-      it "returns empty array" do
-        expect(described_class.extract_messages(chat, current_agent)).to eq([])
-      end
-    end
+    restored = round_trip(message)
 
-    context "when chat has messages with Hash content" do
-      let(:hash_message) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: { "answer" => "42", "confidence" => 0.95 },
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:string_message) do
-        instance_double(RubyLLM::Message,
-                        role: :user,
-                        content: "What is the answer?",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:empty_hash_message) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: {},
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [string_message, hash_message, empty_hash_message]) }
-
-      it "handles Hash content without calling strip" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to include(
-          hash_including(
-            role: :user,
-            content: "What is the answer?"
-          )
-        )
-
-        expect(result).to include(
-          hash_including(
-            role: :assistant,
-            content: { "answer" => "42", "confidence" => 0.95 },
-            agent_name: "TestAgent"
-          )
-        )
-
-        # Empty hash should be filtered out
-        expect(result).not_to include(
-          hash_including(content: {})
-        )
-      end
-    end
-
-    context "when chat has messages with empty or whitespace-only string content" do
-      let(:empty_string_message) do
-        instance_double(RubyLLM::Message,
-                        role: :user,
-                        content: "",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:whitespace_message) do
-        instance_double(RubyLLM::Message,
-                        role: :user,
-                        content: "   \n\t  ",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:valid_message) do
-        instance_double(RubyLLM::Message,
-                        role: :user,
-                        content: "Valid content",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [empty_string_message, whitespace_message, valid_message]) }
-
-      it "filters out empty and whitespace-only content" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to eq([
-                               {
-                                 role: :user,
-                                 content: "Valid content"
-                               }
-                             ])
-      end
-    end
-
-    context "when chat has tool messages" do
-      let(:tool_message) do
-        instance_double(RubyLLM::Message,
-                        role: :tool,
-                        content: "Tool result",
-                        tool_result?: true,
-                        tool_call_id: "call_123")
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [tool_message]) }
-
-      it "extracts tool messages correctly" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to eq([
-                               {
-                                 role: :tool,
-                                 content: "Tool result",
-                                 tool_call_id: "call_123"
-                               }
-                             ])
-      end
-    end
-
-    context "when chat has assistant messages with tool calls" do
-      let(:tool_call) do
-        instance_double(RubyLLM::ToolCall,
-                        to_h: {
-                          id: "call_123",
-                          name: "test_tool",
-                          arguments: { param: "value" }
-                        })
-      end
-
-      let(:assistant_with_tools) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: "Let me use a tool",
-                        tool_call?: true,
-                        tool_calls: { "call_123" => tool_call })
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [assistant_with_tools]) }
-
-      it "includes tool calls in assistant messages" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to eq([
-                               {
-                                 role: :assistant,
-                                 content: "Let me use a tool",
-                                 agent_name: "TestAgent",
-                                 tool_calls: [
-                                   {
-                                     id: "call_123",
-                                     name: "test_tool",
-                                     arguments: { param: "value" }
-                                   }
-                                 ]
-                               }
-                             ])
-      end
-    end
-
-    context "when assistant tool calls have no text content" do
-      let(:tool_call) do
-        instance_double(RubyLLM::ToolCall,
-                        to_h: {
-                          id: "call_456",
-                          name: "test_tool",
-                          arguments: { foo: "bar" }
-                        })
-      end
-
-      let(:assistant_with_tool_only) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: nil,
-                        tool_call?: true,
-                        tool_calls: { "call_456" => tool_call })
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [assistant_with_tool_only]) }
-
-      it "preserves the message and tool calls with empty string content" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to eq([
-                               {
-                                 role: :assistant,
-                                 content: "",
-                                 agent_name: "TestAgent",
-                                 tool_calls: [
-                                   {
-                                     id: "call_456",
-                                     name: "test_tool",
-                                     arguments: { foo: "bar" }
-                                   }
-                                 ]
-                               }
-                             ])
-      end
-    end
-
-    context "when assistant messages have per-message agent attribution" do
-      let(:triage_message) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: "I'll route this.",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:specialist_message) do
-        instance_double(RubyLLM::Message,
-                        role: :assistant,
-                        content: "I can help with your invoice.",
-                        tool_call?: false,
-                        tool_calls: nil)
-      end
-
-      let(:chat) { instance_double(RubyLLM::Chat, messages: [triage_message, specialist_message]) }
-
-      before do
-        described_class.assign_agent_name(triage_message, "Triage")
-        described_class.assign_agent_name(specialist_message, "Billing")
-      end
-
-      it "uses stored per-message attribution instead of the current agent" do
-        result = described_class.extract_messages(chat, current_agent)
-
-        expect(result).to eq([
-                               {
-                                 role: :assistant,
-                                 content: "I'll route this.",
-                                 agent_name: "Triage"
-                               },
-                               {
-                                 role: :assistant,
-                                 content: "I can help with your invoice.",
-                                 agent_name: "Billing"
-                               }
-                             ])
-      end
-    end
+    expect(restored.to_h).to eq(message.to_h)
+    expect(described_class.attributed_agent_name_for(restored)).to eq("Support")
   end
 
-  describe ".content_empty?" do
-    it "returns true for empty string" do
-      expect(described_class.content_empty?("")).to be true
-    end
+  it "preserves attachment-only messages" do
+    message = RubyLLM::Message.new(role: :user, content: nil,
+                                  attachments: ["https://example.com/image.png"])
 
-    it "returns true for whitespace-only string" do
-      expect(described_class.content_empty?("   \n\t  ")).to be true
-    end
-
-    it "returns false for non-empty string" do
-      expect(described_class.content_empty?("Hello")).to be false
-    end
-
-    it "returns true for empty hash" do
-      expect(described_class.content_empty?({})).to be true
-    end
-
-    it "returns false for non-empty hash" do
-      expect(described_class.content_empty?({ "key" => "value" })).to be false
-    end
-
-    it "returns true for nil" do
-      expect(described_class.content_empty?(nil)).to be true
-    end
-
-    it "returns false for other non-string, non-hash values" do
-      expect(described_class.content_empty?(false)).to be false
-      expect(described_class.content_empty?(0)).to be false
-      expect(described_class.content_empty?([])).to be false
-    end
+    expect(round_trip(message).attachments.first.to_h).to eq(message.attachments.first.to_h)
   end
 
+  it "preserves tool-call IDs and provider signatures without symbolizing payloads" do
+    message = RubyLLM::Message.new(
+      role: :assistant, content: nil,
+      tool_calls: { "call_1" => { name: "lookup", arguments: { "id" => 1 }, thought_signature: "signed" } }
+    )
+
+    restored = round_trip(message)
+
+    expect(restored.tool_calls.keys).to eq(["call_1"])
+    expect(restored.tool_calls["call_1"].to_h).to eq(message.tool_calls["call_1"].to_h)
+  end
+
+  it "preserves empty tool results" do
+    message = RubyLLM::Message.new(role: :tool, content: nil, tool_call_id: "call_1")
+
+    expect(round_trip(message).to_h).to eq(message.to_h)
+  end
+
+  it "keeps per-message author attribution across handoffs" do
+    message = RubyLLM::Message.new(role: :assistant, content: "Routing")
+    described_class.assign_agent_name(message, "Triage")
+
+    expect(described_class.attributed_agent_name_for(round_trip(message))).to eq("Triage")
+  end
+
+  it "omits system instructions because the active agent supplies them" do
+    message = RubyLLM::Message.new(role: :system, content: "Old instructions")
+    chat = instance_double(RubyLLM::Chat, messages: [message])
+
+    expect(described_class.extract_messages(chat, agent)).to be_empty
+  end
+
+  it "accepts legacy array-shaped tool calls" do
+    message = described_class.restore_message(
+      "role" => "assistant", "content" => nil, "agent_name" => "Triage",
+      "tool_calls" => [{ "id" => "call_1", "name" => "lookup", "arguments" => { "id" => 1 } }]
+    )
+
+    expect(message.tool_calls["call_1"].arguments).to eq("id" => 1)
+    expect(described_class.attributed_agent_name_for(message)).to eq("Triage")
+  end
+
+  it "converts legacy structured content to JSON text" do
+    message = described_class.restore_message(role: :assistant, content: { answer: 42 })
+
+    expect(message.parsed).to eq("answer" => 42)
+  end
+
+  it "converts legacy multimodal content to separate attachments" do
+    message = described_class.restore_message(
+      role: :user, content: [
+        { type: "text", text: "Describe this" },
+        { type: "image_url", image_url: { url: "https://example.com/image.png" } }
+      ]
+    )
+
+    expect(message.content).to eq("Describe this")
+    expect(message.attachments.size).to eq(1)
+  end
+
+  it "ignores absent attribution" do
+    message = RubyLLM::Message.new(role: :assistant, content: "Hello")
+    described_class.assign_agent_name(message, nil)
+
+    expect(described_class.attributed_agent_name_for(message)).to be_nil
+    expect { described_class.assign_agent_name(nil, "Support") }.not_to raise_error
+  end
 end

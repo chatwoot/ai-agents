@@ -496,7 +496,7 @@ RSpec.describe Agents::Runner do
             msg[:role] == :assistant && msg[:tool_calls]&.any?
           end
           expect(assistant_with_tools).not_to be_nil
-          expect(assistant_with_tools[:tool_calls].first[:id]).to eq("call_123")
+          expect(assistant_with_tools[:tool_calls]["call_123"][:id]).to eq("call_123")
         end
       end
 
@@ -563,7 +563,7 @@ RSpec.describe Agents::Runner do
           tool_messages = result.messages.select { |msg| msg[:role] == :tool }
           expect(tool_messages).to be_empty
           expect(Agents.logger).to have_received(:warn)
-            .with("Skipping tool message without tool_call_id in conversation history")
+            .with("Skipping tool message without matching assistant tool_call_id ")
         end
       end
 
@@ -632,7 +632,7 @@ RSpec.describe Agents::Runner do
 
           expect(assistant_with_tools).not_to be_nil
           expect(assistant_with_tools[:content]).to eq("")
-          expect(assistant_with_tools[:tool_calls].first[:id]).to eq("call_blank")
+          expect(assistant_with_tools[:tool_calls]["call_blank"][:id]).to eq("call_blank")
         end
       end
 
@@ -717,7 +717,7 @@ RSpec.describe Agents::Runner do
 
           expect(result.success?).to be true
           assistant_msg = result.messages.find { |msg| msg[:role] == :assistant }
-          expect(assistant_msg[:tool_calls]).to be_nil
+          expect(assistant_msg[:tool_calls]).to be_empty
 
           tool_messages = result.messages.select { |msg| msg[:role] == :tool }
           expect(tool_messages).to be_empty

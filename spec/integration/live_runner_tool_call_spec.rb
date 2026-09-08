@@ -70,7 +70,7 @@ RSpec.describe "Live LLM tool call", :live_llm do
 
     expect(result.error).to be_nil
     assistant_with_tools = result.messages.find do |msg|
-      msg[:role] == :assistant && msg[:tool_calls]&.any? && msg[:tool_calls].first[:id] == "call_1"
+      msg[:role] == :assistant && msg[:tool_calls]&.key?("call_1")
     end
     expect(assistant_with_tools).not_to be_nil
 

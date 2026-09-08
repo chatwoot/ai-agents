@@ -113,9 +113,10 @@ module Agents
         break if chat.awaiting_approval?
 
         if (handoff = context_wrapper.context.delete(:pending_handoff))
-          next_agent = registry[handoff[:target_agent]]
+          target_name = handoff[:target_agent] || handoff["target_agent"]
+          next_agent = registry[target_name]
           unless next_agent
-            raise AgentNotFoundError, "Handoff failed: Agent '#{handoff[:target_agent]}' not found in registry"
+            raise AgentNotFoundError, "Handoff failed: Agent '#{target_name}' not found in registry"
           end
 
           context_wrapper.context[:conversation_history] =
@@ -188,6 +189,7 @@ module Agents
     # @param context [Hash] The context to copy
     # @return [Hash] Thread-safe deep copy of the context
     def deep_copy_context(context)
+      context = context.transform_keys(&:to_sym)
       # Handle deep copying for thread safety
       context.dup.tap do |copied|
         copied[:conversation_history] = context[:conversation_history]&.map(&:dup) || []
@@ -197,116 +199,19 @@ module Agents
       end
     end
 
-    # Restores conversation history from context into RubyLLM chat.
-    # Converts stored message hashes back into RubyLLM::Message objects with proper content handling.
-    # Supports user, assistant, and tool role messages for complete conversation continuity.
-    #
-    # @param chat [RubyLLM::Chat] The chat instance to restore history into
-    # @param context_wrapper [RunContext] Context containing conversation history
     def restore_conversation_history(chat, context_wrapper)
-      history = context_wrapper.context[:conversation_history] || []
       valid_tool_call_ids = Set.new
+      context_wrapper.context[:conversation_history].each do |attributes|
+        next if (attributes[:role] || attributes["role"]).to_s == "system"
 
-      history.each do |msg|
-        next unless restorable_message?(msg)
-
-        if msg[:role].to_sym == :tool &&
-           msg[:tool_call_id] &&
-           !valid_tool_call_ids.include?(msg[:tool_call_id])
-          Agents.logger&.warn("Skipping tool message without matching assistant tool_call_id #{msg[:tool_call_id]}")
+        message = Helpers::MessageExtractor.restore_message(attributes)
+        if message.role == :tool && !valid_tool_call_ids.include?(message.tool_call_id)
+          Agents.logger&.warn("Skipping tool message without matching assistant tool_call_id #{message.tool_call_id}")
           next
         end
 
-        message_params = build_message_params(msg)
-        next unless message_params # Skip invalid messages
-
-        message = RubyLLM::Message.new(**message_params)
-        assign_restored_agent_name(message, msg)
         chat.add_message(message)
-
-        if message.role == :assistant && message_params[:tool_calls]
-          valid_tool_call_ids.merge(message_params[:tool_calls].keys)
-        end
-      end
-    end
-
-    # Check if a message should be restored
-    def restorable_message?(msg)
-      role = msg[:role].to_sym
-      return false unless %i[user assistant tool].include?(role)
-
-      # Allow assistant messages that only contain tool calls (no text content)
-      tool_calls_present = role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
-      return false if role != :tool && !tool_calls_present &&
-                      Helpers::MessageExtractor.content_empty?(msg[:content])
-
-      true
-    end
-
-    # Build message parameters for restoration
-    def build_message_params(msg)
-      role = msg[:role].to_sym
-
-      content_value = msg[:content]
-      # Assistant tool-call messages may have empty text, but still need placeholder content
-      content_value = "" if content_value.nil? && role == :assistant && msg[:tool_calls]&.any?
-
-      params = {
-        role: role,
-        **build_content(content_value)
-      }
-
-      # Handle tool-specific parameters (Tool Results)
-      if role == :tool
-        return nil unless valid_tool_message?(msg)
-
-        params[:tool_call_id] = msg[:tool_call_id]
-      end
-
-      # FIX: Restore tool_calls on assistant messages
-      # This is required by OpenAI/Anthropic API contracts to link
-      # subsequent tool result messages back to this request.
-      if role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
-        # Convert stored array of hashes back into the Hash format RubyLLM expects
-        # RubyLLM stores tool_calls as: { call_id => ToolCall_object, ... }
-        # Reference: openai/tools.rb:35 uses hash iteration |_, tc|
-        params[:tool_calls] = msg[:tool_calls].each_with_object({}) do |tc, hash|
-          tool_call_id = tc[:id] || tc["id"]
-          next unless tool_call_id
-
-          hash[tool_call_id] = RubyLLM::ToolCall.new(
-            id: tool_call_id,
-            name: tc[:name] || tc["name"],
-            arguments: tc[:arguments] || tc["arguments"] || {}
-          )
-        end
-      end
-
-      params
-    end
-
-    # Convert legacy multimodal content to v2's separate content and attachments.
-    # Multimodal arrays follow the OpenAI content format: [{type: 'text', text: '...'}, {type: 'image_url', ...}]
-    def build_content(content_value)
-      return { content: content_value.to_json } if content_value.is_a?(Hash)
-      return { content: content_value } unless content_value.is_a?(Array)
-
-      parts = content_value.map { |part| part.transform_keys(&:to_sym) }
-      text = parts.filter_map { |part| part[:text] if part[:type] == "text" }.join(" ")
-      attachments = parts.filter_map do |part|
-        image = part[:image_url]
-        image[:url] || image["url"] if part[:type] == "image_url" && image
-      end
-      { content: text, attachments: attachments }
-    end
-
-    # Validate tool message has required tool_call_id
-    def valid_tool_message?(msg)
-      if msg[:tool_call_id]
-        true
-      else
-        Agents.logger&.warn("Skipping tool message without tool_call_id in conversation history")
-        false
+        valid_tool_call_ids.merge(message.tool_calls.keys) if message.tool_call?
       end
     end
 
@@ -325,13 +230,6 @@ module Agents
       context_wrapper.context[:current_agent] = current_agent.name
       context_wrapper.context[:turn_count] = (context_wrapper.context[:turn_count] || 0) + 1
       context_wrapper.context[:last_updated] = Time.now
-    end
-
-    def assign_restored_agent_name(message, msg)
-      return unless message.role == :assistant
-
-      restored_agent_name = msg[:agent_name] || msg["agent_name"]
-      Helpers::MessageExtractor.assign_agent_name(message, restored_agent_name)
     end
 
     # Configures a RubyLLM chat instance with agent-specific settings.

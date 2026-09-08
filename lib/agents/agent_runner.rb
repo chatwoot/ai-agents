@@ -69,6 +69,7 @@ module Agents
     # @param params [Hash, nil] Provider-specific parameters to pass through to the underlying LLM (e.g., service_tier)
     # @return [RunResult] Execution result with output, messages, and updated context
     def run(input, context: {}, max_turns: Runner::DEFAULT_MAX_TURNS, headers: nil, params: nil)
+      context = context.transform_keys(&:to_sym)
       # Determine which agent should handle this conversation
       # Uses conversation history to maintain continuity across handoffs
       current_agent = determine_conversation_agent(context)
@@ -218,6 +219,9 @@ module Agents
     # @param context [Hash] Conversation context with potential history
     # @return [Agents::Agent] Agent that should handle this conversation turn
     def determine_conversation_agent(context)
+      active_agent = @registry[context[:current_agent] || context["current_agent"]]
+      return active_agent if active_agent
+
       history = context[:conversation_history] || []
 
       # For new conversations, use the default (first) agent
@@ -226,8 +230,9 @@ module Agents
       # Find the last assistant message with agent attribution
       # We traverse in reverse to find the most recent agent that spoke
       last_agent_name = history.reverse.find do |msg|
-        msg[:role] == :assistant && msg[:agent_name]
-      end&.dig(:agent_name)
+        (msg[:role] || msg["role"]).to_s == "assistant" && (msg[:agent_name] || msg["agent_name"])
+      end
+      last_agent_name = last_agent_name && (last_agent_name[:agent_name] || last_agent_name["agent_name"])
 
       # Try to resolve from registry, fall back to default if agent not found
       # This handles cases where agent names in history don't match current registry

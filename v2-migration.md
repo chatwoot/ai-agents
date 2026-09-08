@@ -82,6 +82,13 @@ Implementation progress:
   Agent tools report unsupported nested approvals explicitly.
 - The offline suite passes against rc1. Existing OpenAI fixtures explicitly select
   Chat Completions; production configuration retains RubyLLM's Responses default.
+- History now uses native `Message#to_h`, retaining provider fields and adding only
+  agent attribution. Legacy array-shaped tool calls, structured content, and image
+  content blocks are normalized on import. JSON context round trips are supported.
+  Emitted `result.messages` tool calls are now an ID-keyed Hash, not an Array.
+  Durable attachment history requires durable URL/path sources; IO and ActiveStorage
+  objects still need application-managed persistence. Approval decisions are not
+  part of message serialization.
 
 1. **V2 execution compatibility:** stepping, handoffs, tool contracts, structured results, and explicit configuration switching.
 2. **Remove duplicated infrastructure:** native accounting, event-based tracing, message serialization, and provider configuration.

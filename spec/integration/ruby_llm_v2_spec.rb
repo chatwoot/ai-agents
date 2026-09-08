@@ -116,4 +116,29 @@ RSpec.describe Agents::Runner do
     expect(snapshots).to eq([["Specialist", %i[user assistant tool]]])
     expect(result.context[:turn_count]).to eq(1)
   end
+
+  it "continues the active agent after a JSON context round trip" do
+    stub_chat_sequence({ tool_calls: [{ name: "handoff_to_specialist", arguments: {} }] }, "Done", "Still helping")
+    runner = described_class.with_agents(triage, specialist)
+    first = runner.run("Help")
+
+    result = runner.run("More help", context: JSON.parse(first.context.to_json))
+
+    expect(result.error).to be_nil
+    expect(result.context[:current_agent]).to eq("Specialist")
+    expect(result.output).to eq("Still helping")
+    expect(result.chat.messages.count { |message| message.role == :user }).to eq(2)
+  end
+
+  it "resumes the selected agent when the model budget ended immediately after a handoff" do
+    stub_chat_sequence({ tool_calls: [{ name: "handoff_to_specialist", arguments: {} }] }, "Done")
+    runner = described_class.with_agents(triage, specialist)
+    paused = runner.run("Help", max_turns: 1)
+
+    result = runner.run(nil, context: paused.context)
+
+    expect(result.error).to be_nil
+    expect(result.context[:current_agent]).to eq("Specialist")
+    expect(result.output).to eq("Done")
+  end
 end
