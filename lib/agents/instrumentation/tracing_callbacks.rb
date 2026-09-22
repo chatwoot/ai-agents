@@ -77,14 +77,17 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      def on_chat_created(chat, agent_name, model, context_wrapper, temperature = nil)
+      def on_chat_created(chat, _agent_name, model, context_wrapper, temperature = nil)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        request_attributes = { model: model, temperature: temperature }
+        tracing[:request_attributes] = { model: model, temperature: temperature }
+        return if tracing[:instrumented_chat].equal?(chat)
 
-        chat.on_end_message do |message|
-          handle_end_message(chat, agent_name, request_attributes, message, context_wrapper)
+        tracing[:instrumented_chat] = chat
+
+        chat.after_message do |message|
+          handle_end_message(chat, message, context_wrapper)
         end
       end
 
@@ -109,7 +112,7 @@ module Agents
         tracing[:current_tool_span] = tool_span
       end
 
-      def on_tool_complete(_tool_name, result, context_wrapper)
+      def on_tool_complete(_tool_name, result, context_wrapper, error = nil)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
@@ -117,6 +120,10 @@ module Agents
         return unless tool_span
 
         tool_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, serialize_output(result))
+        if error
+          tool_span.record_exception(error)
+          tool_span.status = OpenTelemetry::Trace::Status.error(error.message)
+        end
         tool_span.finish
         tracing[:current_tool_span] = nil
       end
@@ -153,7 +160,7 @@ module Agents
 
       private
 
-      def handle_end_message(chat, _agent_name, request_attributes, message, context_wrapper)
+      def handle_end_message(chat, message, context_wrapper)
         return unless message.respond_to?(:role) && message.role == :assistant
 
         tracing = tracing_state(context_wrapper)
@@ -165,7 +172,7 @@ module Agents
           attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
         )
 
-        set_llm_request_attributes(llm_span, request_attributes)
+        set_llm_request_attributes(llm_span, tracing[:request_attributes])
 
         output = llm_output_text(message)
         set_llm_response_attributes(llm_span, message, output)
@@ -219,11 +226,11 @@ module Agents
       end
 
       def set_llm_response_attributes(span, response, output)
-        if response.respond_to?(:input_tokens) && response.input_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.input_tokens)
+        if response.respond_to?(:tokens) && response.tokens.input
+          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.tokens.input)
         end
-        if response.respond_to?(:output_tokens) && response.output_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.output_tokens)
+        if response.respond_to?(:tokens) && response.tokens.output
+          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.tokens.output)
         end
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
       end

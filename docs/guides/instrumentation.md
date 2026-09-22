@@ -20,6 +20,20 @@ The `Agents::Instrumentation` module produces OTel spans that give you full visi
 
 Spans follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) and include Langfuse-specific attributes for rich rendering in the Langfuse dashboard.
 
+### RubyLLM 2.0 events and Langfuse
+
+RubyLLM 2.0 emits `chat.ruby_llm`, `tool_call.ruby_llm`, and `usage.ruby_llm` events. In Rails, these use `ActiveSupport::Notifications`. Outside Rails, configure a RubyLLM instrumenter to receive them. The events are useful for logging and per-attempt usage, but RubyLLM does not turn them into this runner's Langfuse trace. Keep `Agents::Instrumentation` when you need the following mapping:
+
+| Runner span or event | Data in Langfuse | RubyLLM event alone |
+|----------------------|------------------|---------------------|
+| Root span | Overall input and output, session, user, tags, and Chatwoot metadata | No runner-level input, output, or Chatwoot context |
+| Agent span | Agent name and the generations and tools it owns | No agent handoff boundary |
+| Generation span | Request messages, response, model, temperature, and response tokens | `chat.ruby_llm` has the model and response, but needs an OTLP and Langfuse attribute adapter |
+| Tool span | Tool arguments, result, and error status | `tool_call.ruby_llm` has the call, but needs the same adapter |
+| Handoff event | Source agent, target agent, and reason | No RubyLLM handoff event for this runner |
+
+RubyLLM's `usage.ruby_llm` event reports each provider attempt, including failed and cancelled attempts. The generation spans here use tokens from completed messages. Use a separate `usage.ruby_llm` subscriber for attempt-level accounting; do not add its tokens to the same generation spans or costs may be counted twice. See the [RubyLLM instrumentation guide](https://rubyllm.com/instrumentation/) for event payloads.
+
 ## Setup
 
 ### 1. Install dependencies
@@ -144,7 +158,7 @@ OpenTelemetry::SDK.configure do |c|
     OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(
       OpenTelemetry::Exporter::OTLP::Exporter.new(
         endpoint: "#{langfuse_host}/api/public/otel/v1/traces",
-        headers: { "Authorization" => "Basic #{auth_token}" }
+        headers: { "Authorization" => "Basic #{auth_token}", "x-langfuse-ingestion-version" => "4" }
       )
     )
   )
@@ -157,8 +171,8 @@ The instrumentation sets Langfuse-specific attributes that map to the Langfuse U
 
 | Attribute | Set On | Langfuse Display |
 |-----------|--------|-----------------|
-| `langfuse.trace.input` | Root span | Trace input (top of page) |
-| `langfuse.trace.output` | Root span | Trace output (top of page) |
+| `langfuse.trace.input` | Root span | Legacy trace input for existing evaluators |
+| `langfuse.trace.output` | Root span | Legacy trace output for existing evaluators |
 | `langfuse.observation.input` | All spans | Observation input (sidebar click) |
 | `langfuse.observation.output` | All spans | Observation output (sidebar click) |
 | `langfuse.observation.type` | Tool spans | `"tool"` type indicator |
@@ -168,6 +182,8 @@ The instrumentation sets Langfuse-specific attributes that map to the Langfuse U
 | `gen_ai.request.model` | Generation spans only | Model name + cost calculation |
 | `gen_ai.usage.input_tokens` | Generation spans | Token usage |
 | `gen_ai.usage.output_tokens` | Generation spans | Token usage |
+
+Langfuse v4 reads overall input and output from `langfuse.observation.input` and `langfuse.observation.output` on the root span. This integration also keeps the deprecated trace input and output attributes for existing consumers. The Langfuse v4 ingestion path needs the `x-langfuse-ingestion-version: 4` exporter header. See the [Langfuse migration guide](https://langfuse.com/integrations/native/opentelemetry/migration-to-v4).
 
 ### EU vs US Cloud
 
@@ -202,7 +218,7 @@ OpenTelemetry::SDK.configure do |c|
     OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(
       OpenTelemetry::Exporter::OTLP::Exporter.new(
         endpoint: "#{langfuse_host}/api/public/otel/v1/traces",
-        headers: { "Authorization" => "Basic #{auth_token}" }
+        headers: { "Authorization" => "Basic #{auth_token}", "x-langfuse-ingestion-version" => "4" }
       )
     )
   )
@@ -251,7 +267,7 @@ Langfuse renders empty string attributes as "undefined". The instrumentation gua
 
 ### Double-counted costs
 
-If token costs appear inflated, verify that `gen_ai.request.model` is only set on GENERATION spans, not on container or root spans. The built-in instrumentation handles this correctly. If you set custom `span_attributes` that include `gen_ai.request.model`, costs will be double-counted.
+If token costs appear inflated, verify that `gen_ai.request.model` is only set on GENERATION spans, not on container or root spans. `Agents::Instrumentation` handles this by default. If you set custom `span_attributes` that include `gen_ai.request.model`, costs will be double-counted.
 
 ### Empty spans / missing data
 

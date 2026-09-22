@@ -301,7 +301,7 @@ The tool system is fully extensible:
 class CustomTool < Agents::Tool
   name "custom_action"
   description "Perform custom business logic"
-  param :input, type: "string"
+  parameter :input, type: "string"
 
   def perform(tool_context, input:)
     # Access context for state

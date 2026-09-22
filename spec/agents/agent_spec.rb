@@ -288,18 +288,18 @@ RSpec.describe Agents::Agent do
     end
 
     it "preserves params when cloning" do
-      agent_with_params = described_class.new(name: "Test", params: { service_tier: "default" })
-      cloned = agent_with_params.clone(name: "Cloned")
+      agent_with_provider_options = described_class.new(name: "Test", params: { service_tier: "default" })
+      cloned = agent_with_provider_options.clone(name: "Cloned")
 
       expect(cloned.params).to eq(service_tier: "default")
     end
 
     it "allows overriding params when cloning" do
-      agent_with_params = described_class.new(name: "Test", params: { service_tier: "default" })
-      cloned = agent_with_params.clone(params: { service_tier: "flex" })
+      agent_with_provider_options = described_class.new(name: "Test", params: { service_tier: "default" })
+      cloned = agent_with_provider_options.clone(params: { service_tier: "flex" })
 
       expect(cloned.params).to eq(service_tier: "flex")
-      expect(agent_with_params.params).to eq(service_tier: "default")
+      expect(agent_with_provider_options.params).to eq(service_tier: "default")
     end
 
     it "allows overriding provider and assume_model_exists when cloning" do

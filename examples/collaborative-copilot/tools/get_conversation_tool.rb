@@ -6,7 +6,7 @@ module Copilot
   # Tool for retrieving conversation details and context
   class GetConversationTool < Agents::Tool
     description "Get conversation details, messages, and context for analysis"
-    param :conversation_id, type: "string", desc: "ID of the conversation to retrieve"
+    parameter :conversation_id, type: "string", description: "ID of the conversation to retrieve"
 
     def perform(tool_context, conversation_id:)
       data_file = File.join(__dir__, "../data/conversations.json")

@@ -104,8 +104,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       RubyLLM::Message,
       role: :assistant,
       content: nil,
-      input_tokens: 100,
-      output_tokens: 20,
+      tokens: RubyLLM::Tokens.new(input: 100, output: 20),
       tool_call?: true,
       tool_calls: {
         "c1" => instance_double(RubyLLM::ToolCall, name: "faq_lookup", arguments: { query: "refund" })
@@ -120,7 +119,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       [system_message, user_message, tool_call_msg, tool_result_msg, assistant_message]
     end
-    allow(chat).to receive(:on_end_message).and_yield(tool_call_msg).and_yield(assistant_message)
+    allow(chat).to receive(:after_message).and_yield(tool_call_msg).and_yield(assistant_message)
   end
 
   def capture_generation_span_attributes
@@ -217,10 +216,10 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         chat = instance_double(RubyLLM::Chat)
         user_msg = instance_double(RubyLLM::Message, role: :user, content: "Hi")
         assistant_msg = instance_double(RubyLLM::Message,
-                                        role: :assistant, input_tokens: 10, output_tokens: 5,
+                                        role: :assistant, tokens: RubyLLM::Tokens.new(input: 10, output: 5),
                                         content: "Hello", tool_call?: false, tool_calls: {})
         allow(chat).to receive(:messages).and_return([user_msg, assistant_msg])
-        allow(chat).to receive(:on_end_message).and_yield(assistant_msg)
+        allow(chat).to receive(:after_message).and_yield(assistant_msg)
         allow(tracer).to receive(:start_span).and_return(llm_span)
 
         custom_callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
@@ -437,13 +436,13 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     it "backfills observation output on agent span from last LLM response" do
       chat = instance_double(RubyLLM::Chat)
       assistant_msg = instance_double(RubyLLM::Message,
-                                      role: :assistant, input_tokens: 10, output_tokens: 5,
+                                      role: :assistant, tokens: RubyLLM::Tokens.new(input: 10, output: 5),
                                       content: "Here is your answer", tool_call?: false, tool_calls: {})
       allow(chat).to receive(:messages).and_return([
                                                      instance_double(RubyLLM::Message, role: :user, content: "Hi"),
                                                      assistant_msg
                                                    ])
-      allow(chat).to receive(:on_end_message).and_yield(assistant_msg)
+      allow(chat).to receive(:after_message).and_yield(assistant_msg)
       allow(tracer).to receive(:start_span).and_return(llm_span)
 
       callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
@@ -474,8 +473,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_run_start("TestAgent", "Hello", context_wrapper)
 
       response = instance_double(RubyLLM::Message,
-                                 input_tokens: 150,
-                                 output_tokens: 50,
+                                 tokens: RubyLLM::Tokens.new(input: 150, output: 50),
                                  content: "I can help with that")
 
       # Should not interact with any span
@@ -493,8 +491,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     let(:assistant_message) do
       instance_double(RubyLLM::Message,
                       role: :assistant,
-                      input_tokens: 150,
-                      output_tokens: 50,
+                      tokens: RubyLLM::Tokens.new(input: 150, output: 50),
                       content: "I can help with that",
                       tool_call?: false,
                       tool_calls: {})
@@ -506,15 +503,30 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_agent_thinking("TestAgent", "What is your refund policy?", context_wrapper)
       # Chat messages: everything up to and including the current response
       allow(chat).to receive(:messages).and_return([system_message, user_message, assistant_message])
-      allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+      allow(chat).to receive(:after_message).and_yield(assistant_message)
     end
 
-    it "registers an on_end_message hook on the chat" do
+    it "registers an after_message hook on the chat" do
       allow(tracer).to receive(:start_span).and_return(llm_span)
 
       callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
-      expect(chat).to have_received(:on_end_message)
+      expect(chat).to have_received(:after_message)
+    end
+
+    it "registers one hook and uses the new model after a handoff" do
+      handlers = []
+      allow(chat).to receive(:after_message) { |&handler| handlers << handler }
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper, 0.2)
+      callbacks.on_chat_created(chat, "NextAgent", "gpt-4.1", context_wrapper, 0.4)
+      handlers.first.call(assistant_message)
+
+      expect(handlers.size).to eq(1)
+      expect(tracer).to have_received(:start_span).with("agents.run.generation", anything).once
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.model", "gpt-4.1")
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.temperature", 0.4)
     end
 
     it "parents LLM spans under agent context" do
@@ -673,8 +685,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       let(:tool_call_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
-                        input_tokens: 100,
-                        output_tokens: 20,
+                        tokens: RubyLLM::Tokens.new(input: 100, output: 20),
                         content: nil,
                         tool_call?: true,
                         tool_calls: { "call_123" => tool_call })
@@ -682,7 +693,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       before do
         allow(chat).to receive(:messages).and_return([system_message, user_message, tool_call_message])
-        allow(chat).to receive(:on_end_message).and_yield(tool_call_message)
+        allow(chat).to receive(:after_message).and_yield(tool_call_message)
       end
 
       it "formats tool calls as output when content is nil" do
@@ -701,8 +712,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       let(:empty_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
-                        input_tokens: 100,
-                        output_tokens: 0,
+                        tokens: RubyLLM::Tokens.new(input: 100, output: 0),
                         content: nil,
                         tool_call?: false,
                         tool_calls: {})
@@ -710,7 +720,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
       before do
         allow(chat).to receive(:messages).and_return([system_message, user_message, empty_message])
-        allow(chat).to receive(:on_end_message).and_yield(empty_message)
+        allow(chat).to receive(:after_message).and_yield(empty_message)
       end
 
       it "does not set observation output when output text is empty" do
@@ -728,7 +738,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       end
 
       before do
-        allow(chat).to receive(:on_end_message).and_yield(tool_message)
+        allow(chat).to receive(:after_message).and_yield(tool_message)
       end
 
       it "does not create LLM spans for tool messages" do
@@ -741,7 +751,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
 
     context "without model" do
       it "skips setting model attribute when model is nil" do
-        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(chat).to receive(:after_message).and_yield(assistant_message)
         allow(tracer).to receive(:start_span).and_return(llm_span)
 
         callbacks.on_chat_created(chat, "TestAgent", nil, context_wrapper)
@@ -750,7 +760,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       end
 
       it "skips setting temperature attribute when temperature is nil" do
-        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(chat).to receive(:after_message).and_yield(assistant_message)
         allow(tracer).to receive(:start_span).and_return(llm_span)
 
         callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
@@ -762,11 +772,11 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
     context "without prior run_start" do
       it "does not register hook when no tracing state exists" do
         fresh_context = instance_double(Agents::RunContext, context: {})
-        allow(chat).to receive(:on_end_message)
+        allow(chat).to receive(:after_message)
 
         callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
 
-        expect(chat).not_to have_received(:on_end_message)
+        expect(chat).not_to have_received(:after_message)
       end
     end
 
@@ -774,9 +784,9 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       it "serializes Hash content as JSON in chat message input" do
         hash_msg = instance_double(RubyLLM::Message, role: :assistant, content: { key: "value" },
                                                      tool_call?: false, tool_calls: {},
-                                                     input_tokens: 10, output_tokens: 5)
+                                                     tokens: RubyLLM::Tokens.new(input: 10, output: 5))
         allow(chat).to receive(:messages).and_return([user_message, hash_msg, assistant_message])
-        allow(chat).to receive(:on_end_message).and_yield(assistant_message)
+        allow(chat).to receive(:after_message).and_yield(assistant_message)
         allow(tracer).to receive(:start_span).and_return(llm_span)
 
         callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
@@ -883,6 +893,17 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_tool_complete("lookup_user", "User found: John", context_wrapper)
 
       expect(tool_span).to have_received(:set_attribute).with("langfuse.observation.output", "User found: John")
+    end
+
+    it "marks failed tool spans with the exception" do
+      error = StandardError.new("Network timeout")
+      allow(tool_span).to receive(:record_exception)
+      allow(tool_span).to receive(:status=)
+
+      callbacks.on_tool_complete("lookup_user", "ERROR: Network timeout", context_wrapper, error)
+
+      expect(tool_span).to have_received(:record_exception).with(error)
+      expect(tool_span).to have_received(:status=).with(an_instance_of(OpenTelemetry::Trace::Status))
     end
 
     it "finishes the tool span" do
