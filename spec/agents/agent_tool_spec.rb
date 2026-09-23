@@ -242,8 +242,7 @@ RSpec.describe Agents::AgentTool do
     end
 
     it "has the correct parameter definition" do
-      # This tests that the param class method worked correctly
-      parameters = agent_tool.class.instance_variable_get(:@parameters)
+      parameters = agent_tool.class.declared_parameters
       expect(parameters).to have_key(:input)
       expect(parameters[:input].name).to eq(:input)
       expect(parameters[:input].type).to eq("string")

@@ -6,10 +6,11 @@ module Copilot
   # Tool for searching Linear issues for development context and bug reports
   class SearchLinearIssuesTool < Agents::Tool
     description "Search Linear issues for bug reports, feature requests, and development context"
-    param :query, type: "string", desc: "Search terms (keywords, error messages, or feature descriptions)"
-    param :status, type: "string", desc: "Optional: filter by status (backlog, in_progress, completed, resolved)",
-                   required: false
-    param :priority, type: "string", desc: "Optional: filter by priority (low, medium, high)", required: false
+    parameter :query, type: "string", description: "Search issue keywords, errors, or feature descriptions"
+    parameter :status, type: "string", description: "Filter by status: backlog, in progress, completed, or resolved",
+                       required: false
+    parameter :priority, type: "string", description: "Filter by priority: low, medium, or high",
+                         required: false
 
     def perform(_tool_context, query:, status: nil, priority: nil)
       data_file = File.join(__dir__, "../data/linear_issues.json")

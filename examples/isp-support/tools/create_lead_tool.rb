@@ -4,9 +4,9 @@ module ISPSupport
   # Tool for creating sales leads in the CRM system.
   class CreateLeadTool < Agents::Tool
     description "Create a new sales lead with customer information"
-    param :name, type: "string", desc: "Customer's full name"
-    param :email, type: "string", desc: "Customer's email address"
-    param :desired_plan, type: "string", desc: "Plan the customer is interested in"
+    parameter :name, type: "string", description: "Customer's full name"
+    parameter :email, type: "string", description: "Customer's email address"
+    parameter :desired_plan, type: "string", description: "Plan the customer is interested in"
 
     def perform(tool_context, name:, email:, desired_plan:)
       # Store lead information in state for follow-up

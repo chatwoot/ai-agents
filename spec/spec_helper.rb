@@ -2,7 +2,8 @@
 
 require "simplecov"
 
-live_llm_requested = ENV["RUN_LIVE_LLM"] || ARGV.any? { |arg| arg.include?("live_llm") }
+live_llm_requested = ENV["RUN_LIVE_LLM"] || ENV["RUN_LANGFUSE_E2E"] ||
+                     ARGV.any? { |arg| arg.include?("live_llm") || arg.include?("langfuse_e2e") }
 
 SimpleCov.start do
   add_filter "/spec/"
@@ -25,6 +26,8 @@ end
 
 require_relative "../lib/agents"
 
+RubyLLM.configure { |config| config.openai_protocol = :chat_completions }
+
 # Load support files
 Dir[File.join(__dir__, "support", "**", "*.rb")].each { |f| require f }
 
@@ -35,9 +38,8 @@ RSpec.configure do |config|
 
   # Only run live LLM specs (tagged :live_llm) when explicitly enabled with credentials.
   # Prevents accidental real API calls in local/PR runs.
-  unless ENV["RUN_LIVE_LLM"] && ENV["OPENROUTER_API_KEY"]
-    config.filter_run_excluding :live_llm
-  end
+  config.filter_run_excluding :live_llm unless ENV["RUN_LIVE_LLM"] && ENV["OPENROUTER_API_KEY"]
+  config.filter_run_excluding :langfuse_e2e unless ENV["RUN_LANGFUSE_E2E"]
 
   # Even if someone force-includes the tag, guard at runtime to avoid config errors.
   config.before(:each, :live_llm) do

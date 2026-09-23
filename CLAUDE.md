@@ -256,7 +256,7 @@ The SDK includes optional OpenTelemetry instrumentation (`lib/agents/instrumenta
 
 6. **Don't use `.delete` for shared tracing state**: If a value in `context[:__otel_tracing]` needs to be read by multiple callbacks, use `tracing[:key]` not `tracing.delete(:key)`. Delete is a destructive side-effect that breaks subsequent reads.
 
-7. **Per-call LLM spans via `on_end_message`**: Individual GENERATION spans are created by hooking into RubyLLM's `chat.on_end_message` (registered in `on_chat_created`). Each span is created and immediately finished. There is no `current_llm_span` in tracing state — only `current_tool_span` needs single-slot tracking.
+7. **Per-call LLM spans via `after_message`**: Individual GENERATION spans are created by hooking into RubyLLM's `chat.after_message` (registered in `on_chat_created`). Each span is created and immediately finished. There is no `current_llm_span` in tracing state — only `current_tool_span` needs single-slot tracking.
 
 8. **Conversation history deduplication**: `Runner#last_message_matches?` checks if the last restored message already matches the current input. If so, uses `chat.complete` instead of `chat.ask(input)` to avoid sending the user message twice.
 

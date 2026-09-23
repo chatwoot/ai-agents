@@ -85,7 +85,7 @@ RSpec.describe Agents::Tool do
     context "when using parameter definition" do
       it "works with RubyLLM param syntax" do
         tool_class = Class.new(described_class) do
-          param :name, type: "string", desc: "User's name"
+          parameter :name, type: "string", description: "User's name"
 
           def perform(_tool_context, name:)
             "Hello #{name}"
@@ -100,9 +100,9 @@ RSpec.describe Agents::Tool do
 
       it "supports different parameter types" do
         tool_class = Class.new(described_class) do
-          param :text, type: "string", desc: "Text input"
-          param :count, type: "integer", desc: "Count value"
-          param :amount, type: "number", desc: "Amount value"
+          parameter :text, type: "string", description: "Text input"
+          parameter :count, type: "integer", description: "Count value"
+          parameter :amount, type: "number", description: "Amount value"
 
           def perform(_tool_context, text:, count:, amount:)
             "Text: #{text}, Count: #{count}, Amount: #{amount}"
@@ -121,8 +121,8 @@ RSpec.describe Agents::Tool do
 
       it "supports optional parameters" do
         tool_class = Class.new(described_class) do
-          param :required_param, type: "string", desc: "Required parameter"
-          param :optional_param, type: "string", desc: "Optional parameter", required: false
+          parameter :required_param, type: "string", description: "Required parameter"
+          parameter :optional_param, type: "string", description: "Optional parameter", required: false
 
           def perform(_tool_context, required_param:, optional_param: "default")
             "Required: #{required_param}, Optional: #{optional_param}"
