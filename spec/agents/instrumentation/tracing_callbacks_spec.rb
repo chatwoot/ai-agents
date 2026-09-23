@@ -705,6 +705,42 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.usage.output_tokens", 50)
     end
 
+    it "records reasoning tokens and a requested Responses summary without recording its signature" do
+      response = instance_double(RubyLLM::Message, role: :assistant, content: "Done", tool_calls: {},
+                                                   tokens: RubyLLM::Tokens.new(input: 12, output: 8, thinking: 3),
+                                                   thinking: RubyLLM::Thinking.build(text: "Checked the request.",
+                                                                                     signature: "opaque-reasoning"))
+      allow(chat).to receive(:messages).and_return([user_message, response])
+      allow(chat).to receive(:after_message).and_yield(response)
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper, nil, :responses,
+                                { display: :summarized })
+
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.usage.output_tokens", 8)
+      expect(llm_span).to have_received(:set_attribute).with("gen_ai.usage.reasoning.output_tokens", 3)
+      expect(llm_span).to have_received(:set_attribute).with(
+        "langfuse.observation.metadata.reasoning_summary", "Checked the request."
+      )
+      expect(llm_span).not_to have_received(:set_attribute).with(anything, "opaque-reasoning")
+    end
+
+    it "does not label non-Responses thinking text as a summary" do
+      response = instance_double(RubyLLM::Message, role: :assistant, content: "Done", tool_calls: {},
+                                                   tokens: RubyLLM::Tokens.new(input: 12, output: 8),
+                                                   thinking: RubyLLM::Thinking.build(text: "private thinking"))
+      allow(chat).to receive(:messages).and_return([user_message, response])
+      allow(chat).to receive(:after_message).and_yield(response)
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper, nil, :chat_completions,
+                                { display: :summarized })
+
+      expect(llm_span).not_to have_received(:set_attribute).with(
+        "langfuse.observation.metadata.reasoning_summary", anything
+      )
+    end
+
     it "sets observation output on the LLM span" do
       allow(tracer).to receive(:start_span).and_return(llm_span)
 

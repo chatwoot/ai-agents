@@ -109,6 +109,43 @@ RSpec.describe "Langfuse export", :langfuse_e2e do # rubocop:disable RSpec/Descr
     expect(events).to include("tool_call.ruby_llm", "usage.ruby_llm")
   end
 
+  it "stores a returned Responses reasoning summary without the encrypted signature" do
+    response = {
+      id: "resp_reasoning", status: "completed", model: "gpt-4o",
+      output: [
+        { type: "reasoning", summary: [{ type: "summary_text", text: "Checked the test request." }],
+          encrypted_content: "synthetic-encrypted-reasoning" },
+        { type: "message", role: "assistant", content: [{ type: "output_text", text: "Ready" }] }
+      ],
+      usage: { input_tokens: 12, output_tokens: 8, output_tokens_details: { reasoning_tokens: 3 } }
+    }
+    stub_request(:post, "https://api.openai.com/v1/responses")
+      .to_return(status: 200, body: response.to_json, headers: { "Content-Type" => "application/json" })
+    provider = OpenTelemetry::SDK::Trace::TracerProvider.new
+    provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter))
+    provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(otlp_exporter))
+    agent = Agents::Agent.new(
+      name: "Reasoning", model: "gpt-4o", protocol: :responses, temperature: nil,
+      thinking: { effort: :medium, display: :summarized }
+    )
+    runner = Agents::Runner.with_agents(agent)
+    instrument(runner, provider, "#{trace_name}.reasoning")
+
+    result = runner.run("Synthetic request", context: { session_id: session_id })
+    provider.force_flush
+    observations = wait_for_observations(exporter.finished_spans.first.hex_trace_id, expected: 3) do |stored|
+      stored.any? do |observation|
+        observation.dig("metadata", "reasoning_summary") == "Checked the test request."
+      end
+    end
+    generation = observations.find { |observation| observation["type"] == "GENERATION" }
+
+    expect(result.error).to be_nil
+    expect(generation.dig("metadata", "reasoning_summary")).to eq("Checked the test request.")
+    expect(generation.dig("usageDetails", "output_reasoning_tokens")).to eq(3)
+    expect(observations.to_json).not_to include("synthetic-encrypted-reasoning")
+  end
+
   def instrument(runner, provider, name)
     Agents::Instrumentation.install(
       runner, tracer: provider.tracer("langfuse-e2e"), trace_name: name,
@@ -146,7 +183,7 @@ RSpec.describe "Langfuse export", :langfuse_e2e do # rubocop:disable RSpec/Descr
 
   def observations_uri(trace_id)
     uri = URI("#{host}/api/public/v2/observations")
-    uri.query = URI.encode_www_form(traceId: trace_id, fields: "core,basic,io,usage,trace_context", limit: 20,
+    uri.query = URI.encode_www_form(traceId: trace_id, fields: "core,basic,io,metadata,usage,trace_context", limit: 20,
                                     fromStartTime: (Time.now.utc - 60).iso8601,
                                     toStartTime: (Time.now.utc + 60).iso8601)
     uri

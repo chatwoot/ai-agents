@@ -201,8 +201,12 @@ The instrumentation sets Langfuse-specific attributes that map to the Langfuse U
 | `gen_ai.request.model` | Generation spans only | Model name + cost calculation |
 | `gen_ai.usage.input_tokens` | Generation spans | Token usage |
 | `gen_ai.usage.output_tokens` | Generation spans | Token usage |
+| `gen_ai.usage.reasoning.output_tokens` | Generation spans, when reported | Reasoning tokens within output tokens |
+| `langfuse.observation.metadata.reasoning_summary` | Responses generation spans with `thinking: { display: :summarized }` | Returned summary, when provided |
 
 Langfuse v4 reads overall input and output from `langfuse.observation.input` and `langfuse.observation.output` on the root span. This integration also keeps the deprecated trace input and output attributes for existing consumers. The Langfuse v4 ingestion path needs the `x-langfuse-ingestion-version: 4` exporter header. See the [Langfuse migration guide](https://langfuse.com/integrations/native/opentelemetry/migration-to-v4).
+
+Reasoning tokens are already part of output tokens, so do not add the two counts. The summary field records only text returned for a requested Responses summary. Encrypted reasoning signatures stay in conversation history for stateless replay and are not added to Langfuse spans. Treat persisted conversation history as sensitive data.
 
 ### EU vs US Cloud
 

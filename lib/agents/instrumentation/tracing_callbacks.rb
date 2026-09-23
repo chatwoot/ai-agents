@@ -79,11 +79,12 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      def on_chat_created(chat, _agent_name, model, context_wrapper, temperature = nil)
+      def on_chat_created(chat, _agent_name, model, context_wrapper, temperature = nil, protocol = nil, thinking = nil)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        tracing[:request_attributes] = { model: model, temperature: temperature }
+        tracing[:request_attributes] = { model: model, temperature: temperature,
+                                         protocol: protocol, thinking: thinking }
         return if tracing[:instrumented_chat].equal?(chat)
 
         tracing[:instrumented_chat] = chat
@@ -178,7 +179,7 @@ module Agents
         set_llm_request_attributes(llm_span, tracing[:request_attributes])
 
         output = llm_output_text(message)
-        set_llm_response_attributes(llm_span, message, output)
+        set_llm_response_attributes(llm_span, message, output, tracing[:request_attributes])
         tracing[:last_agent_output] = output unless output.empty?
 
         llm_span.finish
@@ -228,14 +229,21 @@ module Agents
         root_span.status = OpenTelemetry::Trace::Status.error(error.message)
       end
 
-      def set_llm_response_attributes(span, response, output)
-        if response.respond_to?(:tokens) && response.tokens.input
-          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.tokens.input)
-        end
-        if response.respond_to?(:tokens) && response.tokens.output
-          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.tokens.output)
-        end
+      def set_llm_response_attributes(span, response, output, request_attributes)
+        tokens = response.tokens if response.respond_to?(:tokens)
+        span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, tokens.input) if tokens&.input
+        span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, tokens.output) if tokens&.output
+        span.set_attribute(ATTR_GEN_AI_USAGE_REASONING_OUTPUT, tokens.thinking) if tokens&.thinking
+        set_reasoning_summary(span, response, request_attributes)
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
+      end
+
+      def set_reasoning_summary(span, response, request_attributes)
+        return unless request_attributes[:protocol] == :responses
+        return unless request_attributes.dig(:thinking, :display).to_s == "summarized"
+        return unless response.respond_to?(:thinking) && response.thinking&.text
+
+        span.set_attribute(ATTR_LANGFUSE_REASONING_SUMMARY, response.thinking.text)
       end
 
       # Returns serialized text content if present, otherwise falls back to tool call formatting.

@@ -20,10 +20,12 @@ RSpec.describe Agents::Runner do
                     name: "TestAgent",
                     model: "gpt-4o",
                     provider: nil,
+                    protocol: nil,
                     assume_model_exists: false,
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
+                    thinking: nil,
                     response_schema: nil,
                     get_system_prompt: "You are a helpful assistant",
                     headers: {},
@@ -35,10 +37,12 @@ RSpec.describe Agents::Runner do
                     name: "HandoffAgent",
                     model: "gpt-4o",
                     provider: nil,
+                    protocol: nil,
                     assume_model_exists: false,
                     tools: [],
                     handoff_agents: [],
                     temperature: 0.7,
+                    thinking: nil,
                     response_schema: nil,
                     get_system_prompt: "You are a specialist",
                     headers: {},
@@ -104,10 +108,12 @@ RSpec.describe Agents::Runner do
           name: "AzureAgent",
           model: "deployment-name",
           provider: :azure,
+          protocol: nil,
           assume_model_exists: true,
           tools: [],
           handoff_agents: [],
           temperature: 0.7,
+          thinking: nil,
           response_schema: nil,
           get_system_prompt: "You are a helpful assistant",
           headers: {},
@@ -120,6 +126,7 @@ RSpec.describe Agents::Runner do
         expect(RubyLLM::Chat).to receive(:new).with(
           model: "deployment-name",
           provider: :azure,
+          protocol: nil,
           assume_model_exists: true
         ).and_return(mock_chat)
         allow(mock_chat).to receive(:add_message)
@@ -134,6 +141,71 @@ RSpec.describe Agents::Runner do
 
         expect(result.output).to eq("Hello from Azure")
       end
+    end
+
+    it "uses per-agent Responses thinking and replays encrypted reasoning on a later run" do
+      reasoning_agent = Agents::Agent.new(name: "Reasoning", model: "gpt-4o", protocol: :responses,
+                                          temperature: nil, thinking: { effort: :medium, display: :summarized })
+      payloads = []
+      response = {
+        id: "resp_test", status: "completed", model: "gpt-4o",
+        output: [
+          { type: "reasoning", summary: [{ type: "summary_text", text: "Checked the request." }],
+            encrypted_content: "opaque-reasoning" },
+          { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done" }] }
+        ],
+        usage: { input_tokens: 12, output_tokens: 8, output_tokens_details: { reasoning_tokens: 3 } }
+      }
+      stub_request(:post, "https://api.openai.com/v1/responses").to_return do |request|
+        payloads << JSON.parse(request.body)
+        { status: 200, body: response.to_json, headers: { "Content-Type" => "application/json" } }
+      end
+
+      first = runner.run(reasoning_agent, "First question")
+      restored_context = JSON.parse(first.context.to_json, symbolize_names: true)
+      second = runner.run(reasoning_agent, "Follow-up", context: restored_context)
+
+      expect(first.error).to be_nil
+      expect(second.error).to be_nil
+      expect(first.context[:conversation_history].last).to include(
+        thinking: "Checked the request.", thinking_signature: "opaque-reasoning"
+      )
+      expect(payloads.first).to include("reasoning" => { "effort" => "medium", "summary" => "auto" })
+      expect(payloads.first).not_to have_key("temperature")
+      reasoning_item = hash_including("type" => "reasoning", "encrypted_content" => "opaque-reasoning")
+      expect(payloads.last["input"]).to include(reasoning_item)
+    end
+
+    it "switches from Responses to Chat Completions at an agent handoff" do
+      specialist = Agents::Agent.new(name: "Specialist", model: "gpt-4o", protocol: :chat_completions)
+      triage = Agents::Agent.new(
+        name: "Triage", model: "gpt-4o", protocol: :responses, temperature: nil,
+        thinking: { effort: :medium }, handoff_agents: [specialist]
+      )
+      response = {
+        id: "resp_handoff", status: "completed", model: "gpt-4o",
+        output: [
+          { type: "reasoning", summary: [], encrypted_content: "handoff-reasoning" },
+          { type: "function_call", call_id: "call_1", name: "handoff_to_specialist", arguments: "{}" }
+        ],
+        usage: { input_tokens: 12, output_tokens: 8 }
+      }
+      stub_request(:post, "https://api.openai.com/v1/responses")
+        .to_return(status: 200, body: response.to_json, headers: { "Content-Type" => "application/json" })
+      stub_simple_chat("Specialist reply")
+
+      result = runner.run(triage, "Route this", registry: { "Triage" => triage, "Specialist" => specialist })
+
+      expect(result.error).to be_nil
+      expect(result.output).to eq("Specialist reply")
+      expect(a_request(:post, "https://api.openai.com/v1/responses")).to have_been_made.once
+      expect(a_request(:post, "https://api.openai.com/v1/chat/completions").with do |request|
+        body = JSON.parse(request.body)
+        body["temperature"].to_s == "0.7" && !body.key?("reasoning_effort")
+      end).to have_been_made.once
+      expect(result.context[:conversation_history]).to include(
+        hash_including(role: :assistant, thinking_signature: "handoff-reasoning")
+      )
     end
 
     context "with custom headers" do
@@ -536,8 +608,6 @@ RSpec.describe Agents::Runner do
 
         expect(result.success?).to be true
         # Verify we have the complete conversation history restored
-        # NOTE: tool_calls arrays are not restored on assistant messages (see runner.rb NOTE)
-        # What matters is: assistant content + tool result messages preserve the conversation flow
         expect(result.messages.length).to be >= 4 # At minimum, history messages are preserved
 
         # Verify assistant message content is preserved
@@ -545,6 +615,16 @@ RSpec.describe Agents::Runner do
           msg[:role] == :assistant && msg[:content].include?("Let me check")
         end
         expect(assistant_msg).not_to be_nil
+      end
+
+      it "preserves tool call thought signatures across history restoration" do
+        history = context_with_tool_history
+        history[:conversation_history][1][:tool_calls][0][:thought_signature] = "opaque-tool-signature"
+
+        result = runner.run(agent, "Thanks!", context: history)
+
+        tool_call = result.messages.find { |message| message[:tool_calls] }[:tool_calls].first
+        expect(tool_call[:thought_signature]).to eq("opaque-tool-signature")
       end
 
       it "restores tool result messages with tool_call_id" do
@@ -935,10 +1015,12 @@ RSpec.describe Agents::Runner do
                         name: "TriageAgent",
                         model: "gpt-4o",
                         provider: nil,
+                        protocol: nil,
                         assume_model_exists: false,
                         tools: [],
                         handoff_agents: [handoff_agent],
                         temperature: 0.7,
+                        thinking: nil,
                         response_schema: nil,
                         get_system_prompt: "You route users to specialists",
                         headers: {},
@@ -1005,6 +1087,7 @@ RSpec.describe Agents::Runner do
         expect(mock_chat).to have_received(:with_model).with(
           "deployment-name",
           provider: :azure,
+          protocol: nil,
           assume_model_exists: true
         )
       end
@@ -1152,10 +1235,12 @@ RSpec.describe Agents::Runner do
                         name: "StructuredAgent",
                         model: "gpt-4o",
                         provider: nil,
+                        protocol: nil,
                         assume_model_exists: false,
                         tools: [],
                         handoff_agents: [],
                         temperature: 0.7,
+                        thinking: nil,
                         response_schema: schema,
                         get_system_prompt: "You provide structured responses",
                         headers: {},
@@ -1227,10 +1312,12 @@ RSpec.describe Agents::Runner do
                         name: "ToolAgent",
                         model: "gpt-4o",
                         provider: nil,
+                        protocol: nil,
                         assume_model_exists: false,
                         tools: [test_tool],
                         handoff_agents: [],
                         temperature: 0.7,
+                        thinking: nil,
                         response_schema: nil,
                         get_system_prompt: "You are an agent with tools",
                         headers: {},
@@ -1340,10 +1427,12 @@ RSpec.describe Agents::Runner do
                                              name: "TriageAgent",
                                              model: "gpt-4o",
                                              provider: nil,
+                                             protocol: nil,
                                              assume_model_exists: false,
                                              tools: [],
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
+                                             thinking: nil,
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
                                              headers: {},
@@ -1374,10 +1463,12 @@ RSpec.describe Agents::Runner do
                                              name: "TriageAgent",
                                              model: "gpt-4o",
                                              provider: nil,
+                                             protocol: nil,
                                              assume_model_exists: false,
                                              tools: [],
                                              handoff_agents: [handoff_agent],
                                              temperature: 0.7,
+                                             thinking: nil,
                                              response_schema: nil,
                                              get_system_prompt: "You route users",
                                              headers: {},

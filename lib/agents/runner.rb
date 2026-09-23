@@ -103,11 +103,7 @@ module Agents
       agent_params = Helpers::HashNormalizer.normalize(current_agent.params, label: "params")
 
       # Create chat and restore conversation history
-      chat = RubyLLM::Chat.new(
-        model: current_agent.model,
-        provider: current_agent.provider,
-        assume_model_exists: current_agent.assume_model_exists
-      )
+      chat = build_chat(current_agent)
       current_headers = Helpers::HashNormalizer.merge(agent_headers, runtime_headers)
       current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
       apply_headers(chat, current_headers)
@@ -120,7 +116,8 @@ module Agents
         chat.ask_later(content, with: attachments)
       end
       context_wrapper.callback_manager.emit_chat_created(
-        chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature
+        chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature,
+        current_agent.protocol, current_agent.thinking
       )
 
       loop do
@@ -167,8 +164,11 @@ module Agents
           current_agent = next_agent
           context_wrapper.context[:current_agent] = next_agent.name
 
-          # Reconfigure existing chat for new agent - preserves conversation history automatically
-          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: true)
+          # A fresh chat prevents protocol and thinking settings leaking across agents.
+          next_chat = build_chat(current_agent)
+          next_chat.messages = chat.messages
+          chat = next_chat
+          configure_chat_for_agent(chat, current_agent, context_wrapper, replace: false)
           agent_headers = Helpers::HashNormalizer.normalize(current_agent.headers, label: "headers")
           current_headers = Helpers::HashNormalizer.merge(agent_headers, runtime_headers)
           chat.with_headers(current_headers)
@@ -176,7 +176,8 @@ module Agents
           current_params = Helpers::HashNormalizer.merge(agent_params, runtime_params)
           chat.with_provider_options(current_params)
           context_wrapper.callback_manager.emit_chat_created(
-            chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature
+            chat, current_agent.name, current_agent.model, context_wrapper, current_agent.temperature,
+            current_agent.protocol, current_agent.thinking
           )
 
           # Force the new agent to respond to the conversation context
@@ -200,6 +201,11 @@ module Agents
     end
 
     private
+
+    def build_chat(agent)
+      RubyLLM::Chat.new(model: agent.model, provider: agent.provider, protocol: agent.protocol,
+                        assume_model_exists: agent.assume_model_exists)
+    end
 
     # Saves conversation state, builds a RunResult, emits completion callbacks, and returns it.
     # Centralises the finalize-and-return pattern used by the normal path and error rescues.
@@ -294,9 +300,8 @@ module Agents
       return false unless %i[user assistant tool].include?(role)
 
       # Allow assistant messages that only contain tool calls (no text content)
-      tool_calls_present = role == :assistant && msg[:tool_calls] && !msg[:tool_calls].empty?
-      return false if role != :tool && !tool_calls_present &&
-                      Helpers::MessageExtractor.content_empty?(msg[:content])
+      assistant_payload = role == :assistant && (msg[:tool_calls]&.any? || msg[:thinking_signature])
+      return false if role != :tool && !assistant_payload && Helpers::MessageExtractor.content_empty?(msg[:content])
 
       true
     end
@@ -312,6 +317,9 @@ module Agents
       content, attachments = build_content(content_value)
       params = { role: role, content: content }
       params[:attachments] = attachments if attachments.any?
+      if role == :assistant && msg[:thinking_signature]
+        params[:thinking] = { text: msg[:thinking], signature: msg[:thinking_signature] }
+      end
 
       # Handle tool-specific parameters (Tool Results)
       if role == :tool
@@ -334,7 +342,8 @@ module Agents
           hash[tool_call_id] = RubyLLM::ToolCall.new(
             id: tool_call_id,
             name: tc[:name] || tc["name"],
-            arguments: tc[:arguments] || tc["arguments"] || {}
+            arguments: tc[:arguments] || tc["arguments"] || {},
+            thought_signature: tc[:thought_signature] || tc["thought_signature"]
           )
         end
       end
@@ -437,6 +446,7 @@ module Agents
         chat.with_model(
           agent.model,
           provider: agent.provider,
+          protocol: agent.protocol,
           assume_model_exists: agent.assume_model_exists
         )
       end
@@ -444,6 +454,7 @@ module Agents
       # Configure chat with instructions, temperature, tools, and schema
       chat.with_instructions(system_prompt)
       chat.with_temperature(agent.temperature)
+      chat.with_thinking(**agent.thinking) if agent.thinking
       chat.with_tools(nil) if replace
       chat.with_tools(*all_tools)
       chat.with_schema(agent.response_schema)

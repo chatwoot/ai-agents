@@ -86,6 +86,11 @@ module Agents
         attributed_agent_name = attributed_agent_name_for(msg) || current_agent&.name
         message[:agent_name] = attributed_agent_name if attributed_agent_name
 
+        if msg.respond_to?(:thinking) && msg.thinking&.signature
+          message[:thinking] = msg.thinking.text if msg.thinking.text
+          message[:thinking_signature] = msg.thinking.signature
+        end
+
         if tool_calls_present
           # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
           # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
@@ -106,7 +111,8 @@ module Agents
       end
 
       def extractable_message?(msg, tool_calls_present)
-        message_content?(msg) || tool_calls_present || msg.attachments.any?
+        message_content?(msg) || tool_calls_present || msg.attachments.any? ||
+          (msg.role == :assistant && msg.respond_to?(:thinking) && msg.thinking&.signature)
       end
 
       def message_content?(msg)
