@@ -262,6 +262,7 @@ module Agents
       def format_single_message(msg)
         text = serialize_output(msg.content)
         text = append_tool_calls(msg, text)
+        text = append_attachment_summary(text, msg.attachments) if msg.respond_to?(:attachments)
         { role: msg.role.to_s, content: text }
       end
 
@@ -275,7 +276,16 @@ module Agents
       def serialize_output(value)
         return serialize_multimodal_content(value) if multimodal_content?(value)
 
-        value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
+        return value.map { |part| redact_image_source(part) }.to_json if value.is_a?(Array)
+
+        value.is_a?(Hash) ? redact_image_source(value).to_json : value.to_s
+      end
+
+      def redact_image_source(part)
+        return part unless part.is_a?(Hash) && (part[:type] || part["type"]) == "image_url"
+
+        key = part.key?(:image_url) ? :image_url : "image_url"
+        part.merge(key => "[image]")
       end
 
       def format_tool_calls(response)
@@ -436,16 +446,17 @@ module Agents
       end
 
       def serialize_multimodal_content(content)
-        parts = []
-        text = content.text
-        parts << text if text && !text.empty?
+        append_attachment_summary(content.text.to_s, content.attachments)
+      end
 
-        if content.attachments&.any?
-          urls = content.attachments.map { |a| a.respond_to?(:source) ? a.source.to_s : a.to_s }
-          parts << "Attachments: #{urls.join(", ")}"
+      def append_attachment_summary(text, attachments)
+        return text unless attachments&.any?
+
+        types = attachments.map do |attachment|
+          type = attachment.mime_type if attachment.respond_to?(:mime_type)
+          type.to_s.empty? ? "file" : type
         end
-
-        parts.join("\n")
+        [text, "Attachments: #{types.join(", ")}"].reject(&:empty?).join("\n")
       end
     end
   end
