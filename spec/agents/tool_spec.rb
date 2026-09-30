@@ -46,6 +46,18 @@ RSpec.describe Agents::Tool do
     end
   end
 
+  it "accepts the previous param DSL for custom tools" do
+    legacy_tool = Class.new(described_class) do
+      param :name, type: "string", desc: "User name"
+      param :age, type: "integer", desc: "Optional age", required: false
+    end.new
+
+    schema = legacy_tool.parameters_schema
+    expect(schema["properties"]["name"]).to include("description" => "User name")
+    expect(schema["properties"]["age"]).to include("description" => "Optional age")
+    expect(schema["required"]).to eq(["name"])
+  end
+
   describe "class-based tool definition" do
     let(:class_based_tool_class) do
       Class.new(described_class) do
