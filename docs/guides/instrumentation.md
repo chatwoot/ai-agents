@@ -18,6 +18,8 @@ The `Agents::Instrumentation` module produces OTel spans that give you full visi
 - **Agent container spans** grouping related LLM and tool calls
 - **Handoff events** recording agent-to-agent transfers
 
+Generation inputs include MIME types for RubyLLM message attachments. Their URLs, local paths, and image data are omitted. Structured image inputs also omit the image URL.
+
 Spans follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) and include Langfuse-specific attributes for rich rendering in the Langfuse dashboard.
 
 ### RubyLLM 2.0 events and Langfuse

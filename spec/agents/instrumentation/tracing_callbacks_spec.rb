@@ -147,6 +147,20 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       )
     end
 
+    it "omits image URLs from structured run input" do
+      allow(tracer).to receive(:start_span).and_return(root_span)
+      input = [{ type: "text", text: "Describe this" },
+               { type: "image_url", image_url: { url: "https://example.com/private?token=secret" } }]
+
+      callbacks.on_run_start("VisionAgent", input, context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run", attributes: hash_including(
+          "langfuse.observation.input" => [input.first, { type: "image_url", image_url: "[image]" }].to_json
+        )
+      )
+    end
+
     it "stores tracing state in context_wrapper" do
       allow(tracer).to receive(:start_span).and_return(root_span)
 
@@ -513,6 +527,25 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
 
       expect(chat).to have_received(:after_message)
+    end
+
+    it "records attachment types without exposing their source in generation input" do
+      attachment = instance_double(RubyLLM::Attachment,
+                                   mime_type: "image/png", source: "https://example.com/private?token=secret")
+      image_message = instance_double(RubyLLM::Message, role: :user, content: "Describe this",
+                                                        attachments: [attachment])
+      allow(chat).to receive(:messages).and_return([image_message, assistant_message])
+      allow(tracer).to receive(:start_span).and_return(llm_span)
+
+      callbacks.on_chat_created(chat, "TestAgent", "gpt-4o", context_wrapper)
+
+      expect(tracer).to have_received(:start_span).with(
+        "agents.run.generation", with_parent: anything, start_timestamp: anything,
+                                 attributes: hash_including(
+                                   "langfuse.observation.input" =>
+                                     [{ role: "user", content: "Describe this\nAttachments: image/png" }].to_json
+                                 )
+      )
     end
 
     it "registers one hook and uses the new model after a handoff" do
