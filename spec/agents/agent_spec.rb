@@ -82,6 +82,17 @@ RSpec.describe Agents::Agent do
       expect(agent.temperature).to eq(0.2)
     end
 
+    it "keeps per-agent protocol and thinking options when cloning" do
+      options = { effort: :medium, display: :summarized }
+      agent = described_class.new(name: "Reasoning", protocol: "responses", temperature: nil, thinking: options)
+      cloned = agent.clone(name: "Specialist")
+
+      expect(cloned.protocol).to eq(:responses)
+      expect(cloned.temperature).to be_nil
+      expect(cloned.thinking).to eq(effort: :medium, display: :summarized)
+      expect(cloned.thinking).to be_frozen
+    end
+
     it "normalizes string provider to symbol" do
       agent = described_class.new(name: "Test", provider: "azure")
 

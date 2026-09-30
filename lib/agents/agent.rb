@@ -50,8 +50,8 @@ require_relative "helpers/hash_normalizer"
 #   )
 module Agents
   class Agent
-    attr_reader :name, :instructions, :model, :provider, :assume_model_exists, :tools, :handoff_agents, :temperature,
-                :response_schema, :headers, :params
+    attr_reader :name, :instructions, :model, :provider, :protocol, :assume_model_exists, :tools, :handoff_agents,
+                :temperature, :thinking, :response_schema, :headers, :params
 
     # Initialize a new Agent instance
     #
@@ -59,23 +59,32 @@ module Agents
     # @param instructions [String, Proc, nil] Static string or dynamic Proc that returns instructions
     # @param model [String] The LLM model to use (default: "gpt-4.1-mini")
     # @param provider [Symbol, String, nil] Optional RubyLLM provider override
+    # @param protocol [Symbol, String, nil] Optional provider protocol override (e.g., :responses)
     # @param assume_model_exists [Boolean] Whether RubyLLM should skip registry validation for custom model IDs
     # @param tools [Array<Agents::Tool>] Array of tool instances the agent can use
     # @param handoff_agents [Array<Agents::Agent>] Array of agents this agent can hand off to
-    # @param temperature [Float] Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
+    # @param temperature [Float, nil] Sampling temperature; nil uses the model default
+    # @param thinking [Hash, nil] RubyLLM thinking options (e.g., effort: :medium, display: :summarized)
     # @param response_schema [Hash, nil] JSON schema for structured output responses
     # @param headers [Hash, nil] Default HTTP headers applied to LLM requests
     # @param params [Hash, nil] Default provider-specific parameters applied to LLM requests (e.g., service_tier)
-    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", provider: nil, assume_model_exists: false,
-                   tools: [], handoff_agents: [], temperature: 0.7, response_schema: nil, headers: nil, params: nil)
+    def initialize(name:, instructions: nil, model: "gpt-4.1-mini", provider: nil, protocol: nil,
+                   assume_model_exists: false, tools: [], handoff_agents: [], temperature: 0.7, thinking: nil,
+                   response_schema: nil, headers: nil, params: nil)
       @name = name
       @instructions = instructions
       @model = model
       @provider = provider&.to_sym
+      @protocol = protocol&.to_sym
       @assume_model_exists = assume_model_exists
       @tools = tools.dup
       @handoff_agents = []
       @temperature = temperature
+      @thinking = if thinking.nil?
+                    nil
+                  else
+                    Helpers::HashNormalizer.normalize(thinking, label: "thinking", freeze_result: true)
+                  end
       @response_schema = response_schema
       @headers = Helpers::HashNormalizer.normalize(headers, label: "headers", freeze_result: true)
       @params = Helpers::HashNormalizer.normalize(params, label: "params", freeze_result: true)
@@ -131,7 +140,7 @@ module Agents
 
     # Creates a new agent instance with modified attributes while preserving immutability.
     # The clone method is used when you need to create variations of agents without mutating the original.
-    # This can be used for runtime agent modifications, say in a multi-tenant environment we can do something like the following:
+    # This can be used for runtime agent modifications, such as multi-tenant settings:
     #
     # @example Multi-tenant agent customization
     #   def agent_for_tenant(tenant)
@@ -161,10 +170,12 @@ module Agents
     # @option changes [String, Proc] :instructions New instructions
     # @option changes [String] :model New model identifier
     # @option changes [Symbol, String, nil] :provider New provider override
+    # @option changes [Symbol, String, nil] :protocol New provider protocol override
     # @option changes [Boolean] :assume_model_exists Whether to skip model registry validation
     # @option changes [Array<Agents::Tool>] :tools New tools array (replaces all tools)
     # @option changes [Array<Agents::Agent>] :handoff_agents New handoff agents
     # @option changes [Float] :temperature Temperature for LLM responses (0.0-1.0)
+    # @option changes [Hash, nil] :thinking RubyLLM thinking options
     # @option changes [Hash, nil] :response_schema JSON schema for structured output
     # @return [Agents::Agent] A new frozen agent instance with the specified changes
     def clone(**changes)
@@ -173,10 +184,12 @@ module Agents
         instructions: changes.fetch(:instructions, @instructions),
         model: changes.fetch(:model, @model),
         provider: changes.fetch(:provider, @provider),
+        protocol: changes.fetch(:protocol, @protocol),
         assume_model_exists: changes.fetch(:assume_model_exists, @assume_model_exists),
         tools: changes.fetch(:tools, @tools.dup),
         handoff_agents: changes.fetch(:handoff_agents, @handoff_agents),
         temperature: changes.fetch(:temperature, @temperature),
+        thinking: changes.fetch(:thinking, @thinking),
         response_schema: changes.fetch(:response_schema, @response_schema),
         headers: changes.fetch(:headers, @headers),
         params: changes.fetch(:params, @params)

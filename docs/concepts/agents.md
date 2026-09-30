@@ -22,6 +22,8 @@ This project is in early development. While thread safety is a core design goal 
 *   **`tools`**: An array of `Agents::Tool` instances that the agent can use to perform actions.
 *   **`handoff_agents`**: An array of other agents that this agent can hand off conversations to.
 *   **`temperature`**: Controls randomness in responses (0.0 = deterministic, 1.0 = very random, default: 0.7)
+*   **`protocol`**: Optional RubyLLM provider protocol, such as `:responses` or `:chat_completions`.
+*   **`thinking`**: Optional RubyLLM thinking options, such as `effort:` and `display:`.
 
 ### Example
 
@@ -43,3 +45,17 @@ specialized_agent = assistant_agent.clone(
 ```
 
 In this example, we create a base `assistant_agent` and then create a `specialized_agent` by cloning it and adding a new tool. This approach allows for easy composition and reuse of agent configurations.
+
+For an OpenAI reasoning model, select Responses for that agent and leave temperature unset:
+
+```ruby
+reasoning_agent = Agents::Agent.new(
+  name: "Reasoning",
+  model: "your-reasoning-model",
+  protocol: :responses,
+  temperature: nil,
+  thinking: { effort: :medium, display: :summarized }
+)
+```
+
+Other agents can use `protocol: :chat_completions`. The runner applies each agent's protocol and thinking settings when it starts or hands off a conversation.

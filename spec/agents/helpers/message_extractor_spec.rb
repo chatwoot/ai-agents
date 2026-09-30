@@ -41,6 +41,16 @@ RSpec.describe Agents::Helpers::MessageExtractor do
   end
 
   describe ".extract_messages" do
+    it "keeps a reasoning-only assistant message for stateless replay" do
+      message = RubyLLM::Message.new(role: :assistant, content: nil,
+                                     thinking: { text: "Brief summary", signature: "opaque-reasoning" })
+      chat = instance_double(RubyLLM::Chat, messages: [message])
+
+      expected = [{ role: :assistant, content: "", agent_name: "TestAgent",
+                    thinking: "Brief summary", thinking_signature: "opaque-reasoning" }]
+      expect(described_class.extract_messages(chat, current_agent)).to eq(expected)
+    end
+
     context "when chat has no messages method" do
       let(:chat) { double("chat without messages") }
 
@@ -328,5 +338,4 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       expect(described_class.content_empty?([])).to be false
     end
   end
-
 end

@@ -19,6 +19,7 @@ module Agents
       ATTR_GEN_AI_PROVIDER      = "gen_ai.provider.name"
       ATTR_GEN_AI_USAGE_INPUT   = "gen_ai.usage.input_tokens"
       ATTR_GEN_AI_USAGE_OUTPUT  = "gen_ai.usage.output_tokens"
+      ATTR_GEN_AI_USAGE_REASONING_OUTPUT = "gen_ai.usage.reasoning.output_tokens"
 
       # Langfuse trace-level attributes
       ATTR_LANGFUSE_USER_ID     = "langfuse.user.id"
@@ -34,6 +35,7 @@ module Agents
       ATTR_LANGFUSE_OBS_INPUT  = "langfuse.observation.input"
       ATTR_LANGFUSE_OBS_OUTPUT = "langfuse.observation.output"
       ATTR_LANGFUSE_OBS_METADATA_PREFIX = "langfuse.observation.metadata."
+      ATTR_LANGFUSE_REASONING_SUMMARY = "langfuse.observation.metadata.reasoning_summary"
     end
   end
 end
