@@ -69,19 +69,16 @@ module Agents
       @tool_description
     end
 
-    # Use RubyLLM's halt mechanism to stop continuation after handoff
+    # The runner switches agents after this tool records the handoff.
     # Store handoff info in context for Runner to detect and process
     def perform(tool_context)
       # Store handoff information in context for Runner to detect
-      # TODO: The following is a race condition that needs to be addressed in future versions
-      # If multiple handoff tools execute concurrently, they overwrite each other's pending_handoff data.
       tool_context.run_context.context[:pending_handoff] = {
         target_agent: @target_agent,
         timestamp: Time.now
       }
 
-      # Return halt to stop LLM continuation
-      halt("I'll transfer you to #{@target_agent.name} who can better assist you with this.")
+      "I'll transfer you to #{@target_agent.name} who can better assist you with this."
     end
 
     # NOTE: RubyLLM will handle schema generation internally when needed

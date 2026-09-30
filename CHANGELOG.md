@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Require RubyLLM 2.0 starting with ai-agents 0.13.0. Applications using RubyLLM 1.x can keep ai-agents 0.12.0.
+- Keep the previous `param :name, desc: "..."` tool declaration syntax working with RubyLLM 2.0.
+
 ## [0.12.0] - 2026-06-29
 
 ### Added

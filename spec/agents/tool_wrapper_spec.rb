@@ -5,7 +5,7 @@ require_relative "../../lib/agents"
 RSpec.describe Agents::ToolWrapper do
   let(:tool) { Agents::Tool.new }
   let(:callback_manager) { instance_double(Agents::CallbackManager) }
-  let(:context_wrapper) { instance_double(Agents::RunContext, callback_manager: callback_manager) }
+  let(:context_wrapper) { instance_double(Agents::RunContext, callback_manager: callback_manager, context: {}) }
   let(:tool_wrapper) { described_class.new(tool, context_wrapper) }
 
   before do
@@ -28,6 +28,14 @@ RSpec.describe Agents::ToolWrapper do
   end
 
   describe "#call" do
+    it "does not execute later tool calls after a handoff" do
+      allow(context_wrapper).to receive(:context).and_return(pending_handoff: { target_agent: "Support" })
+      allow(tool).to receive(:execute)
+
+      expect(tool_wrapper.call(city: "NYC")).to eq("Skipped after agent handoff")
+      expect(tool).not_to have_received(:execute)
+    end
+
     it "creates tool context and calls tool with injected context" do
       tool_context = instance_double(Agents::ToolContext)
       args = { "city" => "NYC", "country" => "USA" }
@@ -35,7 +43,7 @@ RSpec.describe Agents::ToolWrapper do
       allow(Agents::ToolContext).to receive(:new).with(run_context: context_wrapper).and_return(tool_context)
       allow(tool).to receive(:execute).with(tool_context, city: "NYC", country: "USA").and_return("result")
 
-      result = tool_wrapper.call(args)
+      result = tool_wrapper.call(**args)
 
       expect(result).to eq("result")
       expect(Agents::ToolContext).to have_received(:new).with(run_context: context_wrapper)
@@ -49,7 +57,7 @@ RSpec.describe Agents::ToolWrapper do
       allow(Agents::ToolContext).to receive(:new).and_return(tool_context)
       allow(tool).to receive(:execute).with(tool_context, string_key: "value")
 
-      tool_wrapper.call(args)
+      tool_wrapper.call(**args)
 
       expect(tool).to have_received(:execute).with(tool_context, string_key: "value")
     end
@@ -62,11 +70,12 @@ RSpec.describe Agents::ToolWrapper do
       allow(Agents::ToolContext).to receive(:new).with(run_context: context_wrapper).and_return(tool_context)
       allow(tool).to receive(:execute).with(tool_context, city: "NYC").and_raise(StandardError, error_message)
 
-      expect { tool_wrapper.call(args) }.to raise_error(StandardError, error_message)
+      expect { tool_wrapper.call(**args) }.to raise_error(StandardError, error_message)
 
       expect(callback_manager).to have_received(:emit_tool_start).with(tool.name, args, context_wrapper)
-      expect(callback_manager).to have_received(:emit_tool_complete).with(tool.name, "ERROR: #{error_message}",
-                                                                          context_wrapper)
+      expect(callback_manager).to have_received(:emit_tool_complete).with(
+        tool.name, "ERROR: #{error_message}", context_wrapper, an_instance_of(StandardError)
+      )
     end
   end
 
@@ -102,12 +111,12 @@ RSpec.describe Agents::ToolWrapper do
     end
   end
 
-  describe "#parameters" do
+  describe "#parameters_schema" do
     it "delegates to tool" do
       params = { city: { type: "string" } }
-      allow(tool).to receive(:parameters).and_return(params)
+      allow(tool).to receive(:parameters_schema).and_return(params)
 
-      expect(tool_wrapper.parameters).to eq(params)
+      expect(tool_wrapper.parameters_schema).to eq(params)
     end
   end
 

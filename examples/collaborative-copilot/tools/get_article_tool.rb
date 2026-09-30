@@ -6,7 +6,7 @@ module Copilot
   # Tool for retrieving specific knowledge base articles by ID
   class GetArticleTool < Agents::Tool
     description "Get the full content of a specific knowledge base article"
-    param :article_id, type: "string", desc: "ID of the article to retrieve (e.g., ART-001)"
+    parameter :article_id, type: "string", description: "ID of the article to retrieve (e.g., ART-001)"
 
     def perform(tool_context, article_id:)
       data_file = File.join(__dir__, "../data/knowledge_base.json")

@@ -9,6 +9,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
     let(:message) do
       instance_double(RubyLLM::Message,
                       role: :assistant,
+                      attachments: [],
                       content: "I'll route this.",
                       tool_call?: false,
                       tool_calls: nil)
@@ -40,6 +41,16 @@ RSpec.describe Agents::Helpers::MessageExtractor do
   end
 
   describe ".extract_messages" do
+    it "keeps a reasoning-only assistant message for stateless replay" do
+      message = RubyLLM::Message.new(role: :assistant, content: nil,
+                                     thinking: { text: "Brief summary", signature: "opaque-reasoning" })
+      chat = instance_double(RubyLLM::Chat, messages: [message])
+
+      expected = [{ role: :assistant, content: "", agent_name: "TestAgent",
+                    thinking: "Brief summary", thinking_signature: "opaque-reasoning" }]
+      expect(described_class.extract_messages(chat, current_agent)).to eq(expected)
+    end
+
     context "when chat has no messages method" do
       let(:chat) { double("chat without messages") }
 
@@ -52,6 +63,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:hash_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: { "answer" => "42", "confidence" => 0.95 },
                         tool_call?: false,
                         tool_calls: nil)
@@ -60,6 +72,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:string_message) do
         instance_double(RubyLLM::Message,
                         role: :user,
+                        attachments: [],
                         content: "What is the answer?",
                         tool_call?: false,
                         tool_calls: nil)
@@ -68,6 +81,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:empty_hash_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: {},
                         tool_call?: false,
                         tool_calls: nil)
@@ -104,6 +118,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:empty_string_message) do
         instance_double(RubyLLM::Message,
                         role: :user,
+                        attachments: [],
                         content: "",
                         tool_call?: false,
                         tool_calls: nil)
@@ -112,6 +127,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:whitespace_message) do
         instance_double(RubyLLM::Message,
                         role: :user,
+                        attachments: [],
                         content: "   \n\t  ",
                         tool_call?: false,
                         tool_calls: nil)
@@ -120,6 +136,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:valid_message) do
         instance_double(RubyLLM::Message,
                         role: :user,
+                        attachments: [],
                         content: "Valid content",
                         tool_call?: false,
                         tool_calls: nil)
@@ -176,6 +193,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:assistant_with_tools) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: "Let me use a tool",
                         tool_call?: true,
                         tool_calls: { "call_123" => tool_call })
@@ -216,6 +234,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:assistant_with_tool_only) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: nil,
                         tool_call?: true,
                         tool_calls: { "call_456" => tool_call })
@@ -247,6 +266,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:triage_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: "I'll route this.",
                         tool_call?: false,
                         tool_calls: nil)
@@ -255,6 +275,7 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       let(:specialist_message) do
         instance_double(RubyLLM::Message,
                         role: :assistant,
+                        attachments: [],
                         content: "I can help with your invoice.",
                         tool_call?: false,
                         tool_calls: nil)
@@ -317,5 +338,4 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       expect(described_class.content_empty?([])).to be false
     end
   end
-
 end

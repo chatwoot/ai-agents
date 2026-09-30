@@ -60,6 +60,8 @@ module Agents
         return unless tracing
 
         tracing[:pending_llm_input] = serialize_output(input)
+        # The response hook runs after the provider call; preserve its real start time.
+        tracing[:llm_started_at] = Time.now
 
         return if tracing[:current_agent_name] == agent_name
 
@@ -77,14 +79,18 @@ module Agents
         finish_agent_span(tracing)
       end
 
-      def on_chat_created(chat, agent_name, model, context_wrapper, temperature = nil)
+      def on_chat_created(chat, _agent_name, model, context_wrapper, temperature = nil, protocol = nil, thinking = nil)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
-        request_attributes = { model: model, temperature: temperature }
+        tracing[:request_attributes] = { model: model, temperature: temperature,
+                                         protocol: protocol, thinking: thinking }
+        return if tracing[:instrumented_chat].equal?(chat)
 
-        chat.on_end_message do |message|
-          handle_end_message(chat, agent_name, request_attributes, message, context_wrapper)
+        tracing[:instrumented_chat] = chat
+
+        chat.after_message do |message|
+          handle_end_message(chat, message, context_wrapper)
         end
       end
 
@@ -109,7 +115,7 @@ module Agents
         tracing[:current_tool_span] = tool_span
       end
 
-      def on_tool_complete(_tool_name, result, context_wrapper)
+      def on_tool_complete(_tool_name, result, context_wrapper, error = nil)
         tracing = tracing_state(context_wrapper)
         return unless tracing
 
@@ -117,6 +123,10 @@ module Agents
         return unless tool_span
 
         tool_span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, serialize_output(result))
+        if error
+          tool_span.record_exception(error)
+          tool_span.status = OpenTelemetry::Trace::Status.error(error.message)
+        end
         tool_span.finish
         tracing[:current_tool_span] = nil
       end
@@ -153,7 +163,7 @@ module Agents
 
       private
 
-      def handle_end_message(chat, _agent_name, request_attributes, message, context_wrapper)
+      def handle_end_message(chat, message, context_wrapper)
         return unless message.respond_to?(:role) && message.role == :assistant
 
         tracing = tracing_state(context_wrapper)
@@ -162,13 +172,14 @@ module Agents
         llm_span = @tracer.start_span(
           @llm_span_name,
           with_parent: parent_context(tracing),
+          start_timestamp: tracing.delete(:llm_started_at),
           attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
         )
 
-        set_llm_request_attributes(llm_span, request_attributes)
+        set_llm_request_attributes(llm_span, tracing[:request_attributes])
 
         output = llm_output_text(message)
-        set_llm_response_attributes(llm_span, message, output)
+        set_llm_response_attributes(llm_span, message, output, tracing[:request_attributes])
         tracing[:last_agent_output] = output unless output.empty?
 
         llm_span.finish
@@ -218,14 +229,21 @@ module Agents
         root_span.status = OpenTelemetry::Trace::Status.error(error.message)
       end
 
-      def set_llm_response_attributes(span, response, output)
-        if response.respond_to?(:input_tokens) && response.input_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, response.input_tokens)
-        end
-        if response.respond_to?(:output_tokens) && response.output_tokens
-          span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, response.output_tokens)
-        end
+      def set_llm_response_attributes(span, response, output, request_attributes)
+        tokens = response.tokens if response.respond_to?(:tokens)
+        span.set_attribute(ATTR_GEN_AI_USAGE_INPUT, tokens.input) if tokens&.input
+        span.set_attribute(ATTR_GEN_AI_USAGE_OUTPUT, tokens.output) if tokens&.output
+        span.set_attribute(ATTR_GEN_AI_USAGE_REASONING_OUTPUT, tokens.thinking) if tokens&.thinking
+        set_reasoning_summary(span, response, request_attributes)
         span.set_attribute(ATTR_LANGFUSE_OBS_OUTPUT, output) unless output.empty?
+      end
+
+      def set_reasoning_summary(span, response, request_attributes)
+        return unless request_attributes[:protocol] == :responses
+        return unless request_attributes.dig(:thinking, :display).to_s == "summarized"
+        return unless response.respond_to?(:thinking) && response.thinking&.text
+
+        span.set_attribute(ATTR_LANGFUSE_REASONING_SUMMARY, response.thinking.text)
       end
 
       # Returns serialized text content if present, otherwise falls back to tool call formatting.
@@ -252,6 +270,7 @@ module Agents
       def format_single_message(msg)
         text = serialize_output(msg.content)
         text = append_tool_calls(msg, text)
+        text = append_attachment_summary(text, msg.attachments) if msg.respond_to?(:attachments)
         { role: msg.role.to_s, content: text }
       end
 
@@ -265,7 +284,16 @@ module Agents
       def serialize_output(value)
         return serialize_multimodal_content(value) if multimodal_content?(value)
 
-        value.is_a?(Hash) || value.is_a?(Array) ? value.to_json : value.to_s
+        return value.map { |part| redact_image_source(part) }.to_json if value.is_a?(Array)
+
+        value.is_a?(Hash) ? redact_image_source(value).to_json : value.to_s
+      end
+
+      def redact_image_source(part)
+        return part unless part.is_a?(Hash) && (part[:type] || part["type"]) == "image_url"
+
+        key = part.key?(:image_url) ? :image_url : "image_url"
+        part.merge(key => "[image]")
       end
 
       def format_tool_calls(response)
@@ -426,16 +454,17 @@ module Agents
       end
 
       def serialize_multimodal_content(content)
-        parts = []
-        text = content.text
-        parts << text if text && !text.empty?
+        append_attachment_summary(content.text.to_s, content.attachments)
+      end
 
-        if content.attachments&.any?
-          urls = content.attachments.map { |a| a.respond_to?(:source) ? a.source.to_s : a.to_s }
-          parts << "Attachments: #{urls.join(", ")}"
+      def append_attachment_summary(text, attachments)
+        return text unless attachments&.any?
+
+        types = attachments.map do |attachment|
+          type = attachment.mime_type if attachment.respond_to?(:mime_type)
+          type.to_s.empty? ? "file" : type
         end
-
-        parts.join("\n")
+        [text, "Attachments: #{types.join(", ")}"].reject(&:empty?).join("\n")
       end
     end
   end

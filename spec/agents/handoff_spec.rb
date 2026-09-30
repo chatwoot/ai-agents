@@ -42,8 +42,8 @@ RSpec.describe Agents::HandoffTool do
 
       result = handoff_tool.perform(tool_context)
 
-      expect(result).to be_a(RubyLLM::Tool::Halt)
-      expect(result.content).to eq("I'll transfer you to Support Agent who can better assist you with this.")
+      expect(result).to be_a(String)
+      expect(result).to eq("I'll transfer you to Support Agent who can better assist you with this.")
       expect(context_hash[:pending_handoff]).to include(target_agent: target_agent)
     end
   end

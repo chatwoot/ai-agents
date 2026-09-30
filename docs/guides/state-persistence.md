@@ -210,7 +210,7 @@ Tools should be stateless and rely on context for all data:
 class DatabaseTool < Agents::Tool
   name "query_database"
   description "Query the application database"
-  param :query, type: "string", desc: "SQL query to execute"
+  parameter :query, type: "string", description: "SQL query to execute"
   
   def perform(tool_context, query:)
     # Get database connection from context, not instance variables
@@ -238,7 +238,7 @@ Store tool-specific data in context:
 class FileProcessorTool < Agents::Tool
   name "process_file"
   description "Process uploaded files"
-  param :file_path, type: "string", desc: "Path to file"
+  parameter :file_path, type: "string", description: "Path to file"
   
   def perform(tool_context, file_path:)
     # Initialize tool state in context if needed

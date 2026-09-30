@@ -20,7 +20,7 @@
 #   class WeatherTool < Agents::Tool
 #     name "get_weather"
 #     description "Get current weather for a location"
-#     param :location, type: "string", desc: "City name or coordinates"
+#     parameter :location, type: "string", description: "City name or coordinates"
 #
 #     def perform(tool_context, location:)
 #       # All state comes from parameters - no instance variables!
@@ -38,6 +38,13 @@
 #
 module Agents
   class Tool < RubyLLM::Tool
+    # Keep custom tools written for ai-agents 0.12 working with RubyLLM 2.
+    def self.param(name, **options)
+      old_description = options.delete(:desc)
+      options[:description] ||= old_description
+      parameter(name, **options)
+    end
+
     # Execute the tool with context injection.
     # This method is called by the runner and handles the thread-safe
     # execution pattern by passing all state through parameters.
