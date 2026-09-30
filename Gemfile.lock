@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     ai-agents (0.12.0)
-      ruby_llm (~> 1.14)
+      ruby_llm (~> 2.0.0)
 
 GEM
   remote: https://rubygems.org/
@@ -20,15 +20,15 @@ GEM
     docile (1.4.1)
     erb (5.0.2)
     event_stream_parser (1.0.0)
-    faraday (2.14.0)
+    faraday (2.14.4)
       faraday-net_http (>= 2.0, < 3.5)
       json
       logger
-    faraday-multipart (1.1.1)
+    faraday-multipart (1.2.0)
       multipart-post (~> 2.0)
-    faraday-net_http (3.4.2)
+    faraday-net_http (3.4.4)
       net-http (~> 0.5)
-    faraday-retry (2.3.2)
+    faraday-retry (2.4.0)
       faraday (~> 2.0)
     google-protobuf (4.33.4)
       bigdecimal
@@ -47,13 +47,13 @@ GEM
       pp (>= 0.6.0)
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
-    json (2.17.1)
+    json (2.21.2)
     language_server-protocol (3.17.0.5)
     lint_roller (1.1.0)
     logger (1.7.0)
-    marcel (1.1.0)
+    marcel (2.1.0)
     multipart-post (2.4.1)
-    net-http (0.8.0)
+    net-http (0.9.1)
       uri (>= 0.11.1)
     opentelemetry-api (1.7.0)
     opentelemetry-common (0.23.0)
@@ -128,17 +128,18 @@ GEM
       lint_roller (~> 1.1)
       rubocop (~> 1.72, >= 1.72.1)
     ruby-progressbar (1.13.0)
-    ruby_llm (1.14.0)
+    ruby_llm (2.0.0)
       base64
       event_stream_parser (~> 1)
       faraday (>= 1.10.0)
       faraday-multipart (>= 1)
       faraday-net_http (>= 1)
       faraday-retry (>= 1)
-      marcel (~> 1)
-      ruby_llm-schema (~> 0)
+      json (< 3)
+      marcel (>= 1.0, < 3)
+      schematist (~> 1.1)
       zeitwerk (~> 2)
-    ruby_llm-schema (0.2.1)
+    schematist (1.1.0)
     simplecov (0.22.0)
       docile (~> 1.1)
       simplecov-html (~> 0.11)
@@ -155,7 +156,7 @@ GEM
       addressable (>= 2.8.0)
       crack (>= 0.3.2)
       hashdiff (>= 0.4.0, < 2.0.0)
-    zeitwerk (2.7.3)
+    zeitwerk (2.8.3)
 
 PLATFORMS
   arm64-darwin-24
@@ -171,7 +172,6 @@ DEPENDENCIES
   rspec (~> 3.12)
   rubocop (~> 1.21)
   rubocop-rspec (~> 3.0)
-  ruby_llm-schema
   simplecov (~> 0.22)
   webmock (~> 3.18)
 

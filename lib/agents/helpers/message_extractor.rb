@@ -76,14 +76,10 @@ module Agents
       end
 
       def extract_user_or_assistant_message(msg, current_agent)
-        content_present = message_content?(msg)
         tool_calls_present = assistant_tool_calls?(msg)
-        return nil unless content_present || tool_calls_present
+        return nil unless extractable_message?(msg, tool_calls_present)
 
-        message = {
-          role: msg.role,
-          content: content_present ? msg.content : ""
-        }
+        message = { role: msg.role, content: persisted_content(msg) }
 
         return message unless msg.role == :assistant
 
@@ -97,6 +93,20 @@ module Agents
         end
 
         message
+      end
+
+      def persisted_content(msg)
+        content = message_content?(msg) ? msg.content : ""
+        return content if msg.attachments.empty?
+
+        parts = content.to_s.empty? ? [] : [{ type: "text", text: content }]
+        parts + msg.attachments.map do |attachment|
+          { type: "image_url", image_url: { url: attachment.source.to_s } }
+        end
+      end
+
+      def extractable_message?(msg, tool_calls_present)
+        message_content?(msg) || tool_calls_present || msg.attachments.any?
       end
 
       def message_content?(msg)
@@ -117,8 +127,8 @@ module Agents
         }
       end
 
-      private_class_method :extract_user_or_assistant_message, :message_content?, :assistant_tool_calls?,
-                           :extract_tool_message
+      private_class_method :extract_user_or_assistant_message, :persisted_content, :extractable_message?,
+                           :message_content?, :assistant_tool_calls?, :extract_tool_message
     end
   end
 end

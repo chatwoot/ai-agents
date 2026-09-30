@@ -6,11 +6,11 @@ module Copilot
   # Tool for creating Linear tickets for engineering issues
   class CreateLinearTicketTool < Agents::Tool
     description "Create a Linear ticket for engineering issues or feature requests"
-    param :title, type: "string", desc: "Title of the issue"
-    param :description, type: "string", desc: "Detailed description of the issue"
-    param :priority, type: "string", desc: "Priority level (low, medium, high)"
-    param :assignee, type: "string", desc: "Optional: email of person to assign to", required: false
-    param :labels, type: "string", desc: "Comma-separated labels (e.g., bug,api,production)"
+    parameter :title, type: "string", description: "Title of the issue"
+    parameter :description, type: "string", description: "Detailed description of the issue"
+    parameter :priority, type: "string", description: "Priority level (low, medium, high)"
+    parameter :assignee, type: "string", description: "Optional: email of person to assign to", required: false
+    parameter :labels, type: "string", description: "Comma-separated labels (e.g., bug,api,production)"
 
     def perform(tool_context, title:, description:, priority: "medium", assignee: nil, labels: "")
       # Generate a ticket ID

@@ -6,7 +6,7 @@ require_relative "tools/create_lead_tool"
 require_relative "tools/create_checkout_tool"
 require_relative "tools/search_docs_tool"
 require_relative "tools/escalate_to_human_tool"
-require "ruby_llm/schema"
+require "schematist"
 
 module ISPSupport
   # Factory for creating all ISP support agents with proper handoff relationships.
@@ -98,7 +98,7 @@ module ISPSupport
     end
 
     def triage_response_schema
-      RubyLLM::Schema.create do
+      Schematist::Schema.create do
         string :response, description: "Your response to the customer"
         string :intent, enum: %w[sales support unclear], description: "The detected intent category"
         array :sentiment, description: "Customer sentiment indicators" do
@@ -108,7 +108,7 @@ module ISPSupport
     end
 
     def support_response_schema
-      RubyLLM::Schema.create do
+      Schematist::Schema.create do
         string :response, description: "Your response to the customer"
         string :intent, enum: %w[support], description: "The intent category (always support)"
         array :sentiment, description: "Customer sentiment indicators" do
@@ -118,7 +118,7 @@ module ISPSupport
     end
 
     def sales_response_schema
-      RubyLLM::Schema.create do
+      Schematist::Schema.create do
         string :response, description: "Your response to the customer"
         string :intent, enum: %w[sales], description: "The intent category (always sales)"
         array :sentiment, description: "Customer sentiment indicators" do

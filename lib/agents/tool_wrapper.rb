@@ -18,14 +18,14 @@ module Agents
   #
   # ## The Solution
   # Each Runner creates new wrapper instances for each execution, capturing the context
-  # in the wrapper's closure. When RubyLLM calls execute(), the wrapper injects the
+  # in the wrapper's closure. When RubyLLM calls call(), the wrapper injects the
   # context before calling the actual tool:
   #
   #   # Runner creates wrapper
   #   wrapped = ToolWrapper.new(my_tool, context_wrapper)
   #
   #   # RubyLLM calls wrapper
-  #   wrapped.execute(city: "NYC")  # No context parameter
+  #   wrapped.call(city: "NYC")  # No context parameter
   #
   #   # Wrapper injects context
   #   tool_context = ToolContext.new(run_context: context_wrapper)
@@ -40,11 +40,12 @@ module Agents
       # Copy tool metadata for RubyLLM
       @name = tool.name
       @description = tool.description
-      @params = tool.class.params if tool.class.respond_to?(:params)
     end
 
     # RubyLLM calls this method (follows RubyLLM::Tool pattern)
-    def call(args)
+    def call(tool_call: nil, **args) # rubocop:disable Lint/UnusedMethodArgument
+      return "Skipped after agent handoff" if @context_wrapper.context[:pending_handoff]
+
       tool_context = ToolContext.new(run_context: @context_wrapper)
 
       @context_wrapper.callback_manager.emit_tool_start(@tool.name, args, @context_wrapper)
@@ -54,7 +55,7 @@ module Agents
         @context_wrapper.callback_manager.emit_tool_complete(@tool.name, result, @context_wrapper)
         result
       rescue StandardError => e
-        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}", @context_wrapper)
+        @context_wrapper.callback_manager.emit_tool_complete(@tool.name, "ERROR: #{e.message}", @context_wrapper, e)
         raise
       end
     end
@@ -68,18 +69,20 @@ module Agents
       @description || @tool.description
     end
 
-    # RubyLLM calls this to get parameter definitions
-    def parameters
-      @tool.parameters
+    def parameters_schema
+      @tool.parameters_schema
     end
 
-    # Expose params schema for RubyLLM providers that expect it
-    def params_schema
-      @tool.respond_to?(:params_schema) ? @tool.params_schema : nil
+    def provider_options
+      @tool.provider_options
     end
 
-    def provider_params
-      @tool.respond_to?(:provider_params) ? @tool.provider_params : {}
+    def requires_approval?
+      @tool.requires_approval?
+    end
+
+    def approval_resolver
+      @tool.approval_resolver
     end
 
     # Make this work with RubyLLM's tool calling

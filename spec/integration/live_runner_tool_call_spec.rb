@@ -3,8 +3,8 @@
 require "spec_helper"
 
 class AddNumbersTool < Agents::Tool
-  param :a, type: "integer", desc: "First addend"
-  param :b, type: "integer", desc: "Second addend"
+  parameter :a, type: "integer", description: "First addend"
+  parameter :b, type: "integer", description: "Second addend"
 
   def name
     "add_numbers"
