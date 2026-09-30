@@ -184,6 +184,7 @@ PLATFORMS
   arm64-darwin-24
   arm64-darwin-25
   x64-mingw-ucrt
+  x86_64-linux
 
 DEPENDENCIES
   activesupport (~> 7.2)
