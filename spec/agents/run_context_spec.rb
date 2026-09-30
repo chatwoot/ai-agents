@@ -112,6 +112,12 @@ RSpec.describe Agents::RunContext::Usage do
       end
     end
 
+    it "skips responses without a token bundle" do
+      usage.add(usage_struct.new(nil))
+
+      expect(usage.total_tokens).to eq(0)
+    end
+
     context "with nil values" do
       it "handles nil values gracefully" do
         nil_usage = usage_struct.new(RubyLLM::Tokens.new)

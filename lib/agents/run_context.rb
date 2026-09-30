@@ -101,10 +101,11 @@ module Agents
       # @example Adding usage from an LLM response
       #   usage.add(llm_response)
       def add(response)
-        return unless response.respond_to?(:tokens)
+        tokens = response.tokens if response.respond_to?(:tokens)
+        return unless tokens
 
-        input = response.tokens.input || 0
-        output = response.tokens.output || 0
+        input = tokens.input || 0
+        output = tokens.output || 0
 
         @input_tokens += input
         @output_tokens += output
