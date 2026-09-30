@@ -227,6 +227,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         expect(tracer).to have_received(:start_span).with(
           "llm.captain_v2.generation",
           with_parent: anything,
+          start_timestamp: anything,
           attributes: anything
         )
       end
@@ -538,6 +539,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
         with_parent: agent_ctx,
+        start_timestamp: anything,
         attributes: anything
       )
     end
@@ -556,6 +558,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
         with_parent: tracing[:root_context],
+        start_timestamp: anything,
         attributes: anything
       )
     end
@@ -573,6 +576,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
         with_parent: anything,
+        start_timestamp: anything,
         attributes: hash_including("langfuse.observation.input" => expected_input)
       )
       expect(llm_span).to have_received(:set_attribute).with("gen_ai.request.model", "gpt-4o")
@@ -591,12 +595,11 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       cb = callbacks_with_langfuse_metadata
       fresh_context = build_context(session_id: "acct_1_conv_2")
       start_langfuse_metadata_run(cb, fresh_context)
-
       cb.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
 
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
-        with_parent: anything,
+        with_parent: anything, start_timestamp: anything,
         attributes: hash_including(
           "langfuse.user.id" => "user_42",
           "langfuse.session.id" => "acct_1_conv_2",
@@ -628,12 +631,11 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
       cb.on_run_start("TestAgent", "Hello", fresh_context)
       cb.on_agent_thinking("TestAgent", "What is your refund policy?", fresh_context)
       allow(tracer).to receive(:start_span).and_return(llm_span)
-
       cb.on_chat_created(chat, "TestAgent", "gpt-4o", fresh_context)
 
       expect(tracer).to have_received(:start_span).with(
         "agents.run.generation",
-        with_parent: anything,
+        with_parent: anything, start_timestamp: anything,
         attributes: hash_including("app.generation.has_tool_calls" => false)
       )
     end
@@ -799,6 +801,7 @@ RSpec.describe Agents::Instrumentation::TracingCallbacks do
         expect(tracer).to have_received(:start_span).with(
           "agents.run.generation",
           with_parent: anything,
+          start_timestamp: anything,
           attributes: hash_including("langfuse.observation.input" => expected_input)
         )
       end

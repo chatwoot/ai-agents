@@ -34,6 +34,23 @@ RubyLLM 2.0 emits `chat.ruby_llm`, `tool_call.ruby_llm`, and `usage.ruby_llm` ev
 
 RubyLLM's `usage.ruby_llm` event reports each provider attempt, including failed and cancelled attempts. The generation spans here use tokens from completed messages. Use a separate `usage.ruby_llm` subscriber for attempt-level accounting; do not add its tokens to the same generation spans or costs may be counted twice. See the [RubyLLM instrumentation guide](https://rubyllm.com/instrumentation/) for event payloads.
 
+For an app outside Rails, add `activesupport` and configure RubyLLM before creating a chat:
+
+```ruby
+require "active_support"
+require "active_support/notifications"
+
+RubyLLM.configure do |config|
+  config.instrumenter = ActiveSupport::Notifications
+end
+
+ActiveSupport::Notifications.subscribe("usage.ruby_llm") do |event|
+  puts event.payload.inspect # Replace with your per-attempt usage collector.
+end
+```
+
+This enables RubyLLM's native events. The runner spans still require `Agents::Instrumentation.install` and an OTel exporter, as shown below.
+
 ## Setup
 
 ### 1. Install dependencies
@@ -282,3 +299,13 @@ If token costs appear inflated, verify that `gen_ai.request.model` is only set o
 - Check that the Authorization header uses `Basic` (not `Bearer`) with base64-encoded `pk:sk`
 - Use `BatchSpanProcessor` for production; `SimpleSpanProcessor` can be useful for debugging
 - **SSL CRL errors on Ruby 3.4+**: The OTLP exporter silently fails when SSL certificate revocation list (CRL) checks fail. The exporter reports SUCCESS but no data arrives. Fix by passing `ssl_verify_mode: OpenSSL::SSL::VERIFY_NONE` to the exporter in development, or ensure your system CA certificates are up to date
+
+## End-to-end check
+
+The optional Langfuse check stubs the model response, exports real OTel spans to your Langfuse project, and reads them back through the observations API. It covers a handoff, token usage, session and user attributes, and a failed tool. Set `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`, then run:
+
+```sh
+RUN_LANGFUSE_E2E=1 bundle exec rspec spec/integration/langfuse_e2e_spec.rb
+```
+
+The model call is stubbed, so this check does not require a provider API key. Use the separate live LLM smoke suite when you also need to check provider access.

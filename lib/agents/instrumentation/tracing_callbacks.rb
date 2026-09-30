@@ -60,6 +60,8 @@ module Agents
         return unless tracing
 
         tracing[:pending_llm_input] = serialize_output(input)
+        # The response hook runs after the provider call; preserve its real start time.
+        tracing[:llm_started_at] = Time.now
 
         return if tracing[:current_agent_name] == agent_name
 
@@ -169,6 +171,7 @@ module Agents
         llm_span = @tracer.start_span(
           @llm_span_name,
           with_parent: parent_context(tracing),
+          start_timestamp: tracing.delete(:llm_started_at),
           attributes: generation_span_attributes(tracing, chat, message, context_wrapper)
         )
 

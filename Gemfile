@@ -8,8 +8,8 @@ gemspec
 gem "irb"
 gem "rake", "~> 13.0"
 
+gem "activesupport", "~> 7.2", require: false
 gem "rspec", "~> 3.12"
-
 gem "rubocop", "~> 1.21"
 gem "rubocop-rspec", "~> 3.0"
 gem "simplecov", "~> 0.22", require: false
