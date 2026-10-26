@@ -319,6 +319,8 @@ module Agents
       params[:attachments] = attachments if attachments.any?
       if role == :assistant && msg[:thinking_signature]
         params[:thinking] = { text: msg[:thinking], signature: msg[:thinking_signature] }
+        usage_entries = thinking_usage_entries(msg[:thinking_provider], msg[:thinking_model])
+        params[:usage_entries] = usage_entries if usage_entries
       end
 
       # Handle tool-specific parameters (Tool Results)
@@ -349,6 +351,14 @@ module Agents
       end
 
       params
+    end
+
+    # Restores the producer that RubyLLM checks before it replays a thinking signature.
+    # RubyLLM's Rails persistence restores the same entry from its usage table.
+    def thinking_usage_entries(provider, model)
+      return unless provider
+
+      [RubyLLM::Accounting::Usage::Entry.new(operation: :chat, provider: provider, model: model, status: :succeeded)]
     end
 
     # Split stored content into RubyLLM 2 text and attachments.
