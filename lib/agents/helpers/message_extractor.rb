@@ -89,6 +89,8 @@ module Agents
         if msg.respond_to?(:thinking) && msg.thinking&.signature
           message[:thinking] = msg.thinking.text if msg.thinking.text
           message[:thinking_signature] = msg.thinking.signature
+          producer = producing_entry(msg)
+          message.merge!(thinking_provider: producer.provider, thinking_model: producer.model) if producer
         end
 
         if tool_calls_present
@@ -98,6 +100,14 @@ module Agents
         end
 
         message
+      end
+
+      # RubyLLM 2.1 replays a thinking signature only to the provider and model that produced it.
+      # It reads both from the message's usage entries, which RubyLLM 2.0 lacks.
+      def producing_entry(msg)
+        return unless msg.respond_to?(:ruby_llm_usage_entries)
+
+        msg.ruby_llm_usage_entries.reverse.find(&:succeeded?)
       end
 
       def persisted_content(msg)
@@ -133,8 +143,8 @@ module Agents
         }
       end
 
-      private_class_method :extract_user_or_assistant_message, :persisted_content, :extractable_message?,
-                           :message_content?, :assistant_tool_calls?, :extract_tool_message
+      private_class_method :extract_user_or_assistant_message, :producing_entry, :persisted_content,
+                           :extractable_message?, :message_content?, :assistant_tool_calls?, :extract_tool_message
     end
   end
 end
