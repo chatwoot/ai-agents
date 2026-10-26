@@ -353,10 +353,10 @@ module Agents
       params
     end
 
-    # RubyLLM 2.1 replays a thinking signature only when a succeeded usage entry names the
-    # current provider and model. RubyLLM's Rails persistence restores the same entry from its usage table.
+    # Restores the producer that RubyLLM checks before it replays a thinking signature.
+    # RubyLLM's Rails persistence restores the same entry from its usage table.
     def thinking_usage_entries(provider, model)
-      return unless provider && defined?(RubyLLM::Accounting::Usage::Entry)
+      return unless provider
 
       [RubyLLM::Accounting::Usage::Entry.new(operation: :chat, provider: provider, model: model, status: :succeeded)]
     end

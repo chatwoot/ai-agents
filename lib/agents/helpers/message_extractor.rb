@@ -102,11 +102,9 @@ module Agents
         message
       end
 
-      # RubyLLM 2.1 replays a thinking signature only to the provider and model that produced it.
-      # It reads both from the message's usage entries, which RubyLLM 2.0 lacks.
+      # RubyLLM replays a thinking signature only to the producer named in the message's usage
+      # entries. RubyLLM 2.0 checks the provider, and RubyLLM 2.1 checks the provider and model.
       def producing_entry(msg)
-        return unless msg.respond_to?(:ruby_llm_usage_entries)
-
         msg.ruby_llm_usage_entries.reverse.find(&:succeeded?)
       end
 

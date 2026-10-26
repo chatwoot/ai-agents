@@ -52,8 +52,6 @@ RSpec.describe Agents::Helpers::MessageExtractor do
     end
 
     it "keeps the provider and model that produced the reasoning" do
-      skip "RubyLLM 2.0 has no usage entries" unless defined?(RubyLLM::Accounting::Usage::Entry)
-
       entry = RubyLLM::Accounting::Usage::Entry.new(operation: :chat, provider: "openai", model: "gpt-5",
                                                     status: :succeeded)
       message = RubyLLM::Message.new(role: :assistant, content: "Done", thinking: { signature: "opaque-reasoning" },
