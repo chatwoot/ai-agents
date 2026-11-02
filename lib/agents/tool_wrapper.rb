@@ -33,6 +33,12 @@ module Agents
   #
   # This ensures each execution has its own context without any shared mutable state.
   class ToolWrapper
+    # RubyLLM 2.1 reads deferral from the tool class. ai-agents does not support
+    # deferred tools, so every wrapped tool is sent to the model up front.
+    def self.deferred?
+      false
+    end
+
     def initialize(tool, context_wrapper)
       @tool = tool
       @context_wrapper = context_wrapper
