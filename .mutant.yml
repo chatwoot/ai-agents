@@ -1,0 +1,7 @@
+usage: opensource
+integration:
+  name: rspec
+requires:
+  - ./lib/agents
+includes:
+  - lib

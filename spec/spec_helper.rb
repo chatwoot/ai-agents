@@ -1,26 +1,29 @@
 # frozen_string_literal: true
 
-require "simplecov"
+# Mutant loads a subset of specs, so the minimum coverage check would fail its run.
+unless defined?(Mutant)
+  require "simplecov"
 
-live_llm_requested = ENV["RUN_LIVE_LLM"] || ENV["RUN_LANGFUSE_E2E"] ||
-                     ARGV.any? { |arg| arg.include?("live_llm") || arg.include?("langfuse_e2e") }
+  live_llm_requested = ENV["RUN_LIVE_LLM"] || ENV["RUN_LANGFUSE_E2E"] ||
+                       ARGV.any? { |arg| arg.include?("live_llm") || arg.include?("langfuse_e2e") }
 
-SimpleCov.start do
-  add_filter "/spec/"
-  add_filter "/examples/"
-  add_filter "/bin/"
-  add_filter "/sig/"
+  SimpleCov.start do
+    add_filter "/spec/"
+    add_filter "/examples/"
+    add_filter "/bin/"
+    add_filter "/sig/"
 
-  add_group "Core", "lib/agents.rb"
-  add_group "Agents", "lib/agents/"
+    add_group "Core", "lib/agents.rb"
+    add_group "Agents", "lib/agents/"
 
-  if live_llm_requested
-    # Live-only runs are opt-in and may execute a small subset of specs; avoid false failures.
-    minimum_coverage 0
-    minimum_coverage_by_file 0
-  else
-    minimum_coverage 50
-    minimum_coverage_by_file 40
+    if live_llm_requested
+      # Live-only runs are opt-in and may execute a small subset of specs; avoid false failures.
+      minimum_coverage 0
+      minimum_coverage_by_file 0
+    else
+      minimum_coverage 50
+      minimum_coverage_by_file 40
+    end
   end
 end
 

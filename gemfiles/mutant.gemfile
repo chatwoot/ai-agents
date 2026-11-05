@@ -1,0 +1,7 @@
+# frozen_string_literal: true
+
+# Mutant requires Ruby 3.3+, and CI still tests Ruby 3.2.
+# A separate Gemfile keeps mutant out of the main lockfile.
+eval_gemfile File.expand_path("../Gemfile", __dir__)
+
+gem "mutant-rspec", "~> 0.17", require: false
