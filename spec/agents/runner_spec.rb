@@ -915,8 +915,7 @@ RSpec.describe Agents::Runner do
         # Verify expected behavior: both content AND tool_calls are restored
         expect(assistant_msg).not_to be_nil
         expect(assistant_msg[:content]).to eq("Let me check that for you")
-        expect(assistant_msg[:tool_calls]).to be_a(Hash)
-        expect(assistant_msg[:tool_calls]).not_to be_empty
+        expect(assistant_msg[:tool_calls].to_h.keys).to eq(["call_123"])
         expect(assistant_msg[:tool_calls]["call_123"]).not_to be_nil
         expect(assistant_msg[:tool_calls]["call_123"]).to be_a(RubyLLM::ToolCall)
         expect(assistant_msg[:tool_calls]["call_123"].id).to eq("call_123")

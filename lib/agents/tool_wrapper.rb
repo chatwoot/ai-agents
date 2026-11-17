@@ -33,9 +33,14 @@ module Agents
   #
   # This ensures each execution has its own context without any shared mutable state.
   class ToolWrapper
-    # RubyLLM 2.1 reads deferral from the tool class. ai-agents does not support
-    # deferred tools, so every wrapped tool is sent to the model up front.
+    # ai-agents does not support deferred tools, so every wrapped tool is sent
+    # to the model up front. RubyLLM 2.1 reads deferral from the tool class,
+    # RubyLLM 2.2 from the tool instance.
     def self.deferred?
+      false
+    end
+
+    def deferred?
       false
     end
 
@@ -71,6 +76,16 @@ module Agents
       @name || @tool.name
     end
 
+    # RubyLLM 2.2 registers and matches tools by namespace and qualified name.
+    # Wrapped tools have no namespace, so the qualified name is the plain name.
+    def namespace
+      nil
+    end
+
+    def qualified_name
+      name
+    end
+
     def description
       @description || @tool.description
     end
@@ -83,12 +98,22 @@ module Agents
       @tool.provider_options
     end
 
-    def requires_approval?
-      @tool.requires_approval?
+    # RubyLLM 2.2 passes the tool call so a tool can decide from its arguments;
+    # RubyLLM 2.1 passes nothing. Forward whatever RubyLLM sends.
+    def requires_approval?(*args)
+      @tool.requires_approval?(*args)
     end
 
     def approval_resolver
       @tool.approval_resolver
+    end
+
+    def exclusive?
+      @tool.exclusive?
+    end
+
+    def max_run_time
+      @tool.max_run_time
     end
 
     # Make this work with RubyLLM's tool calling
