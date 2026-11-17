@@ -94,8 +94,8 @@ module Agents
         end
 
         if tool_calls_present
-          # RubyLLM stores tool_calls as Hash with call_id => ToolCall object
-          # Reference: RubyLLM::StreamAccumulator#tool_calls_from_stream
+          # RubyLLM 2.1 returns a Hash of call_id => ToolCall, RubyLLM 2.2 a
+          # ToolCall::Collection. Both answer #values with the ToolCall objects.
           message[:tool_calls] = msg.tool_calls.values.map(&:to_h)
         end
 

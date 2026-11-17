@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Allow RubyLLM 2.2. ai-agents supports `>= 2.0, < 2.3`.
+
 ## [0.14.0] - 2026-11-04
 
 ### Added

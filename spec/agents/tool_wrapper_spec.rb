@@ -120,6 +120,51 @@ RSpec.describe Agents::ToolWrapper do
     end
   end
 
+  describe "RubyLLM tool interface" do
+    it "has no namespace, so the qualified name is the tool name" do
+      allow(tool).to receive(:name).and_return("weather_tool")
+
+      expect(tool_wrapper.namespace).to be_nil
+      expect(tool_wrapper.qualified_name).to eq("weather_tool")
+    end
+
+    it "is never deferred" do
+      expect(described_class.deferred?).to be false
+      expect(tool_wrapper.deferred?).to be false
+    end
+
+    context "with a tool that decides approval and scheduling itself" do
+      let(:tool) do
+        Class.new(Agents::Tool) do
+          def requires_approval?(tool_call = nil)
+            tool_call.arguments["amount"] > 100
+          end
+
+          def exclusive?
+            true
+          end
+
+          def max_run_time
+            30
+          end
+        end.new
+      end
+
+      it "forwards the tool call RubyLLM passes to requires_approval?" do
+        large = RubyLLM::ToolCall.new(id: "call_1", name: "refund", arguments: { "amount" => 500 })
+        small = RubyLLM::ToolCall.new(id: "call_2", name: "refund", arguments: { "amount" => 5 })
+
+        expect(tool_wrapper.requires_approval?(large)).to be true
+        expect(tool_wrapper.requires_approval?(small)).to be false
+      end
+
+      it "delegates exclusive? and max_run_time to the tool" do
+        expect(tool_wrapper.exclusive?).to be true
+        expect(tool_wrapper.max_run_time).to eq(30)
+      end
+    end
+  end
+
   describe "#to_s" do
     it "returns the tool name" do
       allow(tool).to receive(:name).and_return("weather_tool")

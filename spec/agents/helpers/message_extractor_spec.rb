@@ -233,6 +233,21 @@ RSpec.describe Agents::Helpers::MessageExtractor do
       end
     end
 
+    context "with tool calls on a real RubyLLM message" do
+      let(:message) do
+        tool_call = RubyLLM::ToolCall.new(id: "call_123", name: "test_tool", arguments: { "param" => "value" })
+        RubyLLM::Message.new(role: :assistant, content: "Let me use a tool", tool_calls: { "call_123" => tool_call })
+      end
+
+      it "extracts each call whatever container RubyLLM keeps them in" do
+        result = described_class.extract_messages(instance_double(RubyLLM::Chat, messages: [message]), current_agent)
+
+        expect(result.first[:tool_calls]).to contain_exactly(
+          hash_including(id: "call_123", name: "test_tool", arguments: { "param" => "value" })
+        )
+      end
+    end
+
     context "when assistant tool calls have no text content" do
       let(:tool_call) do
         instance_double(RubyLLM::ToolCall,
