@@ -109,7 +109,7 @@ module Agents
     def all_tools
       @mutex.synchronize do
         # Compute handoff tools dynamically
-        handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent) }
+        handoff_tools = @handoff_agents.map { |agent| HandoffTool.new(agent, source_agent: self) }
         @tools + handoff_tools
       end
     end

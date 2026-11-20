@@ -518,7 +518,7 @@ module Agents
 
       # Add handoff tools
       agent.handoff_agents.each do |target_agent|
-        handoff_tool = HandoffTool.new(target_agent)
+        handoff_tool = HandoffTool.new(target_agent, source_agent: agent)
         all_tools << ToolWrapper.new(handoff_tool, context_wrapper)
       end
 

@@ -47,10 +47,13 @@ module Agents
   #   # Call 2: handoff_to_billing() -> Ignored (only first handoff processed)
   #   # Result: Only transfers to Support Agent
   class HandoffTool < Tool
-    attr_reader :target_agent
+    attr_reader :target_agent, :source_agent
 
-    def initialize(target_agent)
+    # @param target_agent [Agents::Agent] The agent that takes over the conversation
+    # @param source_agent [Agents::Agent, nil] The agent handing the conversation over
+    def initialize(target_agent, source_agent: nil)
       @target_agent = target_agent
+      @source_agent = source_agent
 
       # Set up the tool with a standardized name and description
       @tool_name = "handoff_to_#{Helpers::NameNormalizer.to_tool_name(target_agent.name)}"
@@ -78,7 +81,11 @@ module Agents
         timestamp: Time.now
       }
 
-      "I'll transfer you to #{@target_agent.name} who can better assist you with this."
+      # The next agent reads this result, so it says who handed over the conversation.
+      # Without it, an agent that just received a conversation back can hand it straight back.
+      return "This conversation was handed to #{@target_agent.name}." unless @source_agent
+
+      "#{@source_agent.name} handed this conversation to #{@target_agent.name}."
     end
 
     # NOTE: RubyLLM will handle schema generation internally when needed
