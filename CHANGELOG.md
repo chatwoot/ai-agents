@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The handoff tool result now names the agent that handed over the conversation, for example "Triage handed this conversation to Billing." It used to read "I'll transfer you to Billing who can better assist you with this." The old text did not say who handed over, so an agent that had just received a conversation back could hand it straight back. `HandoffTool.new` takes an optional `source_agent:`. Without one, the result is "This conversation was handed to Billing."
+
 ## [0.14.0] - 2026-11-04
 
 ### Added

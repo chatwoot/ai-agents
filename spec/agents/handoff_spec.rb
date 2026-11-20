@@ -32,19 +32,26 @@ RSpec.describe Agents::HandoffTool do
   end
 
   describe "#perform" do
-    it "returns halt with transfer message" do
-      tool_context = instance_double(Agents::ToolContext)
-      run_context = instance_double(Agents::RunContext)
-      context_hash = {}
+    let(:context_hash) { {} }
+    let(:tool_context) do
+      instance_double(Agents::ToolContext, run_context: instance_double(Agents::RunContext, context: context_hash))
+    end
 
-      allow(tool_context).to receive(:run_context).and_return(run_context)
-      allow(run_context).to receive(:context).and_return(context_hash)
+    it "records the pending handoff" do
+      handoff_tool.perform(tool_context)
 
-      result = handoff_tool.perform(tool_context)
-
-      expect(result).to be_a(String)
-      expect(result).to eq("I'll transfer you to Support Agent who can better assist you with this.")
       expect(context_hash[:pending_handoff]).to include(target_agent: target_agent)
+    end
+
+    it "names the agent that handed over the conversation" do
+      source_agent = instance_double(Agents::Agent, name: "Triage Agent")
+      tool = described_class.new(target_agent, source_agent: source_agent)
+
+      expect(tool.perform(tool_context)).to eq("Triage Agent handed this conversation to Support Agent.")
+    end
+
+    it "names only the target when no source agent is given" do
+      expect(handoff_tool.perform(tool_context)).to eq("This conversation was handed to Support Agent.")
     end
   end
 
